@@ -12,12 +12,13 @@ ENV/
 .ipynb_checkpoints
 
 # Data files
-data/raw/*.xlsx
-data/raw/*.csv
+data/raw/**/*.xlsx
+data/raw/**/*.csv
 data/processed/*.csv
 data/processed/step-*/
 data/forecast_versions/
-data/arsip/
+data/api_sample/
+arsip/
 
 # Temporary files
 temp/

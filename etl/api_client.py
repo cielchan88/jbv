@@ -85,27 +85,10 @@ CODE_TO_COLUMN = {
 try:
     from config import API_CONFIG, API_ENDPOINTS as ENDPOINT_NAMES, SHEET_MAPPING
 except ImportError:
-    # Fallback to default config if config.py not found
-    logger.warning("config.py not found - using default configuration")
-    API_CONFIG = {
-        'base_url': 'https://dc1datavirt02.corp.bi.go.id:443/rest/api/source/views',
-        'username': 'redianto_s',
-        'password': 'password',
-        'timeout': 60,
-        'verify_ssl': False
-    }
-    ENDPOINT_NAMES = {
-        'korporasi': 'TTS_SDV_KORPORASI',
-        'ptmn': 'TTS_SDV_PERTAMINA',
-        'asing': 'TTS_PEL_LN_VS_LWN_DN_BANK',
-        'individu': 'TTS_PEL_INDIV_DN_VS_LWN_BANK_DN'
-    }
-    SHEET_MAPPING = {
-        'korporasi': 'Korporasi',
-        'ptmn': 'PTMN',
-        'asing': 'Asing',
-        'individu': 'Individu'
-    }
+    raise ImportError(
+        "config.py not found. Copy config.example.py to config.py and fill in "
+        "your credentials before using the API client."
+    )
 
 # Build full API endpoints
 API_BASE_URL = API_CONFIG['base_url']
