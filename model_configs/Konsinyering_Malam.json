@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "name": "Konsinyering Malam",
+    "date": "2025-12-03 20:10:12",
+    "test_size": 20,
+    "metric": "SMAPE",
+    "total_nodes": 18
+  },
+  "models": {
+    "A.1.a": "LightGBM",
+    "A.1.b": "Stacking",
+    "A.1.c": "APUVA",
+    "A.2.a": "LightGBM",
+    "A.2.b": "LightGBM",
+    "A.2.c": "Stacking",
+    "A.2.d": "RandomForest",
+    "A.2.e": "LightGBM",
+    "A.2.f": "RandomForest",
+    "B.a": "RandomForest",
+    "B.b": "LightGBM",
+    "B.c": "XGBoost",
+    "B.d": "Stacking",
+    "C.a": "LightGBM",
+    "C.b": "RandomForest",
+    "C.c": "XGBoost",
+    "C.d": "Prophet",
+    "C.e": "LightGBM"
+  }
+}

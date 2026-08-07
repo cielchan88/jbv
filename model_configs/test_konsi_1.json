@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "name": "test konsi 1",
+    "date": "2025-12-03 16:36:24",
+    "test_size": 20,
+    "metric": "SMAPE",
+    "total_nodes": 18
+  },
+  "models": {
+    "A.1.a": "LightGBM",
+    "A.1.b": "RandomForest",
+    "A.1.c": "RandomForest",
+    "A.2.a": "Stacking",
+    "A.2.b": "Prophet",
+    "A.2.c": "LightGBM",
+    "A.2.d": "APUVA",
+    "A.2.e": "RandomForest",
+    "A.2.f": "APUVA",
+    "B.a": "APUVA",
+    "B.b": "Prophet",
+    "B.c": "APUVA",
+    "B.d": "Stacking",
+    "C.a": "Prophet",
+    "C.b": "Prophet",
+    "C.c": "Prophet",
+    "C.d": "Stacking",
+    "C.e": "Prophet"
+  }
+}
