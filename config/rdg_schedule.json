@@ -1,0 +1,102 @@
+{
+  "description": "Jadwal Rapat Dewan Gubernur (RDG) Bank Indonesia",
+  "note": "RDG diadakan sebulan sekali, tanggal tidak tetap. Update file ini sesuai jadwal resmi BI.",
+  "schedule": [
+    {
+      "id": "RDG-2025-01",
+      "period": "Januari 2025",
+      "start_date": "2025-01-01",
+      "end_date": "2025-01-15",
+      "rdg_date": "2025-01-15",
+      "notes": "RDG Januari 2025"
+    },
+    {
+      "id": "RDG-2025-02",
+      "period": "Februari 2025",
+      "start_date": "2025-01-16",
+      "end_date": "2025-02-19",
+      "rdg_date": "2025-02-19",
+      "notes": "RDG Februari 2025"
+    },
+    {
+      "id": "RDG-2025-03",
+      "period": "Maret 2025",
+      "start_date": "2025-02-20",
+      "end_date": "2025-03-19",
+      "rdg_date": "2025-03-19",
+      "notes": "RDG Maret 2025"
+    },
+    {
+      "id": "RDG-2025-04",
+      "period": "April 2025",
+      "start_date": "2025-03-20",
+      "end_date": "2025-04-16",
+      "rdg_date": "2025-04-16",
+      "notes": "RDG April 2025"
+    },
+    {
+      "id": "RDG-2025-05",
+      "period": "Mei 2025",
+      "start_date": "2025-04-17",
+      "end_date": "2025-05-21",
+      "rdg_date": "2025-05-21",
+      "notes": "RDG Mei 2025"
+    },
+    {
+      "id": "RDG-2025-06",
+      "period": "Juni 2025",
+      "start_date": "2025-05-22",
+      "end_date": "2025-06-18",
+      "rdg_date": "2025-06-18",
+      "notes": "RDG Juni 2025"
+    },
+    {
+      "id": "RDG-2025-07",
+      "period": "Juli 2025",
+      "start_date": "2025-06-19",
+      "end_date": "2025-07-16",
+      "rdg_date": "2025-07-16",
+      "notes": "RDG Juli 2025"
+    },
+    {
+      "id": "RDG-2025-08",
+      "period": "Agustus 2025",
+      "start_date": "2025-07-17",
+      "end_date": "2025-08-20",
+      "rdg_date": "2025-08-20",
+      "notes": "RDG Agustus 2025"
+    },
+    {
+      "id": "RDG-2025-09",
+      "period": "September 2025",
+      "start_date": "2025-08-21",
+      "end_date": "2025-09-17",
+      "rdg_date": "2025-09-17",
+      "notes": "RDG September 2025"
+    },
+    {
+      "id": "RDG-2025-10",
+      "period": "Oktober 2025",
+      "start_date": "2025-09-18",
+      "end_date": "2025-10-15",
+      "rdg_date": "2025-10-15",
+      "notes": "RDG Oktober 2025"
+    },
+    {
+      "id": "RDG-2025-11",
+      "period": "November 2025",
+      "start_date": "2025-10-16",
+      "end_date": "2025-11-19",
+      "rdg_date": "2025-11-19",
+      "notes": "RDG November 2025"
+    },
+    {
+      "id": "RDG-2025-12",
+      "period": "Desember 2025",
+      "start_date": "2025-11-20",
+      "end_date": "2025-12-17",
+      "rdg_date": "2025-12-17",
+      "notes": "RDG Desember 2025"
+    }
+  ]
+}
