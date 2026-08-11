@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import shutil
 from pathlib import Path
 from datetime import datetime
 import os
@@ -15,12 +16,62 @@ st.divider()
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 SOURCE_FILE = BASE_DIR / "data" / "raw" / "source-data.xlsx"
+BACKUP_DIR = BASE_DIR / "data" / "raw" / "backup"
 PROCESSED_FILE = BASE_DIR / "data" / "processed" / "sdv-wide.csv"
+
+# ===== MANUAL UPLOAD SECTION =====
+st.subheader("📤 Upload Source Data")
+st.markdown("""
+Upload file Excel untuk mengganti `source-data.xlsx`. File harus memiliki 4 sheet:
+**Korporasi**, **PTMN**, **Asing**, **Individu**.
+""")
+
+uploaded_file = st.file_uploader("Pilih file Excel (.xlsx)", type=["xlsx"], key="source_upload")
+
+if uploaded_file is not None:
+    from etl.pipeline import SHEET_NAMES as REQUIRED_SHEETS
+
+    try:
+        xl_check = pd.ExcelFile(uploaded_file)
+        found_sheets = xl_check.sheet_names
+        missing_sheets = [s for s in REQUIRED_SHEETS if s not in found_sheets]
+
+        if missing_sheets:
+            st.error(f"❌ File tidak valid. Sheet yang wajib ada tapi hilang: {', '.join(missing_sheets)}")
+        else:
+            row_counts = {name: len(pd.read_excel(xl_check, sheet_name=name)) for name in REQUIRED_SHEETS}
+            st.success(f"✅ File valid — {', '.join(f'{k}: {v:,} baris' for k, v in row_counts.items())}")
+
+            st.warning("⚠️ Mengonfirmasi akan menimpa `source-data.xlsx` saat ini. File lama akan dibackup otomatis.")
+
+            if st.button("✅ Konfirmasi & Ganti Source Data", type="primary"):
+                try:
+                    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+                    if SOURCE_FILE.exists():
+                        backup_file = BACKUP_DIR / f"source-data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        shutil.copy2(SOURCE_FILE, backup_file)
+
+                    SOURCE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    uploaded_file.seek(0)
+                    with open(SOURCE_FILE, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    st.cache_data.clear()
+                    st.success("✅ source-data.xlsx berhasil diganti.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Gagal mengganti file: {str(e)}")
+
+    except Exception as e:
+        st.error(f"❌ Gagal membaca file Excel yang diupload: {str(e)}")
+
+st.divider()
 
 # Check if source file exists
 if not SOURCE_FILE.exists():
     st.error(f"❌ File sumber tidak ditemukan: {SOURCE_FILE}")
-    st.info("💡 Pastikan file `source-data.xlsx` ada di folder `data/raw/`")
+    st.info("💡 Upload file di atas, atau pastikan file `source-data.xlsx` ada di folder `data/raw/`")
     st.stop()
 
 # File info
