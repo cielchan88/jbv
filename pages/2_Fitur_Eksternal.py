@@ -124,8 +124,10 @@ if st.button("🔄 Scrape & Update Sentiment", type="primary"):
     try:
         from helper.tradingeconomics_scraper import run_scrape_and_update
     except ImportError as e:
-        st.error(f"❌ Dependency belum terinstall: {e}")
-        st.info("💡 Install dulu: `pip install transformers torch sentencepiece tqdm`")
+        st.session_state.scrape_error = (
+            f"Dependency belum terinstall: {e}. "
+            f"Install: pip install transformers torch torchvision sentencepiece tqdm"
+        )
     else:
         with st.spinner("⏳ Scraping berita & menjalankan analisis sentimen... (bisa beberapa menit)"):
             try:
@@ -135,7 +137,7 @@ if st.button("🔄 Scrape & Update Sentiment", type="primary"):
                 st.cache_data.clear()
             except Exception as e:
                 st.session_state.scrape_error = str(e)
-        st.rerun()
+    st.rerun()
 
 st.divider()
 
