@@ -180,7 +180,7 @@ if run_comparison and len(selected_models) > 0:
 
                 # 5. Merge with external features from Excel
                 from utils.external_loader import load_and_merge_external_features
-                external_series_data = load_and_merge_external_features(cross_series_only)
+                external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
                 cross_series_map[leaf_id] = external_series_data
 
@@ -281,8 +281,8 @@ if run_comparison and len(selected_models) > 0:
         test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
 
         # Create optimized features ONCE (SAME AS Prediksi.py line 216-217)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
+        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
+        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
 
         # Get common features (SAME AS Prediksi.py line 220-222)
         train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]

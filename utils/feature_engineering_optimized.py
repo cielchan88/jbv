@@ -244,7 +244,8 @@ def merge_external_features_with_cross_series(
     return combined
 
 
-def create_features_optimized(df, lag_steps=90, holidays_list=None, external_series=None, config=None):
+def create_features_optimized(df, lag_steps=90, holidays_list=None, external_series=None,
+                               external_series_dates=None, config=None):
     """
     OPTIMIZED feature engineering for high volatility time series
     Reduces from 250+ features to ~92-104 features
@@ -254,6 +255,13 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
         lag_steps: Maximum lag steps to create (ignored - using config)
         holidays_list: List of holiday dates (optional)
         external_series: Dict of {series_id: values_array} for cross-series features (optional)
+        external_series_dates: Dates that each array in external_series corresponds to,
+            in order (optional but strongly recommended). When provided, values are
+            aligned to df['date'] by actual date instead of raw array position - this
+            matters because df is often a train/test SLICE of the full series, so
+            positional truncation (series_values[:len(df)]) silently grabs the wrong
+            date range for anything but the very first rows. Falls back to the old
+            positional behavior when omitted, for backward compatibility.
         config: Feature configuration dict (default: FEATURE_CONFIG from feature_config.py)
 
     Returns:
@@ -586,12 +594,28 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     # CROSS-SERIES FEATURES (~12 features for 3 external series)
     # ========================================================================
     if config["cross_series_features"]["enabled"] and external_series is not None and len(external_series) > 0:
+        if external_series_dates is not None:
+            full_date_index = pd.DatetimeIndex(pd.to_datetime(external_series_dates))
+
         for series_id, series_values in external_series.items():
             try:
                 clean_id = series_id.replace('.', '_')
+
+                if external_series_dates is not None:
+                    # Align by actual date so a train/test SLICE of df still gets the
+                    # correct segment of series_values, not just its first len(df) entries.
+                    aligned_values = (
+                        pd.Series(series_values, index=full_date_index)
+                        .reindex(df['date'])
+                        .values
+                    )
+                else:
+                    # Legacy fallback: assumes df starts at the same date as series_values.
+                    aligned_values = series_values[:len(df)]
+
                 ext_df = pd.DataFrame({
                     'date': df['date'],
-                    f'ext_{clean_id}': series_values[:len(df)]
+                    f'ext_{clean_id}': aligned_values
                 })
 
                 # Lag features from external series

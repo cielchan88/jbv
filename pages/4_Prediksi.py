@@ -199,7 +199,7 @@ if run_test and selected_series:
 
         # 5. Merge with external features from Excel
         from utils.external_loader import load_and_merge_external_features
-        external_series_data = load_and_merge_external_features(cross_series_only)
+        external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
     # ========================================================================
     # FEATURE ENGINEERING (SHARED ACROSS ALL ML MODELS)
@@ -213,8 +213,8 @@ if run_test and selected_series:
         test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
 
         # Create optimized features (60-70% fewer features, preserves volatility capture)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
+        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
+        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
 
         # Check if test_features is empty or too small
         if len(test_features) == 0:

@@ -175,7 +175,7 @@ def prepare_cross_series_data(df, leaf_nodes, time_cols):
 
         # 5. Merge with external features from Excel (Sentiment, Oil, USD_IDR, etc)
         from utils.external_loader import load_and_merge_external_features
-        external_series_data = load_and_merge_external_features(cross_series_only)
+        external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
         cross_series_map[leaf_id] = external_series_data
 
@@ -399,7 +399,8 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                             ts_df_temp,
                             lag_steps=90,
                             holidays_list=holidays,
-                            external_series=external_series_data
+                            external_series=external_series_data,
+                            external_series_dates=dates
                         )
 
                         # Get ALL features and their scores
@@ -473,7 +474,8 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                         ts_df_temp,
                         lag_steps=90,
                         holidays_list=holidays,
-                        external_series=external_series_data
+                        external_series=external_series_data,
+                        external_series_dates=dates
                     )
 
                     # Select features (with volatility priority)
