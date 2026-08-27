@@ -227,7 +227,14 @@ def load_sentiment_model():
 
 
 def add_sentiment(df, sentiment_pipeline):
-    """Add sentiment untuk row yang belum ada"""
+    """
+    Add sentiment untuk row yang belum ada.
+
+    Returns (df, stats) - stats berisi hitungan sukses/gagal/title kosong,
+    supaya caller bisa tahu kalau semua row jatuh ke fallback neutral/0.0
+    (penyebab Sentiment_TradingEconomics harian jadi flat 0.5, lihat
+    catatan di daily-aggregation step) alih-alih diam-diam dianggap sukses.
+    """
     logger.info(f"\n{'='*70}")
     logger.info(f"Adding sentiment analysis...")
     logger.info(f"{'='*70}")
@@ -240,9 +247,11 @@ def add_sentiment(df, sentiment_pipeline):
     needs_sentiment = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()]
     total_need = len(needs_sentiment)
 
+    stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
+
     if total_need == 0:
         logger.info("✓ All rows already have sentiment!")
-        return df
+        return df, stats
 
     logger.info(f"  Processing {total_need:,} rows...")
 
@@ -262,20 +271,26 @@ def add_sentiment(df, sentiment_pipeline):
                 result = sentiment_pipeline(text[:512])
                 df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(result[0]['label'], 'neutral')
                 df.at[idx, 'sentiment_score'] = result[0]['score']
-            except:
+                stats['success'] += 1
+            except Exception as e:
                 df.at[idx, 'sentiment_label'] = 'neutral'
                 df.at[idx, 'sentiment_score'] = 0.0
+                stats['failed'] += 1
+                stats['last_error'] = f"{type(e).__name__}: {e}"
+                logger.error(f"  Sentiment inference failed for row {idx}: {stats['last_error']}")
         else:
             df.at[idx, 'sentiment_label'] = 'neutral'
             df.at[idx, 'sentiment_score'] = 0.0
+            stats['empty_title'] += 1
 
         processed += 1
         pbar.set_description(f"🤖 BERT sentiment ({processed}/{total_need} processed)")
         pbar.update(1)
 
     pbar.close()
-    logger.info(f"✓ Sentiment complete! Processed {total_need:,} rows")
-    return df
+    logger.info(f"✓ Sentiment complete! Processed {total_need:,} rows "
+                f"({stats['success']} sukses, {stats['failed']} gagal, {stats['empty_title']} judul kosong)")
+    return df, stats
 
 
 # ============================================================================
@@ -347,7 +362,10 @@ def main(input_filename=None):
     # Step 5: Add sentiment
     if not has_cols or len(missing) > 0:
         sentiment_pipeline = load_sentiment_model()
-        df = add_sentiment(df, sentiment_pipeline)
+        df, sentiment_stats = add_sentiment(df, sentiment_pipeline)
+        if sentiment_stats['failed'] > 0:
+            logger.warning(f"⚠️ {sentiment_stats['failed']} row gagal analisis sentimen "
+                            f"(fallback ke neutral/0.0). Contoh error: {sentiment_stats['last_error']}")
     else:
         logger.info("\n✓ All rows already have sentiment - skip BERT")
 
@@ -527,14 +545,24 @@ def run_scrape_and_update(
     if gap_info is None:
         df_existing = pd.read_excel(raw_stream_path)
         df_scraped = pd.DataFrame()
+        scrape_note = "Data sudah lengkap sampai H-1, tidak ada scraping baru."
     else:
         start_date, end_date = gap_info
         items = scrape_date_range(start_date, end_date)
         df_scraped = pd.DataFrame(items) if items else pd.DataFrame()
         df_existing = pd.read_excel(raw_stream_path) if raw_stream_path.exists() else pd.DataFrame()
+        if len(df_scraped) == 0:
+            scrape_note = (
+                f"⚠️ 0 berita berhasil di-scrape untuk rentang {start_date} s/d {end_date}. "
+                f"Kemungkinan server tidak bisa akses tradingeconomics.com (cek firewall/koneksi)."
+            )
+        else:
+            scrape_note = f"{len(df_scraped)} berita baru di-scrape ({start_date} s/d {end_date})."
+
+    scraped_count = len(df_scraped)
 
     if len(df_existing) == 0 and len(df_scraped) == 0:
-        raise Exception("Tidak ada data baru (scraping kosong) maupun data lama.")
+        raise Exception("Tidak ada data baru (scraping kosong) maupun data lama. " + scrape_note)
 
     if len(df_existing) > 0 and len(df_scraped) > 0:
         df = pd.concat([df_existing, df_scraped], ignore_index=True)
@@ -542,15 +570,18 @@ def run_scrape_and_update(
     else:
         df = df_existing if len(df_existing) > 0 else df_scraped
 
+    total_before_filter = len(df)
     df = filter_us_indonesia(df)
+    filtered_count = len(df)
     if len(df) == 0:
         raise Exception("Tidak ada data tersisa setelah filter US & Indonesia.")
 
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
     missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()] if has_cols else df
+    sentiment_stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
     if not has_cols or len(missing) > 0:
         sentiment_pipeline = load_sentiment_model()
-        df = add_sentiment(df, sentiment_pipeline)
+        df, sentiment_stats = add_sentiment(df, sentiment_pipeline)
 
     # Simpan raw stream (path tetap, dipakai lagi utk incremental run berikutnya)
     col_order = [
@@ -581,6 +612,13 @@ def run_scrape_and_update(
     daily_agg['Tanggal'] = pd.to_datetime(daily_agg['Tanggal'])
     daily_agg = daily_agg.sort_values('Tanggal').reset_index(drop=True)
 
+    # Hari dengan berita (News_Count > 0) tapi Sentiment_TradingEconomics persis 0.5
+    # berarti SEMUA artikel hari itu gagal/kosong (lihat fallback di lambda di atas
+    # dan di add_sentiment) - bukan sentimen netral yang wajar, tapi tanda analisis
+    # sentimennya tidak jalan sama sekali untuk hari tersebut.
+    flat_fallback_mask = (daily_agg['News_Count'] > 0) & (daily_agg['Sentiment_TradingEconomics'] == 0.5)
+    flat_fallback_days = int(flat_fallback_mask.sum())
+
     date_range_complete = pd.date_range(
         start=daily_agg['Tanggal'].min(), end=daily_agg['Tanggal'].max(), freq='D'
     )
@@ -601,6 +639,12 @@ def run_scrape_and_update(
     merged.to_excel(external_features_path, index=False)
 
     return {
+        'scrape_note': scrape_note,
+        'scraped_count': scraped_count,
+        'total_before_filter': total_before_filter,
+        'filtered_count': filtered_count,
+        'sentiment_stats': sentiment_stats,
+        'flat_fallback_days': flat_fallback_days,
         'raw_rows': len(df),
         'daily_rows': len(daily_agg),
         'date_start': daily_agg['Tanggal'].min(),

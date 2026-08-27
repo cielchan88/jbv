@@ -51,7 +51,54 @@ st.warning(
     "dan `huggingface.co`."
 )
 
+if "scrape_result" not in st.session_state:
+    st.session_state.scrape_result = None
+if "scrape_error" not in st.session_state:
+    st.session_state.scrape_error = None
+
+# Tampilkan hasil run terakhir (persist lewat session_state supaya tidak hilang setelah rerun)
+if st.session_state.scrape_error:
+    st.error(f"❌ Gagal scrape/update: {st.session_state.scrape_error}")
+    st.info("💡 Pastikan server punya akses internet ke tradingeconomics.com")
+
+if st.session_state.scrape_result:
+    result = st.session_state.scrape_result
+    st.success(
+        f"✅ Proses selesai - {result['daily_rows']} hari data sentiment "
+        f"({result['date_start'].strftime('%Y-%m-%d')} s/d {result['date_end'].strftime('%Y-%m-%d')}) "
+        f"di-merge ke external_features.xlsx ({result['merged_rows']} baris total)."
+    )
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    with col_a:
+        st.metric("📰 Berita di-scrape", result['scraped_count'])
+    with col_b:
+        st.metric("🌏 Lolos filter US/ID", f"{result['filtered_count']}/{result['total_before_filter']}")
+    with col_c:
+        st.metric("🤖 Sentiment sukses", result['sentiment_stats']['success'])
+    with col_d:
+        st.metric("❌ Sentiment gagal", result['sentiment_stats']['failed'])
+
+    st.caption(result['scrape_note'])
+
+    if result['sentiment_stats']['failed'] > 0:
+        st.warning(
+            f"⚠️ {result['sentiment_stats']['failed']} artikel gagal dianalisis sentimennya "
+            f"(fallback ke neutral/skor 0.0). Contoh error: `{result['sentiment_stats']['last_error']}`"
+        )
+    if result['sentiment_stats']['empty_title'] > 0:
+        st.warning(f"⚠️ {result['sentiment_stats']['empty_title']} artikel tidak punya judul, dianggap neutral otomatis.")
+
+    if result['flat_fallback_days'] > 0:
+        st.error(
+            f"🚩 **{result['flat_fallback_days']} hari** punya berita tapi `Sentiment_TradingEconomics` "
+            f"jatuh persis di **0.5** - tanda semua artikel di hari itu gagal dianalisis (bukan sentimen netral "
+            f"yang wajar). Ini kemungkinan besar penyebab nilai sentimen terlihat flat."
+        )
+
 if st.button("🔄 Scrape & Update Sentiment", type="primary"):
+    st.session_state.scrape_result = None
+    st.session_state.scrape_error = None
     try:
         from helper.tradingeconomics_scraper import run_scrape_and_update
     except ImportError as e:
@@ -60,17 +107,11 @@ if st.button("🔄 Scrape & Update Sentiment", type="primary"):
     else:
         with st.spinner("⏳ Scraping berita & menjalankan analisis sentimen... (bisa beberapa menit)"):
             try:
-                result = run_scrape_and_update()
+                st.session_state.scrape_result = run_scrape_and_update()
                 st.cache_data.clear()
-                st.success(
-                    f"✅ Selesai! {result['daily_rows']} hari data sentiment "
-                    f"({result['date_start'].strftime('%Y-%m-%d')} s/d {result['date_end'].strftime('%Y-%m-%d')}) "
-                    f"berhasil di-merge ke external_features.xlsx ({result['merged_rows']} baris total)."
-                )
-                st.rerun()
             except Exception as e:
-                st.error(f"❌ Gagal scrape/update: {str(e)}")
-                st.info("💡 Pastikan server punya akses internet ke tradingeconomics.com")
+                st.session_state.scrape_error = str(e)
+        st.rerun()
 
 st.divider()
 
