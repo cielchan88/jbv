@@ -51,6 +51,28 @@ st.warning(
     "dan `huggingface.co`."
 )
 
+with st.expander("⚙️ Opsi lanjutan: isi histori dari tanggal tertentu (backfill)"):
+    st.markdown("""
+    Secara default tombol di bawah cuma mengisi **selisih dari data terakhir sampai kemarin**
+    (atau 30 hari terakhir kalau belum pernah scrape sama sekali). Model ML butuh data dari
+    **2019** ke atas - kalau mau isi histori sejauh itu, gunakan opsi ini.
+    """)
+    st.error(
+        "🚨 **Backfill rentang panjang (mis. sampai 2019) bisa makan waktu berjam-jam** "
+        "(ribuan artikel x scraping + inferensi FinBERT per artikel). Kalau dijalankan lewat "
+        "tombol di web ini, koneksinya berisiko putus di tengah jalan (timeout nginx/browser) "
+        "meskipun prosesnya sendiri tetap lanjut di server. Untuk backfill panjang, lebih aman "
+        "dijalankan langsung di server lewat SSH (bukan lewat tombol), atau isi bertahap "
+        "beberapa minggu/bulan per klik."
+    )
+    use_backfill = st.checkbox("Aktifkan backfill dari tanggal tertentu")
+    backfill_date = None
+    if use_backfill:
+        backfill_date = st.date_input(
+            "Scrape dari tanggal", value=datetime(2019, 1, 1).date(),
+            max_value=datetime.now().date()
+        )
+
 if "scrape_result" not in st.session_state:
     st.session_state.scrape_result = None
 if "scrape_error" not in st.session_state:
@@ -107,7 +129,9 @@ if st.button("🔄 Scrape & Update Sentiment", type="primary"):
     else:
         with st.spinner("⏳ Scraping berita & menjalankan analisis sentimen... (bisa beberapa menit)"):
             try:
-                st.session_state.scrape_result = run_scrape_and_update()
+                st.session_state.scrape_result = run_scrape_and_update(
+                    backfill_start_date=backfill_date if use_backfill else None
+                )
                 st.cache_data.clear()
             except Exception as e:
                 st.session_state.scrape_error = str(e)

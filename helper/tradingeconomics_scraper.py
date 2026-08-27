@@ -243,8 +243,14 @@ def add_sentiment(df, sentiment_pipeline):
         df['sentiment_label'] = None
         df['sentiment_score'] = None
 
-    # Count rows that need sentiment
-    needs_sentiment = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()]
+    # Count rows that need sentiment. A score of exactly 0.0 is the fallback
+    # signature written on a prior failed/empty-title attempt (see below) -
+    # treat those as "needs retry" too, not "already done", so a systemic
+    # failure in an earlier run doesn't poison the row forever.
+    needs_mask = (
+        df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+    )
+    needs_sentiment = df[needs_mask]
     total_need = len(needs_sentiment)
 
     stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
@@ -259,8 +265,9 @@ def add_sentiment(df, sentiment_pipeline):
 
     processed = 0
     for idx, row in df.iterrows():
-        # Skip jika sudah ada sentiment
-        if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')):
+        # Skip jika sudah ada sentiment ASLI (bukan fallback score=0.0)
+        if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')) \
+                and row.get('sentiment_score') != 0.0:
             pbar.update(1)
             continue
 
@@ -344,10 +351,10 @@ def main(input_filename=None):
     if len(df) == 0:
         raise Exception("❌ No data after filtering US & Indonesia!")
 
-    # Step 4: Check sentiment gap
+    # Step 4: Check sentiment gap (score==0.0 = fallback from a prior failed attempt, needs retry too)
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
     if has_cols:
-        missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()]
+        missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)]
         logger.info(f"\n{'='*70}")
         logger.info(f"Sentiment Gap Check:")
         logger.info(f"  Total rows: {len(df):,}")
@@ -528,11 +535,25 @@ def merge_daily_sentiment_into_external_features(daily_agg, external_features_pa
 def run_scrape_and_update(
     raw_stream_path='data/raw/tradingeconomics_stream.xlsx',
     external_features_path='data/external_features.xlsx',
+    backfill_start_date=None,
 ):
     """
     Orkestrasi penuh untuk dipanggil dari dashboard: deteksi gap -> scrape ->
     filter US/Indonesia -> sentiment (FinBERT) -> agregasi harian -> merge ke
     data/external_features.xlsx (dengan backup otomatis file lama).
+
+    Parameters
+    ----------
+    backfill_start_date : date, optional
+        Kalau diisi, PAKSA scrape dari tanggal ini sampai H-1, mengabaikan
+        gap-detection normal (yang cuma isi selisih sejak data terakhir).
+        Dipakai untuk mengisi histori jauh ke belakang (mis. sampai 2019
+        untuk kebutuhan model ML). HATI-HATI: rentang panjang = banyak
+        batch scraping + banyak inferensi FinBERT, bisa makan waktu lama
+        (puluhan menit sampai berjam-jam tergantung volume berita). Kalau
+        dijalankan lewat tombol di web, ini berisiko timeout di nginx/browser
+        walau proses di server tetap lanjut - untuk backfill panjang lebih
+        aman dijalankan langsung di server (SSH), bukan lewat tombol.
 
     Returns dict ringkasan hasil (raw_rows, daily_rows, date_range, merged_rows).
     Raises Exception kalau tidak ada data sama sekali (baru & lama).
@@ -540,7 +561,10 @@ def run_scrape_and_update(
     raw_stream_path = Path(raw_stream_path)
     raw_stream_path.parent.mkdir(parents=True, exist_ok=True)
 
-    gap_info = detect_gap(str(raw_stream_path) if raw_stream_path.exists() else None)
+    if backfill_start_date is not None:
+        gap_info = (backfill_start_date, datetime.now().date() - timedelta(days=1))
+    else:
+        gap_info = detect_gap(str(raw_stream_path) if raw_stream_path.exists() else None)
 
     if gap_info is None:
         df_existing = pd.read_excel(raw_stream_path)
@@ -576,8 +600,12 @@ def run_scrape_and_update(
     if len(df) == 0:
         raise Exception("Tidak ada data tersisa setelah filter US & Indonesia.")
 
+    # score==0.0 adalah tanda fallback dari attempt gagal sebelumnya - retry juga
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
-    missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()] if has_cols else df
+    missing = (
+        df[df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)]
+        if has_cols else df
+    )
     sentiment_stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
     if not has_cols or len(missing) > 0:
         sentiment_pipeline = load_sentiment_model()
