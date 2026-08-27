@@ -469,6 +469,147 @@ def main(input_filename=None):
 
 
 # ============================================================================
+# STEP 4b: Dashboard Integration (persistent files, merge into external_features.xlsx)
+# ============================================================================
+# Dipakai oleh pages/2_Fitur_Eksternal.py untuk menjalankan scraping ini langsung
+# dari dashboard, bukan manual di Google Colab. Bedanya dengan main() di atas:
+# - Raw stream disimpan di path TETAP (bukan nama file bertanggal) supaya
+#   detect_gap() bisa jalan incremental antar run.
+# - Hasil agregasi harian di-MERGE ke data/external_features.xlsx berdasarkan
+#   tanggal (bukan file terpisah yang perlu di-copy manual).
+
+import shutil
+
+
+def merge_daily_sentiment_into_external_features(daily_agg, external_features_path):
+    """
+    Merge kolom News_Count & Sentiment_TradingEconomics (hasil agregasi harian)
+    ke data/external_features.xlsx berdasarkan Tanggal - menimpa kolom lama
+    dengan nama sama (kalau ada) tapi tidak menyentuh kolom fitur lain
+    (Oil_Price, USD_IDR, dll).
+    """
+    external_features_path = Path(external_features_path)
+
+    if external_features_path.exists():
+        existing = pd.read_excel(external_features_path)
+        existing['Tanggal'] = pd.to_datetime(existing['Tanggal'])
+    else:
+        existing = pd.DataFrame({'Tanggal': pd.Series(dtype='datetime64[ns]')})
+
+    for col in ['News_Count', 'Sentiment_TradingEconomics']:
+        if col in existing.columns:
+            existing = existing.drop(columns=[col])
+
+    merged = existing.merge(
+        daily_agg[['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']],
+        on='Tanggal', how='outer'
+    )
+    return merged.sort_values('Tanggal').reset_index(drop=True)
+
+
+def run_scrape_and_update(
+    raw_stream_path='data/raw/tradingeconomics_stream.xlsx',
+    external_features_path='data/external_features.xlsx',
+):
+    """
+    Orkestrasi penuh untuk dipanggil dari dashboard: deteksi gap -> scrape ->
+    filter US/Indonesia -> sentiment (FinBERT) -> agregasi harian -> merge ke
+    data/external_features.xlsx (dengan backup otomatis file lama).
+
+    Returns dict ringkasan hasil (raw_rows, daily_rows, date_range, merged_rows).
+    Raises Exception kalau tidak ada data sama sekali (baru & lama).
+    """
+    raw_stream_path = Path(raw_stream_path)
+    raw_stream_path.parent.mkdir(parents=True, exist_ok=True)
+
+    gap_info = detect_gap(str(raw_stream_path) if raw_stream_path.exists() else None)
+
+    if gap_info is None:
+        df_existing = pd.read_excel(raw_stream_path)
+        df_scraped = pd.DataFrame()
+    else:
+        start_date, end_date = gap_info
+        items = scrape_date_range(start_date, end_date)
+        df_scraped = pd.DataFrame(items) if items else pd.DataFrame()
+        df_existing = pd.read_excel(raw_stream_path) if raw_stream_path.exists() else pd.DataFrame()
+
+    if len(df_existing) == 0 and len(df_scraped) == 0:
+        raise Exception("Tidak ada data baru (scraping kosong) maupun data lama.")
+
+    if len(df_existing) > 0 and len(df_scraped) > 0:
+        df = pd.concat([df_existing, df_scraped], ignore_index=True)
+        df = df.drop_duplicates(subset=['ID'], keep='first')
+    else:
+        df = df_existing if len(df_existing) > 0 else df_scraped
+
+    df = filter_us_indonesia(df)
+    if len(df) == 0:
+        raise Exception("Tidak ada data tersisa setelah filter US & Indonesia.")
+
+    has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
+    missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()] if has_cols else df
+    if not has_cols or len(missing) > 0:
+        sentiment_pipeline = load_sentiment_model()
+        df = add_sentiment(df, sentiment_pipeline)
+
+    # Simpan raw stream (path tetap, dipakai lagi utk incremental run berikutnya)
+    col_order = [
+        'no', 'ID', 'date', 'title', 'description', 'url', 'author',
+        'country', 'category', 'image', 'importance',
+        'sentiment_label', 'sentiment_score', 'expiration', 'html', 'type'
+    ]
+    for col in col_order:
+        if col not in df.columns:
+            df[col] = None
+    df_to_save = df[col_order].copy()
+    df_to_save['no'] = range(1, len(df_to_save) + 1)
+    df_to_save.to_excel(raw_stream_path, sheet_name='stream_data', index=False)
+
+    # Agregasi harian (sama seperti main(), lihat Step 7 di atas)
+    sentiment_map = {'positive': 1.0, 'neutral': 0.5, 'negative': 0.0}
+    df['sentiment_numeric'] = df['sentiment_label'].map(sentiment_map)
+    df['date_only'] = pd.to_datetime(df['date'], format='mixed', errors='coerce').dt.date
+
+    daily_agg = df.groupby('date_only').agg({
+        'ID': 'count',
+        'sentiment_numeric': lambda x: (
+            (x * df.loc[x.index, 'sentiment_score']).sum() / df.loc[x.index, 'sentiment_score'].sum()
+            if df.loc[x.index, 'sentiment_score'].sum() > 0 else 0.5
+        )
+    }).reset_index()
+    daily_agg.columns = ['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']
+    daily_agg['Tanggal'] = pd.to_datetime(daily_agg['Tanggal'])
+    daily_agg = daily_agg.sort_values('Tanggal').reset_index(drop=True)
+
+    date_range_complete = pd.date_range(
+        start=daily_agg['Tanggal'].min(), end=daily_agg['Tanggal'].max(), freq='D'
+    )
+    df_complete = pd.DataFrame({'Tanggal': date_range_complete})
+    daily_agg = df_complete.merge(daily_agg, on='Tanggal', how='left')
+    daily_agg['News_Count'] = daily_agg['News_Count'].fillna(0).astype(int)
+    daily_agg['Sentiment_TradingEconomics'] = daily_agg['Sentiment_TradingEconomics'].fillna(0.0)
+
+    # Merge ke external_features.xlsx (backup dulu file lama)
+    external_features_path = Path(external_features_path)
+    if external_features_path.exists():
+        backup_dir = external_features_path.parent / 'backup'
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_file = backup_dir / f"external_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        shutil.copy2(external_features_path, backup_file)
+
+    merged = merge_daily_sentiment_into_external_features(daily_agg, external_features_path)
+    merged.to_excel(external_features_path, index=False)
+
+    return {
+        'raw_rows': len(df),
+        'daily_rows': len(daily_agg),
+        'date_start': daily_agg['Tanggal'].min(),
+        'date_end': daily_agg['Tanggal'].max(),
+        'merged_rows': len(merged),
+    }
+
+
+# ============================================================================
 # STEP 5: Upload File & Run
 # ============================================================================
 

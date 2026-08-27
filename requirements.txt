@@ -18,3 +18,12 @@ altair>=5.0.0,<6.0.0
 matplotlib>=3.7.0,<4.0.0
 protobuf>=3.20.0,<4.0.0
 typing-extensions>=4.4.0
+
+# Sentiment scraper (Fitur Eksternal page - Trading Economics + FinBERT)
+# On a VPS with no GPU, install the CPU-only torch build to save disk/bandwidth:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# then `pip install -r requirements.txt` for the rest.
+transformers>=4.35.0
+torch>=2.0.0
+sentencepiece>=0.1.99
+tqdm>=4.66.0

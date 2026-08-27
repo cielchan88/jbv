@@ -36,6 +36,44 @@ st.title("📊 Fitur Eksternal")
 st.markdown("Monitoring fitur eksternal untuk prediksi.")
 st.divider()
 
+# ===== UPDATE SENTIMENT BERITA (SCRAPER + FINBERT) =====
+st.subheader("🔄 Update Sentiment Berita")
+st.markdown("""
+Scrape berita terbaru dari Trading Economics (khusus US & Indonesia), analisis sentimen
+pakai FinBERT, lalu otomatis di-*merge* ke `data/external_features.xlsx` berdasarkan
+tanggal (kolom `News_Count` & `Sentiment_TradingEconomics`) - kolom fitur lain
+(Oil Price, USD/IDR, dll) tidak tersentuh. File lama dibackup otomatis sebelum ditimpa.
+""")
+st.warning(
+    "⚠️ Proses ini **berat dan bisa memakan waktu beberapa menit**: download model "
+    "FinBERT (~400MB) saat pertama kali jalan, scraping via internet, lalu analisis "
+    "sentimen per berita. Butuh akses internet dari server ke `tradingeconomics.com` "
+    "dan `huggingface.co`."
+)
+
+if st.button("🔄 Scrape & Update Sentiment", type="primary"):
+    try:
+        from helper.tradingeconomics_scraper import run_scrape_and_update
+    except ImportError as e:
+        st.error(f"❌ Dependency belum terinstall: {e}")
+        st.info("💡 Install dulu: `pip install transformers torch sentencepiece tqdm`")
+    else:
+        with st.spinner("⏳ Scraping berita & menjalankan analisis sentimen... (bisa beberapa menit)"):
+            try:
+                result = run_scrape_and_update()
+                st.cache_data.clear()
+                st.success(
+                    f"✅ Selesai! {result['daily_rows']} hari data sentiment "
+                    f"({result['date_start'].strftime('%Y-%m-%d')} s/d {result['date_end'].strftime('%Y-%m-%d')}) "
+                    f"berhasil di-merge ke external_features.xlsx ({result['merged_rows']} baris total)."
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Gagal scrape/update: {str(e)}")
+                st.info("💡 Pastikan server punya akses internet ke tradingeconomics.com")
+
+st.divider()
+
 # Load external features
 @st.cache_data
 def load_external_data():
