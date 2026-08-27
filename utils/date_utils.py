@@ -13,15 +13,14 @@ BASE_DIR = Path(__file__).parent.parent
 HOLIDAYS_FILE = BASE_DIR / "config" / "holidays.json"
 
 # Tanggal mulai data yang dipakai model ML (RandomForest/XGBoost/LightGBM/Prophet/
-# ARIMA/VAR/Stacking di pages/4,5,6). Ini BEDA dari etl/pipeline.py's START_DATE
-# (yang auto-detect dari source-data.xlsx) - batas ini sengaja tetap di 2019
-# karena data/external_features.xlsx (Oil Price, USD/IDR, Sentiment, dll) baru
-# tersedia mulai sekitar awal 2019, jadi model ML butuh titik mulai yang sama
-# supaya fitur eksternalnya lengkap. APUVA tidak pakai batas ini - dia tetap
-# pakai seluruh histori yang ada (lihat time_cols vs time_cols_ml di pages/4-6).
-# Didefinisikan satu kali di sini (bukan hardcoded string di tiap halaman) supaya
-# gampang diubah kalau data eksternal mulai dari tanggal lain.
-ML_START_DATE = "2019-01-01"
+# ARIMA/VAR/Stacking di pages/4,5,6). Sebelumnya dipatok "2019-01-01" karena
+# data/external_features.xlsx baru tersedia dari situ - sekarang external
+# features dimatikan sementara (lihat utils/external_loader.py:ENABLE_EXTERNAL_FEATURES),
+# jadi alasan pembatasan itu sudah tidak berlaku. None berarti ML pakai seluruh
+# histori yang sama dengan yang dipakai APUVA/ETL (tidak ada cutoff terpisah lagi).
+# Set balik ke string 'YYYY-MM-DD' di sini kalau external features diaktifkan lagi
+# dan butuh titik mulai yang selaras dengannya.
+ML_START_DATE = None
 
 
 def load_holidays():

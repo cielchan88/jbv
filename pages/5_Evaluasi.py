@@ -163,7 +163,10 @@ if run_comparison and len(selected_models) > 0:
             cross_series_map = {}
 
             # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
-            time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+            if ML_START_DATE is not None:
+                time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+            else:
+                time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
 
             for leaf_id in leaf_nodes:
                 # 1. Get all other leaf nodes (exclude current series)
@@ -190,7 +193,10 @@ if run_comparison and len(selected_models) > 0:
         st.success(f"✅ Cross-series correlations calculated for {len(cross_series_map)} leaf nodes")
 
     # Display data range information (SAME AS Prediksi.py)
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    if ML_START_DATE is not None:
+        time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    else:
+        time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
     st.info(f"📊 **ML Models (XGBoost, RF, LightGBM, Prophet)**: {time_cols_ml[0]} to {time_cols_ml[-1]} ({len(time_cols_ml)} days)")
     st.info(f"📊 **APUVA**: {time_cols[0]} to {time_cols[-1]} ({len(time_cols)} days) - Full historical data for year-over-year calculations")
 

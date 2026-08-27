@@ -136,7 +136,10 @@ if run_test and selected_series:
     dates_full = pd.to_datetime(time_cols)
 
     # Get FILTERED time series data (for ML models - 2019+ with external features)
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    if ML_START_DATE is not None:
+        time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    else:
+        time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
     values_ml = series_data[time_cols_ml].values.flatten()
     # Clean None/NaN values
     values_ml = np.array(values_ml, dtype=float)
@@ -166,9 +169,12 @@ if run_test and selected_series:
     test_apuva = ts_df_apuva.iloc[split_idx_apuva:]
 
     # Display data info
-    st.write(f"📊 **ML Models (2019+)**: Training {len(train_ml)} hari | Testing {len(test_ml)} hari")
-    st.write(f"📊 **APUVA (2006+)**: Training {len(train_apuva)} hari | Testing {len(test_apuva)} hari | **Forecast**: {forecast_days} hari")
-    st.info("ℹ️ ML models use 2019+ data with external features. APUVA uses full historical data (2006-2025) for accurate year-over-year calculations.")
+    ml_start_label = dates_ml[0].strftime('%Y') + "+" if len(dates_ml) > 0 else "N/A"
+    apuva_start_label = dates_full[0].strftime('%Y') + "+" if len(dates_full) > 0 else "N/A"
+    st.write(f"📊 **ML Models ({ml_start_label})**: Training {len(train_ml)} hari | Testing {len(test_ml)} hari")
+    st.write(f"📊 **APUVA ({apuva_start_label})**: Training {len(train_apuva)} hari | Testing {len(test_apuva)} hari | **Forecast**: {forecast_days} hari")
+    st.info("ℹ️ External features (Oil Price, USD/IDR, Sentiment, dll) sedang dimatikan sementara - "
+            "ML models dan APUVA sekarang sama-sama pakai seluruh histori data yang tersedia.")
 
     # Load holidays
     holidays_list = load_holidays()

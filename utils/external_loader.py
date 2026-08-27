@@ -7,6 +7,14 @@ import streamlit as st
 import pandas as pd
 from etl.load_external import load_external_features, align_external_features_to_dates
 
+# Kill switch sementara: external_features.xlsx (Oil Price, USD/IDR, Sentiment
+# TradingEconomics, dll) dimatikan dulu sampai kualitas datanya bisa dipastikan
+# stabil (scraper sentiment masih dalam perbaikan). Selama False, model tetap
+# jalan pakai cross-series features saja (korelasi antar leaf node) - itu tidak
+# tersentuh, cuma sumber data Excel eksternalnya yang dilewati. Set True lagi
+# kapan saja untuk mengaktifkan tanpa perlu ubah kode di tempat lain.
+ENABLE_EXTERNAL_FEATURES = False
+
 
 @st.cache_data(ttl=600)  # Cache 10 menit (balance antara performance vs freshness)
 def load_and_merge_external_features(cross_series_dict, target_dates):
@@ -18,6 +26,9 @@ def load_and_merge_external_features(cross_series_dict, target_dates):
     asli masing-masing via forward-fill, bukan berdasarkan posisi index seperti
     sebelumnya. Tanpa ini, Oil_Price/USD_IDR/Sentiment dkk. akan tergeser dari
     tanggal aslinya karena kedua sumber data punya kalender yang berbeda.
+
+    Kalau ENABLE_EXTERNAL_FEATURES = False, langsung return cross_series_dict
+    tanpa load/merge Excel sama sekali (lihat kill switch di atas).
 
     Cache TTL: 10 menit
     - Cukup fresh untuk workflow harian
@@ -35,9 +46,13 @@ def load_and_merge_external_features(cross_series_dict, target_dates):
     Returns:
     --------
     combined_dict : dict
-        Combined dictionary dengan cross-series + external features, semuanya
-        berurutan mengikuti target_dates.
+        Combined dictionary dengan cross-series + external features (atau cuma
+        cross-series saja kalau external features dimatikan), berurutan
+        mengikuti target_dates.
     """
+    if not ENABLE_EXTERNAL_FEATURES:
+        return cross_series_dict
+
     try:
         target_dates_idx = pd.DatetimeIndex(pd.to_datetime(list(target_dates)))
 

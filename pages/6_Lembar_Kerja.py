@@ -156,7 +156,10 @@ def prepare_cross_series_data(df, leaf_nodes, time_cols):
     import pandas as pd
 
     # Filter time_cols to 2019+ for external features alignment
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    if ML_START_DATE is not None:
+        time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    else:
+        time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
 
     cross_series_map = {}
 
@@ -382,7 +385,10 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                 feature_details_map[leaf_id] = {'model': selected_model, 'uses_features': False}
             else:
                 # ML Models: Use 2019+ data with external features
-                time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+                if ML_START_DATE is not None:
+                    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+                else:
+                    time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
                 values = leaf_row[time_cols_ml].values.flatten()
                 dates = pd.to_datetime(time_cols_ml)
                 external_series_data = cross_series_map.get(leaf_id, {})
