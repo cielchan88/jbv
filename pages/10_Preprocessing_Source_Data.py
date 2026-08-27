@@ -67,6 +67,39 @@ def extract_sheet(file, sheet_name: str, data_start_row: int, date_col_idx: int,
     return extracted, bad_dates
 
 
+def find_duplicate_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Return all rows (not just the extras) involved in a duplicated date, sorted by date."""
+    dup_mask = df[1].duplicated(keep=False)
+    return df[dup_mask].sort_values(1)
+
+
+def resolve_duplicates(df: pd.DataFrame, strategy: str) -> pd.DataFrame:
+    """strategy: 'Baris terakhir' | 'Baris pertama' | 'Jangan diubah otomatis'"""
+    if strategy == "Baris terakhir (revisi terbaru)":
+        return df.drop_duplicates(subset=[1], keep="last").reset_index(drop=True)
+    elif strategy == "Baris pertama":
+        return df.drop_duplicates(subset=[1], keep="first").reset_index(drop=True)
+    return df
+
+
+def compare_date_sets(sheets_dict: dict) -> pd.DataFrame:
+    """For each sheet, find dates missing relative to the union of dates across all sheets."""
+    date_sets = {name: set(df[1].dropna()) for name, df in sheets_dict.items()}
+    union = set().union(*date_sets.values())
+
+    rows = []
+    for name, dset in date_sets.items():
+        missing = union - dset
+        if missing:
+            missing_sorted = sorted(d.strftime("%Y-%m-%d") for d in missing)
+            rows.append({
+                "Sheet": name,
+                "Jumlah Tanggal Hilang": len(missing),
+                "Contoh Tanggal Hilang": ", ".join(missing_sorted[:5]) + (" ..." if len(missing_sorted) > 5 else ""),
+            })
+    return pd.DataFrame(rows)
+
+
 # ===== KONFIGURASI EKSTRAKSI =====
 with st.expander("⚙️ Konfigurasi Ekstraksi", expanded=False):
     st.markdown("Default di bawah ini sudah sesuai format laporan Korporasi/PTMN/Asing/Individu standar.")
@@ -168,40 +201,85 @@ if st.button("🔍 Proses & Preview", type="primary"):
             has_error = True
 
     if not has_error:
-        st.session_state["preprocessed_sheets"] = results
-
+        st.session_state["preprocessed_raw"] = results
+        st.session_state.pop("preprocessed_sheets", None)
         st.success("✅ Ekstraksi selesai untuk 4 sheet.")
 
-        summary_rows = []
-        for name in TARGET_SHEETS:
-            df = results[name]
-            summary_rows.append({
-                "Sheet": name,
-                "Baris": len(df),
-                "Kolom": len(df.columns),
-                "Tanggal Awal": df[1].min().strftime("%Y-%m-%d") if df[1].notna().any() else "N/A",
-                "Tanggal Akhir": df[1].max().strftime("%Y-%m-%d") if df[1].notna().any() else "N/A",
-            })
-        summary_df = pd.DataFrame(summary_rows)
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+st.divider()
 
-        col_counts = summary_df["Kolom"].unique()
-        if len(col_counts) > 1:
-            st.warning(f"⚠️ Jumlah kolom tidak seragam antar sheet: {dict(zip(summary_df['Sheet'], summary_df['Kolom']))}. "
-                       f"Ini bisa menyebabkan masalah saat diproses ETL.")
-        elif col_counts[0] != 47:
-            st.warning(f"⚠️ Jumlah kolom ({col_counts[0]}) berbeda dari skema standar (47 kolom: 1 tanggal + 46 data). "
-                       f"Cek kembali konfigurasi kolom terakhir data.")
+# ===== DETEKSI KUALITAS DATA =====
+if "preprocessed_raw" in st.session_state:
+    st.subheader("🔎 Deteksi Kualitas Data")
 
-        row_counts = summary_df["Baris"].tolist()
-        if max(row_counts) - min(row_counts) > 50:
-            st.warning(f"⚠️ Jumlah baris antar sheet berbeda cukup jauh ({min(row_counts)}–{max(row_counts)}), "
-                       f"cek apakah rentang tanggalnya benar-benar sepadan.")
+    raw_results = st.session_state["preprocessed_raw"]
 
-        tabs = st.tabs(TARGET_SHEETS)
-        for tab, name in zip(tabs, TARGET_SHEETS):
-            with tab:
-                st.dataframe(results[name].head(10), use_container_width=True)
+    # --- Cek jumlah baris & kolom antar sheet ---
+    summary_rows = []
+    for name in TARGET_SHEETS:
+        df = raw_results[name]
+        summary_rows.append({
+            "Sheet": name,
+            "Baris": len(df),
+            "Kolom": len(df.columns),
+            "Tanggal Duplikat": int(df[1].duplicated().sum()),
+            "Tanggal Awal": df[1].min().strftime("%Y-%m-%d") if df[1].notna().any() else "N/A",
+            "Tanggal Akhir": df[1].max().strftime("%Y-%m-%d") if df[1].notna().any() else "N/A",
+        })
+    summary_df = pd.DataFrame(summary_rows)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    col_counts = summary_df["Kolom"].unique()
+    if len(col_counts) > 1:
+        st.warning(f"⚠️ Jumlah kolom tidak seragam antar sheet: {dict(zip(summary_df['Sheet'], summary_df['Kolom']))}. "
+                   f"Ini bisa menyebabkan masalah saat diproses ETL.")
+    elif col_counts[0] != 47:
+        st.warning(f"⚠️ Jumlah kolom ({col_counts[0]}) berbeda dari skema standar (47 kolom: 1 tanggal + 46 data). "
+                   f"Cek kembali konfigurasi kolom terakhir data.")
+
+    row_counts = summary_df["Baris"].tolist()
+    if len(set(row_counts)) > 1:
+        st.warning(f"⚠️ Jumlah baris **tidak sama** antar sheet: "
+                   f"{dict(zip(summary_df['Sheet'], summary_df['Baris']))}. Lihat detail di bawah untuk cari penyebabnya.")
+    else:
+        st.success(f"✅ Jumlah baris seragam di keempat sheet ({row_counts[0]} baris).")
+
+    # --- Cek tanggal duplikat per sheet ---
+    any_dup = False
+    for name in TARGET_SHEETS:
+        dup_df = find_duplicate_dates(raw_results[name])
+        if len(dup_df) > 0:
+            any_dup = True
+            n_dates = dup_df[1].nunique()
+            with st.expander(f"⚠️ {name}: {n_dates} tanggal terduplikasi ({len(dup_df)} baris terlibat)", expanded=True):
+                st.dataframe(dup_df, use_container_width=True)
+    if not any_dup:
+        st.success("✅ Tidak ada tanggal terduplikasi di sheet manapun.")
+
+    # --- Cek kesesuaian set tanggal antar sheet ---
+    diff_df = compare_date_sets(raw_results)
+    if len(diff_df) > 0:
+        st.warning("⚠️ Ada tanggal yang muncul di sebagian sheet tapi tidak di sheet lain:")
+        st.dataframe(diff_df, use_container_width=True, hide_index=True)
+    else:
+        st.success("✅ Set tanggal konsisten — semua sheet punya tanggal yang persis sama.")
+
+    # --- Resolusi duplikat ---
+    st.markdown("**Jika ada tanggal duplikat, gunakan:**")
+    dedup_strategy = st.selectbox(
+        "Strategi resolusi duplikat", label_visibility="collapsed",
+        options=["Baris terakhir (revisi terbaru)", "Baris pertama", "Jangan diubah otomatis"],
+    )
+
+    final_results = {name: resolve_duplicates(df, dedup_strategy) for name, df in raw_results.items()}
+    st.session_state["preprocessed_sheets"] = final_results
+
+    tabs = st.tabs(TARGET_SHEETS)
+    for tab, name in zip(tabs, TARGET_SHEETS):
+        with tab:
+            n_before, n_after = len(raw_results[name]), len(final_results[name])
+            if n_before != n_after:
+                st.caption(f"{n_before} baris → {n_after} baris setelah resolusi duplikat")
+            st.dataframe(final_results[name].head(10), use_container_width=True)
 
 st.divider()
 
