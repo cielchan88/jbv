@@ -731,6 +731,7 @@ def to_wide_format(hierarchical_df: pd.DataFrame, output_file: Path, version: st
         df_wide.rename(columns={col: col.strftime('%Y-%m-%d')}, inplace=True)
 
     # Save to output file
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     df_wide.to_csv(output_file, index=False)
 
     logger.info(f"✓ Saved: {output_file}")
