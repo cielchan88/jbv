@@ -73,6 +73,14 @@ LABEL_INDEX = {
     'positive': 'positive', 'negative': 'negative', 'neutral': 'neutral',
 }
 
+# Bump this whenever add_sentiment()'s labeling/scoring logic changes in a way
+# that would give a different result for the SAME article (e.g. the LABEL_INDEX
+# fix above). Every row is stamped with the version that produced it; rows
+# stamped with an older version are treated as "needs retry" even if their
+# score looks perfectly valid - so a future logic fix self-heals existing data
+# on the next run instead of requiring someone to manually delete the raw file.
+SENTIMENT_LOGIC_VERSION = 2
+
 # Filter countries: US and Indonesia (case-insensitive)
 TARGET_COUNTRIES = ['united states', 'indonesia']
 
@@ -253,13 +261,21 @@ def add_sentiment(df, sentiment_pipeline):
     if 'sentiment_label' not in df.columns:
         df['sentiment_label'] = None
         df['sentiment_score'] = None
+    if 'sentiment_model_version' not in df.columns:
+        df['sentiment_model_version'] = None
 
-    # Count rows that need sentiment. A score of exactly 0.0 is the fallback
-    # signature written on a prior failed/empty-title attempt (see below) -
-    # treat those as "needs retry" too, not "already done", so a systemic
-    # failure in an earlier run doesn't poison the row forever.
+    # Count rows that need (re)processing:
+    # - never processed (label/score null)
+    # - score exactly 0.0 (fallback signature from a prior failed/empty-title attempt)
+    # - stamped with an OLDER SENTIMENT_LOGIC_VERSION - i.e. processed before a
+    #   labeling/scoring bugfix, so the stored result may be wrong even though
+    #   it looks like a normal, valid value (this is what makes old data
+    #   self-heal after a logic fix, instead of needing manual file deletion)
     needs_mask = (
-        df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+        df['sentiment_label'].isna()
+        | df['sentiment_score'].isna()
+        | (df['sentiment_score'] == 0.0)
+        | (df['sentiment_model_version'].fillna(0) != SENTIMENT_LOGIC_VERSION)
     )
     needs_sentiment = df[needs_mask]
     total_need = len(needs_sentiment)
@@ -267,7 +283,7 @@ def add_sentiment(df, sentiment_pipeline):
     stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
 
     if total_need == 0:
-        logger.info("✓ All rows already have sentiment!")
+        logger.info("✓ All rows already have sentiment (current logic version)!")
         return df, stats
 
     logger.info(f"  Processing {total_need:,} rows...")
@@ -276,9 +292,10 @@ def add_sentiment(df, sentiment_pipeline):
 
     processed = 0
     for idx, row in df.iterrows():
-        # Skip jika sudah ada sentiment ASLI (bukan fallback score=0.0)
+        # Skip hanya kalau sudah diproses versi logika SEKARANG dengan hasil valid
         if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')) \
-                and row.get('sentiment_score') != 0.0:
+                and row.get('sentiment_score') != 0.0 \
+                and row.get('sentiment_model_version') == SENTIMENT_LOGIC_VERSION:
             pbar.update(1)
             continue
 
@@ -301,6 +318,8 @@ def add_sentiment(df, sentiment_pipeline):
             df.at[idx, 'sentiment_label'] = 'neutral'
             df.at[idx, 'sentiment_score'] = 0.0
             stats['empty_title'] += 1
+
+        df.at[idx, 'sentiment_model_version'] = SENTIMENT_LOGIC_VERSION
 
         processed += 1
         pbar.set_description(f"🤖 BERT sentiment ({processed}/{total_need} processed)")
@@ -363,10 +382,14 @@ def main(input_filename=None):
     if len(df) == 0:
         raise Exception("❌ No data after filtering US & Indonesia!")
 
-    # Step 4: Check sentiment gap (score==0.0 = fallback from a prior failed attempt, needs retry too)
+    # Step 4: Check sentiment gap (score==0.0 = fallback, or an older logic version = needs retry too)
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
     if has_cols:
-        missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)]
+        version_col = df['sentiment_model_version'] if 'sentiment_model_version' in df.columns else pd.Series(0, index=df.index)
+        missing = df[
+            df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+            | (version_col.fillna(0) != SENTIMENT_LOGIC_VERSION)
+        ]
         logger.info(f"\n{'='*70}")
         logger.info(f"Sentiment Gap Check:")
         logger.info(f"  Total rows: {len(df):,}")
@@ -400,7 +423,7 @@ def main(input_filename=None):
     col_order = [
         'no', 'ID', 'date', 'title', 'description', 'url', 'author',
         'country', 'category', 'image', 'importance',
-        'sentiment_label', 'sentiment_score',
+        'sentiment_label', 'sentiment_score', 'sentiment_model_version',
         'expiration', 'html', 'type'
     ]
 
@@ -612,12 +635,17 @@ def run_scrape_and_update(
     if len(df) == 0:
         raise Exception("Tidak ada data tersisa setelah filter US & Indonesia.")
 
-    # score==0.0 adalah tanda fallback dari attempt gagal sebelumnya - retry juga
+    # score==0.0 (fallback) atau versi logika lebih lama dari SENTIMENT_LOGIC_VERSION
+    # (mis. baris yang sudah diproses sebelum bugfix label) - retry juga
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
-    missing = (
-        df[df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)]
-        if has_cols else df
-    )
+    if has_cols:
+        version_col = df['sentiment_model_version'] if 'sentiment_model_version' in df.columns else pd.Series(0, index=df.index)
+        missing = df[
+            df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+            | (version_col.fillna(0) != SENTIMENT_LOGIC_VERSION)
+        ]
+    else:
+        missing = df
     sentiment_stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
     if not has_cols or len(missing) > 0:
         sentiment_pipeline = load_sentiment_model()
@@ -627,7 +655,8 @@ def run_scrape_and_update(
     col_order = [
         'no', 'ID', 'date', 'title', 'description', 'url', 'author',
         'country', 'category', 'image', 'importance',
-        'sentiment_label', 'sentiment_score', 'expiration', 'html', 'type'
+        'sentiment_label', 'sentiment_score', 'sentiment_model_version',
+        'expiration', 'html', 'type'
     ]
     for col in col_order:
         if col not in df.columns:
