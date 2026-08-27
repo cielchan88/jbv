@@ -194,6 +194,33 @@ FEATURE_CONFIG = {
 }
 
 # ============================================================================
+# MINIMUM HISTORY FOR RECURSIVE (MULTI-STEP) PREDICTION
+# ============================================================================
+# create_features_optimized() only computes a rolling/lag feature when
+# len(df) >= window*3 (see the "Conservative check" comments there). Models
+# that forecast iteratively (RandomForest/XGBoost/LightGBM/Stacking) rebuild
+# features at every step from whatever history they carry forward - if that's
+# fewer rows than this, the largest-window features (e.g. rolling_mean_90)
+# silently can't be computed and get zero-filled instead of a real value,
+# even though the model was trained expecting their actual magnitude.
+def _max_configured_window():
+    windows = (
+        FEATURE_CONFIG["lag_features"]["lags"]
+        + FEATURE_CONFIG["rolling_statistics"]["windows"]
+        + FEATURE_CONFIG["volatility_features"]["windows"]
+        + FEATURE_CONFIG["volatility_features"]["asymmetric_windows"]
+        + FEATURE_CONFIG["volatility_features"]["price_position_windows"]
+        + FEATURE_CONFIG["technical_indicators"]["rsi"]["windows"]
+        + FEATURE_CONFIG["technical_indicators"]["bollinger_bands"]["windows"]
+        + FEATURE_CONFIG["extreme_detection"]["z_score_windows"]
+        + FEATURE_CONFIG["extreme_detection"]["change_limits"]["windows"]
+    )
+    return max(windows)
+
+
+MIN_HISTORY_FOR_RECURSIVE_PREDICT = _max_configured_window() * 3
+
+# ============================================================================
 # FEATURE COUNT SUMMARY (for high volatility config)
 # ============================================================================
 """

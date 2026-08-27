@@ -6,6 +6,7 @@ from lightgbm import LGBMRegressor
 from .base import BaseForecaster
 from ..feature_engineering_optimized import create_features_optimized as create_features_advanced, select_top_features_optimized as select_top_features, transform_target, inverse_transform_target
 from .. import generate_business_dates
+from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT
 
 
 class LightGBMForecaster(BaseForecaster):
@@ -74,7 +75,7 @@ class LightGBMForecaster(BaseForecaster):
         values = np.array(values, dtype=float)
         values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
         ts_df = pd.DataFrame({'ds': pd.to_datetime(dates), 'y': values})
-        last_data = ts_df.tail(30).copy()
+        last_data = ts_df.tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT).copy()
 
         # Generate business dates for forecasting
         future_business_dates = generate_business_dates(last_data['ds'].iloc[-1], n_days, self.holidays)
@@ -114,7 +115,7 @@ class LightGBMForecaster(BaseForecaster):
                 last_data = pd.concat([
                     last_data,
                     pd.DataFrame({'ds': [next_date], 'y': [pred]})
-                ], ignore_index=True).tail(30)
+                ], ignore_index=True).tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT)
             else:
                 forecast_values.append(values[-1])
 

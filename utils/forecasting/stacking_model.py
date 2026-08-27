@@ -9,6 +9,7 @@ import xgboost as xgb
 from .base import BaseForecaster
 from .apuva_model import APUVAForecaster
 from .. import generate_business_dates
+from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT
 
 
 class StackingForecaster(BaseForecaster):
@@ -163,7 +164,7 @@ class StackingForecaster(BaseForecaster):
         self.successful_models = successful_models
 
         # Store for prediction
-        self.last_data = ts_df.tail(30).copy()
+        self.last_data = ts_df.tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT).copy()
         self.X_train = X
         self.y_train = y
 
@@ -224,7 +225,7 @@ class StackingForecaster(BaseForecaster):
                         last_data = pd.concat([
                             last_data,
                             pd.DataFrame({'ds': [next_date], 'y': [pred]})
-                        ], ignore_index=True).tail(30)
+                        ], ignore_index=True).tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT)
                     else:
                         forecast_values.append(float(values[-1]) if len(values) > 0 else 0.0)
 
