@@ -60,7 +60,18 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://tradingeconomics.com/stream",
 }
-LABEL_INDEX = {'LABEL_0': 'positive', 'LABEL_1': 'neutral', 'LABEL_2': 'negative'}
+# ProsusAI/finbert's pipeline() already returns human-readable labels
+# ('positive'/'negative'/'neutral') via the model's own id2label config, NOT
+# generic 'LABEL_0'/'LABEL_1'/'LABEL_2'. The old LABEL_0/1/2-only mapping never
+# matched, so LABEL_INDEX.get(label, 'neutral') silently fell through to the
+# 'neutral' default for every single article regardless of the real prediction
+# (confirmed: sentiment_score was always a real, varied confidence value, but
+# sentiment_label was 100% 'neutral' even for clearly positive/negative titles).
+# Keep the LABEL_N entries too in case a different checkpoint is swapped in later.
+LABEL_INDEX = {
+    'label_0': 'positive', 'label_1': 'neutral', 'label_2': 'negative',
+    'positive': 'positive', 'negative': 'negative', 'neutral': 'neutral',
+}
 
 # Filter countries: US and Indonesia (case-insensitive)
 TARGET_COUNTRIES = ['united states', 'indonesia']
@@ -276,7 +287,8 @@ def add_sentiment(df, sentiment_pipeline):
         if text:
             try:
                 result = sentiment_pipeline(text[:512])
-                df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(result[0]['label'], 'neutral')
+                raw_label = str(result[0]['label']).strip().lower()
+                df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(raw_label, 'neutral')
                 df.at[idx, 'sentiment_score'] = result[0]['score']
                 stats['success'] += 1
             except Exception as e:
