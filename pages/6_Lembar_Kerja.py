@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Lembar Kerja - JBV Dashboard", layout="wide")
 
 # Import utils
-from utils import load_holidays, generate_business_dates
+from utils import load_holidays, generate_business_dates, ML_START_DATE
 from utils.data_loader import load_etl_output, parse_children
 from utils.forecasting import forecast_single_series
 from utils.forecast_version import save_forecast_version, list_forecast_versions
@@ -156,7 +156,7 @@ def prepare_cross_series_data(df, leaf_nodes, time_cols):
     import pandas as pd
 
     # Filter time_cols to 2019+ for external features alignment
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
+    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
 
     cross_series_map = {}
 
@@ -382,7 +382,7 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                 feature_details_map[leaf_id] = {'model': selected_model, 'uses_features': False}
             else:
                 # ML Models: Use 2019+ data with external features
-                time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
+                time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
                 values = leaf_row[time_cols_ml].values.flatten()
                 dates = pd.to_datetime(time_cols_ml)
                 external_series_data = cross_series_map.get(leaf_id, {})

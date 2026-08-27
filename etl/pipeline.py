@@ -47,9 +47,13 @@ SOURCE_FILE = BASE_DIR / "data" / "raw" / "source-data.xlsx"
 OUTPUT_FILE_FULL = BASE_DIR / "data" / "processed" / "sdv-wide-full.csv"
 OUTPUT_FILE_SIMPLE = BASE_DIR / "data" / "processed" / "sdv-wide.csv"  # Default/Primary
 
-# Date range untuk filtering
-# NOTE: START_DATE set to 2019-01-01 untuk support APUVA model (butuh year-6 sampai year-2)
-START_DATE = "2019-01-01"
+# Date range untuk filtering.
+# START_DATE = None berarti pakai tanggal paling awal yang benar-benar ada di
+# source-data.xlsx (auto-detect), bukan tanggal hardcoded - supaya ETL otomatis
+# menyesuaikan kalau rentang tanggal source data berubah. Set ke string
+# 'YYYY-MM-DD' di sini hanya kalau memang ingin sengaja membatasi rentang data
+# secara manual (override).
+START_DATE = None
 # CUTOFF_DATE removed - will process all available data
 
 # Sheet names yang akan diproses
@@ -258,7 +262,11 @@ def tidy_transform(data_dict: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame
     logger.info("=" * 70)
 
     result = {}
-    start_dt = pd.to_datetime(START_DATE)
+    if START_DATE is not None:
+        start_dt = pd.to_datetime(START_DATE)
+    else:
+        start_dt = min(df['x1'].min() for df in data_dict.values())
+        logger.info(f"START_DATE tidak diset - pakai tanggal paling awal di source data: {start_dt.date()}")
 
     for entitas_name, df in data_dict.items():
         logger.info(f"Processing: {entitas_name}")
@@ -763,7 +771,7 @@ def run_pipeline():
     logger.info(f"Source: {SOURCE_FILE}")
     logger.info(f"Output FULL: {OUTPUT_FILE_FULL}")
     logger.info(f"Output SIMPLE: {OUTPUT_FILE_SIMPLE}")
-    logger.info(f"Date range: {START_DATE} to [latest available data]\n")
+    logger.info(f"Date range: {START_DATE if START_DATE else 'auto-detect dari source data'} to [latest available data]\n")
 
     try:
         # Step 1: Extract & Clean
@@ -811,7 +819,7 @@ def run_pipeline():
         if date_cols:
             logger.info(f"  Date range: {date_cols[0]} to {date_cols[-1]}")
         else:
-            logger.info(f"  Date range: {START_DATE} to [latest available data]")
+            logger.info(f"  Date range: {START_DATE if START_DATE else 'auto-detect dari source data'} to [latest available data]")
         logger.info("=" * 70 + "\n")
 
         return wide_df_simple, wide_df_full

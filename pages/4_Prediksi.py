@@ -28,7 +28,7 @@ warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Prediksi - JBV Dashboard", layout="wide")
 
 # Import utils
-from utils import load_holidays, generate_business_dates
+from utils import load_holidays, generate_business_dates, ML_START_DATE
 from utils.data_loader import load_etl_output, parse_children
 from utils.forecasting import forecast_single_series
 
@@ -136,7 +136,7 @@ if run_test and selected_series:
     dates_full = pd.to_datetime(time_cols)
 
     # Get FILTERED time series data (for ML models - 2019+ with external features)
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
+    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
     values_ml = series_data[time_cols_ml].values.flatten()
     # Clean None/NaN values
     values_ml = np.array(values_ml, dtype=float)
