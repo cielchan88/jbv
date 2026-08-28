@@ -265,24 +265,70 @@ st.divider()
 # Advanced Analytics Section
 st.subheader("📊 Analisis Lanjutan")
 
-tabs = st.tabs(["🔍 Trend Decomposition", "🔗 Correlation Heatmap", "📦 Distribution Box Plot", "🌍 External Features"])
+# ---- Pemilih series untuk analisis mendalam ----
+# Semua tab analitik di bawah (kecuali korelasi & external features yang memang
+# lintas-kategori) mengikuti pilihan ini, supaya bisa membedah komponen mana pun,
+# tidak terkunci di NET SDV saja.
+series_options = {}
+for _, row in df.iterrows():
+    label = row['Row_Label']
+    clean = label.split('. ', 1)[-1] if '. ' in label else label
+    series_options[f"{row['Row_ID']} - {clean}"] = row['Row_ID']
+
+default_key = next((k for k, v in series_options.items() if v == 'D'), list(series_options.keys())[0])
+selected_analysis_label = st.selectbox(
+    "Pilih series untuk dianalisis:",
+    options=list(series_options.keys()),
+    index=list(series_options.keys()).index(default_key),
+    help="Pilihan ini dipakai oleh tab Dekomposisi, Outlier, Structural Break, Stasioneritas, Distribusi, dan Kualitas Data"
+)
+selected_analysis_id = series_options[selected_analysis_label]
+
+# Siapkan array nilai & tanggal untuk series terpilih (dipakai bersama semua tab)
+_analysis_row = df[df['Row_ID'] == selected_analysis_id]
+analysis_values = np.nan_to_num(
+    np.array(_analysis_row[time_cols].values.flatten(), dtype=float),
+    nan=0.0, posinf=0.0, neginf=0.0
+)
+analysis_dates = pd.to_datetime(time_cols)
+
+from utils import analytics
+
+tabs = st.tabs([
+    "🔍 Dekomposisi",
+    "🎯 Outlier",
+    "📐 Structural Break",
+    "📉 Stasioneritas & ACF",
+    "📊 Distribusi",
+    "🧹 Kualitas Data",
+    "🔗 Korelasi",
+    "🌍 External Features",
+])
 
 # Tab 1: Trend Decomposition
 with tabs[0]:
-    st.markdown("**Dekomposisi Time Series** - Pisahkan komponen Trend, Seasonal, dan Residual dari Net Supply Demand Valas")
+    st.markdown(f"**Dekomposisi Time Series** - Pisahkan komponen Trend, Seasonal, dan Residual dari `{selected_analysis_label}`")
 
-    # Use D (NET SDV) directly - no selectbox
-    series_data = df[df['Row_ID'] == 'D']
+    decomp_period = st.selectbox(
+        "Periode musiman:",
+        options=[5, 7, 21, 30],
+        index=0,
+        format_func=lambda x: {5: "5 (mingguan - hari kerja)", 7: "7 (mingguan - kalender)",
+                               21: "21 (bulanan - hari kerja)", 30: "30 (bulanan - kalender)"}[x],
+        help="Data SDV hanya berisi hari kerja, jadi siklus mingguan sebenarnya = 5 hari, bukan 7"
+    )
+
+    series_data = _analysis_row
     if len(series_data) > 0:
-        decomp_values = series_data[time_cols].values.flatten()
-        decomp_dates = pd.to_datetime(time_cols)
+        decomp_values = analysis_values
+        decomp_dates = analysis_dates
 
         # Create time series
         ts = pd.Series(decomp_values, index=decomp_dates)
 
-        # Perform decomposition (weekly seasonality: period=7)
+        # Perform decomposition
         try:
-            decomposition = seasonal_decompose(ts, model='additive', period=7, extrapolate_trend='freq')
+            decomposition = seasonal_decompose(ts, model='additive', period=decomp_period, extrapolate_trend='freq')
 
             # Create subplots
             fig_decomp = make_subplots(
@@ -315,25 +361,445 @@ with tabs[0]:
                 row=4, col=1
             )
 
-            fig_decomp.update_layout(height=800, showlegend=False, title_text="Decomposition: Net Supply Demand Valas")
+            fig_decomp.update_layout(height=800, showlegend=False,
+                                     title_text=f"Decomposition: {selected_analysis_label}")
             fig_decomp.update_xaxes(title_text="Tanggal", row=4, col=1)
 
             st.plotly_chart(fig_decomp, use_container_width=True)
 
+            # Kekuatan komponen musiman & trend (Hyndman-style strength measures)
+            resid = pd.Series(decomposition.resid).dropna()
+            seasonal = pd.Series(decomposition.seasonal).dropna()
+            trend = pd.Series(decomposition.trend).dropna()
+            var_resid = float(resid.var()) if len(resid) > 1 else 0.0
+
+            if var_resid > 0:
+                seas_strength = max(0.0, 1 - var_resid / float((resid + seasonal).var()))
+                trend_strength = max(0.0, 1 - var_resid / float((resid + trend).var()))
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Kekuatan Trend", f"{trend_strength:.2f}",
+                              help="0 = tidak ada trend, 1 = sangat didominasi trend")
+                with c2:
+                    st.metric("Kekuatan Musiman", f"{seas_strength:.2f}",
+                              help="0 = tidak ada pola musiman, 1 = sangat kuat musiman")
+
+                if seas_strength < 0.1:
+                    st.info("ℹ️ Pola musiman sangat lemah pada periode ini - coba periode lain, "
+                            "atau memang seasonality-nya tidak dominan di series ini.")
+
             # Insights
             st.info("""
-            **📌 Insights:**
+            **📌 Cara baca:**
             - **Trend**: Arah umum data (naik/turun jangka panjang)
-            - **Seasonal**: Pola berulang (mingguan dalam kasus ini)
-            - **Residual**: Noise atau variasi yang tidak terjelaskan
+            - **Seasonal**: Pola berulang sesuai periode yang dipilih
+            - **Residual**: Sisa variasi yang tidak dijelaskan trend/musiman - residual besar
+              dan bergerombol menandakan ada faktor lain (kejutan pasar, structural break)
             """)
 
         except Exception as e:
             st.error(f"Error saat decomposition: {str(e)}")
             st.info("Data mungkin tidak cukup panjang untuk analisis seasonal.")
 
-# Tab 2: Correlation Heatmap
+# Tab 2: Outlier Analysis
 with tabs[1]:
+    st.markdown(f"**Analisis Outlier** - Deteksi nilai ekstrem pada `{selected_analysis_label}`")
+
+    col_m1, col_m2 = st.columns([1, 1])
+    with col_m1:
+        outlier_method = st.selectbox(
+            "Metode deteksi:",
+            options=['mad', 'iqr', 'zscore'],
+            format_func=lambda x: {
+                'mad': 'Modified Z-score (MAD) - paling robust',
+                'iqr': 'IQR (Tukey fences)',
+                'zscore': 'Z-score standar',
+            }[x],
+            help="MAD direkomendasikan untuk data volatil: median & MAD tidak ikut tertarik oleh outlier itu sendiri"
+        )
+    with col_m2:
+        if outlier_method == 'iqr':
+            threshold = st.slider("Pengali IQR (k)", 1.0, 3.0, 1.5, 0.5)
+            detector_kwargs = {'k': threshold}
+        elif outlier_method == 'zscore':
+            threshold = st.slider("Ambang Z-score", 2.0, 5.0, 3.0, 0.5)
+            detector_kwargs = {'threshold': threshold}
+        else:
+            threshold = st.slider("Ambang Modified Z-score", 2.0, 5.0, 3.5, 0.5)
+            detector_kwargs = {'threshold': threshold}
+
+    outlier_df, outlier_res = analytics.summarize_outliers(
+        analysis_dates, analysis_values, method=outlier_method, **detector_kwargs
+    )
+
+    n_out = outlier_res['count']
+    pct_out = n_out / len(analysis_values) * 100 if len(analysis_values) else 0
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Jumlah Outlier", f"{n_out:,}")
+    with c2:
+        st.metric("Persentase", f"{pct_out:.2f}%")
+    with c3:
+        if outlier_method == 'iqr':
+            st.metric("Batas", f"{outlier_res['lower']:,.0f} s/d {outlier_res['upper']:,.0f}")
+        else:
+            st.metric("Ambang Skor", f"±{threshold}")
+
+    # Plot dengan outlier ditandai
+    mask = outlier_res['mask']
+    fig_out = go.Figure()
+    fig_out.add_trace(go.Scatter(
+        x=analysis_dates, y=analysis_values, mode='lines',
+        name='Nilai', line=dict(color='#1f77b4', width=1)
+    ))
+    if mask.any():
+        fig_out.add_trace(go.Scatter(
+            x=analysis_dates[mask], y=analysis_values[mask], mode='markers',
+            name='Outlier', marker=dict(color='red', size=7, symbol='x')
+        ))
+    if outlier_method == 'iqr':
+        fig_out.add_hline(y=outlier_res['upper'], line_dash='dash', line_color='orange',
+                          annotation_text='Batas atas')
+        fig_out.add_hline(y=outlier_res['lower'], line_dash='dash', line_color='orange',
+                          annotation_text='Batas bawah')
+
+    fig_out.update_layout(title=f"Outlier: {selected_analysis_label}",
+                          xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
+                          height=450, hovermode='x unified')
+    st.plotly_chart(fig_out, use_container_width=True)
+
+    if n_out > 0:
+        st.markdown("**📋 Daftar Outlier (diurutkan dari deviasi terbesar)**")
+        show_df = outlier_df.copy()
+        show_df['Nilai'] = show_df['Nilai'].map(lambda v: f"{v:,.2f}")
+        show_df['Skor'] = show_df['Skor'].map(lambda v: f"{v:,.2f}")
+        st.dataframe(show_df.head(50), use_container_width=True, hide_index=True)
+        if len(show_df) > 50:
+            st.caption(f"Menampilkan 50 dari {len(show_df)} outlier.")
+
+        # Distribusi outlier per tahun - bantu lihat apakah terkonsentrasi di periode tertentu
+        years = pd.to_datetime(outlier_df['Tanggal']).dt.year.value_counts().sort_index()
+        fig_year = go.Figure(go.Bar(x=years.index.astype(str), y=years.values,
+                                    marker_color='indianred'))
+        fig_year.update_layout(title="Sebaran Outlier per Tahun", xaxis_title="Tahun",
+                               yaxis_title="Jumlah Outlier", height=300)
+        st.plotly_chart(fig_year, use_container_width=True)
+        st.caption("Outlier yang menumpuk di satu periode biasanya menandakan kejadian pasar "
+                   "tertentu atau perubahan cara pencatatan data - bukan sekadar noise acak.")
+    else:
+        st.success("✅ Tidak ada outlier terdeteksi dengan pengaturan ini.")
+
+# Tab 3: Structural Break
+with tabs[2]:
+    st.markdown(f"**Analisis Structural Break** - Deteksi pergeseran level/rezim pada `{selected_analysis_label}`")
+    st.caption("Structural break = titik di mana perilaku deret berubah secara permanen (bukan lonjakan sesaat). "
+               "Penting untuk forecasting: data sebelum break bisa jadi menyesatkan kalau rezimnya sudah berubah.")
+
+    cb1, cb2, cb3 = st.columns(3)
+    with cb1:
+        max_breaks = st.slider("Maks. jumlah break", 1, 10, 5)
+    with cb2:
+        min_size = st.slider("Min. panjang segmen (hari)", 30, 365, 90, 30)
+    with cb3:
+        sensitivity = st.slider("Sensitivitas (%)", 0.5, 10.0, 1.0, 0.5,
+                                help="Ambang minimal perbaikan agar sebuah break diterima. "
+                                     "Makin kecil = makin sensitif (lebih banyak break terdeteksi).")
+
+    break_res = analytics.detect_structural_breaks(
+        analysis_values, max_breaks=max_breaks, min_size=min_size,
+        min_gain_ratio=sensitivity / 100.0
+    )
+
+    if break_res.get('note'):
+        st.warning(f"⚠️ {break_res['note']}")
+
+    bps = break_res['breakpoints']
+
+    fig_break = go.Figure()
+    fig_break.add_trace(go.Scatter(
+        x=analysis_dates, y=analysis_values, mode='lines',
+        name='Nilai', line=dict(color='#1f77b4', width=1), opacity=0.6
+    ))
+
+    # Garis mean per segmen
+    for i, seg in enumerate(break_res['segments']):
+        seg_dates = analysis_dates[seg['start_idx']:seg['end_idx'] + 1]
+        fig_break.add_trace(go.Scatter(
+            x=seg_dates, y=np.full(len(seg_dates), seg['mean']),
+            mode='lines', name=f"Mean segmen {i+1}",
+            line=dict(color='red', width=3)
+        ))
+
+    for bp in bps:
+        fig_break.add_vline(x=analysis_dates[bp], line_dash='dash', line_color='black')
+
+    fig_break.update_layout(title=f"Structural Break: {selected_analysis_label}",
+                            xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
+                            height=450, hovermode='x unified')
+    st.plotly_chart(fig_break, use_container_width=True)
+
+    if bps:
+        st.markdown(f"**📍 {len(bps)} Break Terdeteksi**")
+        seg_rows = []
+        for i, seg in enumerate(break_res['segments']):
+            seg_rows.append({
+                'Segmen': i + 1,
+                'Mulai': analysis_dates[seg['start_idx']].strftime('%Y-%m-%d'),
+                'Selesai': analysis_dates[seg['end_idx']].strftime('%Y-%m-%d'),
+                'Jumlah Hari': seg['n'],
+                'Rata-rata': f"{seg['mean']:,.2f}",
+                'Std Dev': f"{seg['std']:,.2f}",
+            })
+        st.dataframe(pd.DataFrame(seg_rows), use_container_width=True, hide_index=True)
+
+        st.markdown("**Tanggal Break:**")
+        for i, bp in enumerate(bps, 1):
+            prev_mean = break_res['segments'][i - 1]['mean']
+            next_mean = break_res['segments'][i]['mean']
+            delta = next_mean - prev_mean
+            arah = "naik" if delta > 0 else "turun"
+            st.write(f"{i}. **{analysis_dates[bp].strftime('%Y-%m-%d')}** - "
+                     f"rata-rata {arah} dari {prev_mean:,.2f} ke {next_mean:,.2f} "
+                     f"(selisih {delta:+,.2f})")
+    else:
+        st.success("✅ Tidak ada structural break signifikan - level deret relatif stabil "
+                   "sepanjang periode (dengan sensitivitas saat ini).")
+
+    # CUSUM
+    st.divider()
+    st.markdown("**📈 CUSUM (Cumulative Sum)**")
+    st.caption("Akumulasi simpangan terhadap rata-rata keseluruhan. Kurva naik = periode di atas "
+               "rata-rata, turun = di bawah. Titik balik kurva sering menandai pergeseran rezim.")
+
+    cusum_vals = analytics.cusum(analysis_values)
+    fig_cusum = go.Figure()
+    fig_cusum.add_trace(go.Scatter(x=analysis_dates, y=cusum_vals, mode='lines',
+                                   name='CUSUM', line=dict(color='purple', width=2)))
+    fig_cusum.add_hline(y=0, line_dash='dash', line_color='gray')
+    for bp in bps:
+        fig_cusum.add_vline(x=analysis_dates[bp], line_dash='dash', line_color='black')
+    fig_cusum.update_layout(xaxis_title="Tanggal", yaxis_title="CUSUM",
+                            height=350, hovermode='x unified')
+    st.plotly_chart(fig_cusum, use_container_width=True)
+
+    # Rolling statistics
+    st.divider()
+    st.markdown("**📊 Rolling Mean & Volatilitas**")
+    roll_window = st.slider("Window rolling (hari)", 30, 365, 90, 30, key='roll_win')
+    roll = analytics.rolling_statistics(analysis_values, window=roll_window)
+
+    fig_roll = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                             subplot_titles=(f'Rolling Mean ({roll_window} hari)',
+                                             f'Rolling Std Dev / Volatilitas ({roll_window} hari)'),
+                             vertical_spacing=0.12)
+    fig_roll.add_trace(go.Scatter(x=analysis_dates, y=roll['mean'], mode='lines',
+                                  line=dict(color='blue')), row=1, col=1)
+    fig_roll.add_trace(go.Scatter(x=analysis_dates, y=roll['std'], mode='lines',
+                                  line=dict(color='orange')), row=2, col=1)
+    fig_roll.update_layout(height=500, showlegend=False)
+    st.plotly_chart(fig_roll, use_container_width=True)
+    st.caption("Rolling std yang melonjak = periode volatilitas tinggi. Kalau levelnya bergeser "
+               "permanen, itu tanda perubahan rezim volatilitas (bukan cuma level).")
+
+# Tab 4: Stasioneritas & Autokorelasi
+with tabs[3]:
+    st.markdown(f"**Uji Stasioneritas & Autokorelasi** - `{selected_analysis_label}`")
+    st.caption("Menentukan apakah deret perlu differencing sebelum dimodelkan dengan ARIMA/VAR, "
+               "dan struktur lag mana yang paling informatif.")
+
+    use_diff = st.checkbox("Uji pada data setelah differencing (selisih hari ke hari)", value=False)
+    test_values = np.diff(analysis_values) if use_diff else analysis_values
+
+    stat_res = analytics.stationarity_tests(test_values)
+
+    if 'error' in stat_res:
+        st.error(f"❌ {stat_res['error']}")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**ADF Test** (H₀: ada unit root / tidak stasioner)")
+            adf = stat_res.get('adf', {})
+            if 'error' in adf:
+                st.error(adf['error'])
+            else:
+                st.metric("p-value", f"{adf['pvalue']:.4f}",
+                          delta="Stasioner" if adf['stationary'] else "Tidak stasioner",
+                          delta_color="normal" if adf['stationary'] else "inverse")
+                st.caption(f"Statistik: {adf['statistic']:.4f}")
+        with c2:
+            st.markdown("**KPSS Test** (H₀: stasioner)")
+            kp = stat_res.get('kpss', {})
+            if 'error' in kp:
+                st.error(kp['error'])
+            else:
+                st.metric("p-value", f"{kp['pvalue']:.4f}",
+                          delta="Stasioner" if kp['stationary'] else "Tidak stasioner",
+                          delta_color="normal" if kp['stationary'] else "inverse")
+                st.caption(f"Statistik: {kp['statistic']:.4f}")
+
+        conclusion = stat_res['conclusion']
+        if 'TIDAK STASIONER' in conclusion:
+            st.warning(f"⚠️ **Kesimpulan:** {conclusion}")
+        elif conclusion.startswith('STASIONER'):
+            st.success(f"✅ **Kesimpulan:** {conclusion}")
+        else:
+            st.info(f"ℹ️ **Kesimpulan:** {conclusion}")
+
+    # ACF / PACF
+    st.divider()
+    st.markdown("**📊 ACF & PACF**")
+    nlags = st.slider("Jumlah lag", 10, 90, 40, 10)
+    ap = analytics.compute_acf_pacf(test_values, nlags=nlags)
+
+    if 'error' in ap:
+        st.error(f"❌ {ap['error']}")
+    else:
+        fig_acf = make_subplots(rows=2, cols=1,
+                                subplot_titles=('ACF (Autocorrelation)', 'PACF (Partial Autocorrelation)'),
+                                vertical_spacing=0.15)
+        fig_acf.add_trace(go.Bar(x=ap['lags'], y=ap['acf'], marker_color='steelblue'), row=1, col=1)
+        fig_acf.add_trace(go.Bar(x=ap['lags'], y=ap['pacf'], marker_color='seagreen'), row=2, col=1)
+        for r in (1, 2):
+            fig_acf.add_hline(y=ap['conf'], line_dash='dash', line_color='red', row=r, col=1)
+            fig_acf.add_hline(y=-ap['conf'], line_dash='dash', line_color='red', row=r, col=1)
+            fig_acf.add_hline(y=0, line_color='gray', row=r, col=1)
+        fig_acf.update_layout(height=600, showlegend=False)
+        fig_acf.update_xaxes(title_text="Lag", row=2, col=1)
+        st.plotly_chart(fig_acf, use_container_width=True)
+
+        sig_lags = [int(l) for l, v in zip(ap['lags'][1:], ap['acf'][1:]) if abs(v) > ap['conf']]
+        if sig_lags:
+            st.info(f"**Lag signifikan (ACF di luar batas 95%):** {sig_lags[:20]}"
+                    + (" ..." if len(sig_lags) > 20 else ""))
+            weekly = [l for l in sig_lags if l % 5 == 0]
+            if weekly:
+                st.caption(f"Lag kelipatan 5 yang signifikan: {weekly[:10]} - indikasi pola mingguan "
+                           f"(data hari kerja: 1 minggu = 5 observasi).")
+        else:
+            st.caption("Tidak ada lag signifikan - deret mendekati white noise pada level ini.")
+
+# Tab 5: Distribusi
+with tabs[4]:
+    st.markdown(f"**Analisis Distribusi** - `{selected_analysis_label}`")
+
+    dist = analytics.distribution_stats(analysis_values)
+
+    if 'error' in dist:
+        st.error(f"❌ {dist['error']}")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Skewness", f"{dist['skewness']:.3f}",
+                      help="0 = simetris, >0 = ekor kanan panjang, <0 = ekor kiri panjang")
+        with c2:
+            st.metric("Excess Kurtosis", f"{dist['kurtosis_excess']:.3f}",
+                      help="0 = seperti normal, >0 = ekor tebal (lebih sering nilai ekstrem)")
+        with c3:
+            st.metric("Jarque-Bera p", f"{dist['jb_pvalue']:.4f}" if dist['jb_pvalue'] is not None else "N/A")
+        with c4:
+            st.metric("Normal?", "Ya" if dist['normal'] else "Tidak")
+
+        if not dist['normal']:
+            st.warning("⚠️ Distribusi menyimpang dari normal. Ini penting karena beberapa model "
+                       "(ARIMA/VAR) membangun confidence interval dengan asumsi normal - "
+                       "interval bisa terlalu sempit kalau ekornya tebal.")
+        if abs(dist['kurtosis_excess']) > 3:
+            st.info("ℹ️ Excess kurtosis tinggi = nilai ekstrem jauh lebih sering muncul dibanding "
+                    "distribusi normal. Pertimbangkan transformasi (mis. signed-log) untuk model ML.")
+
+        # Histogram + kurva normal pembanding
+        fig_hist = go.Figure()
+        fig_hist.add_trace(go.Histogram(x=analysis_values, nbinsx=60, name='Data',
+                                        histnorm='probability density', marker_color='steelblue'))
+        x_range = np.linspace(np.min(analysis_values), np.max(analysis_values), 200)
+        normal_pdf = (1 / (dist['std'] * np.sqrt(2 * np.pi))) * np.exp(
+            -0.5 * ((x_range - dist['mean']) / dist['std']) ** 2)
+        fig_hist.add_trace(go.Scatter(x=x_range, y=normal_pdf, mode='lines',
+                                      name='Normal (pembanding)', line=dict(color='red', width=2)))
+        fig_hist.update_layout(title="Distribusi Nilai vs Kurva Normal",
+                               xaxis_title="Nilai (USD Juta)", yaxis_title="Densitas", height=400)
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+    # Box plot perbandingan antar kategori (dipertahankan dari versi sebelumnya)
+    st.divider()
+    st.markdown("**📦 Perbandingan Distribusi Antar Kategori Utama**")
+
+    category_labels = {'A': 'KORPORASI', 'B': 'INDIVIDU', 'C': 'NON RESIDEN', 'D': 'NET SDV'}
+    box_data, box_labels = [], []
+    for cat in ['A', 'B', 'C', 'D']:
+        cat_row = df[df['Row_ID'] == cat]
+        if len(cat_row) > 0:
+            box_data.append(cat_row.iloc[0][time_cols].values)
+            box_labels.append(category_labels[cat])
+
+    fig_box = go.Figure()
+    for data, label in zip(box_data, box_labels):
+        fig_box.add_trace(go.Box(y=data, name=label, boxmean='sd'))
+    fig_box.update_layout(title="Distribusi Nilai per Kategori (dengan Mean & Std Dev)",
+                          yaxis_title="Nilai (USD Juta)", height=500, showlegend=True)
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    stats_data = []
+    for data, label in zip(box_data, box_labels):
+        arr = np.array(data, dtype=float)
+        stats_data.append({
+            'Kategori': label,
+            'Mean': f"{np.mean(arr):.2f}",
+            'Median': f"{np.median(arr):.2f}",
+            'Std Dev': f"{np.std(arr):.2f}",
+            'Min': f"{np.min(arr):.2f}",
+            'Max': f"{np.max(arr):.2f}",
+            'Range': f"{np.max(arr) - np.min(arr):.2f}",
+        })
+    st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+
+# Tab 6: Kualitas Data
+with tabs[5]:
+    st.markdown(f"**Analisis Kualitas Data** - `{selected_analysis_label}`")
+    st.caption("Cek masalah data yang bisa merusak model tanpa terlihat jelas di grafik biasa.")
+
+    n_total = len(analysis_values)
+    n_zero = int((analysis_values == 0).sum())
+    pct_zero = n_zero / n_total * 100 if n_total else 0
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Total Observasi", f"{n_total:,}")
+    with c2:
+        st.metric("Nilai Nol", f"{n_zero:,}")
+    with c3:
+        st.metric("Persentase Nol", f"{pct_zero:.1f}%")
+
+    if pct_zero > 30:
+        st.warning(f"⚠️ {pct_zero:.1f}% data bernilai nol. Perlu diperhatikan: ETL mengubah sel kosong "
+                   "menjadi 0, jadi nilai 0 bisa berarti **tidak ada transaksi** ATAU **data belum "
+                   "tersedia** - keduanya tidak bisa dibedakan setelah tahap ETL.")
+
+    st.divider()
+    st.markdown("**🔢 Deret Nilai Nol Berturut-turut**")
+    min_run = st.slider("Minimal panjang deret (hari)", 2, 30, 3)
+    zero_runs = analytics.analyze_zero_runs(analysis_dates, analysis_values, min_run=min_run)
+
+    if len(zero_runs) > 0:
+        st.dataframe(zero_runs.head(30), use_container_width=True, hide_index=True)
+        st.caption(f"Total {len(zero_runs)} deret nol dengan panjang ≥ {min_run} hari. "
+                   "Deret panjang lebih mungkin masalah ketersediaan data daripada kondisi pasar riil.")
+    else:
+        st.success(f"✅ Tidak ada deret nol berturut-turut ≥ {min_run} hari.")
+
+    st.divider()
+    st.markdown("**📅 Gap Tanggal**")
+    gaps = analytics.analyze_date_gaps(analysis_dates)
+    if len(gaps) > 0:
+        st.dataframe(gaps.head(30), use_container_width=True, hide_index=True)
+        st.caption("Gap > 4 hari kalender (di luar pola akhir pekan normal) - "
+                   "bisa jadi libur panjang atau data yang benar-benar hilang.")
+    else:
+        st.success("✅ Tidak ada gap tanggal yang tidak wajar (akhir pekan normal diabaikan).")
+
+# Tab 7: Correlation Heatmap
+with tabs[6]:
     st.markdown("**Correlation Heatmap** - Korelasi antar kategori utama SDV")
 
     # Get main categories data
@@ -377,71 +843,15 @@ with tabs[1]:
 
     st.plotly_chart(fig_corr, use_container_width=True)
 
-# Tab 3: Distribution Box Plot
-with tabs[2]:
-    st.markdown("**Distribution Analysis** - Distribusi dan volatilitas masing-masing kategori")
+# Tab 8: External Features
+with tabs[7]:
+    st.markdown("**External Features** - Fitur eksternal (Oil Price, USD/IDR, Sentiment, dll)")
 
-    # Get main categories data
-    box_data = []
-    box_labels = []
-
-    for cat in ['A', 'B', 'C', 'D']:
-        cat_row = df[df['Row_ID'] == cat]
-        if len(cat_row) > 0:
-            values = cat_row.iloc[0][time_cols].values
-            box_data.append(values)
-            box_labels.append(category_labels[cat])
-
-    # Create box plot
-    fig_box = go.Figure()
-
-    for i, (data, label) in enumerate(zip(box_data, box_labels)):
-        fig_box.add_trace(go.Box(
-            y=data,
-            name=label,
-            boxmean='sd'  # Show mean and standard deviation
-        ))
-
-    fig_box.update_layout(
-        title="Distribusi Nilai per Kategori (dengan Mean & Std Dev)",
-        yaxis_title="Nilai (USD Juta)",
-        height=500,
-        showlegend=True
-    )
-
-    st.plotly_chart(fig_box, use_container_width=True)
-
-    # Statistics table
-    st.markdown("**📊 Statistik Ringkasan**")
-
-    stats_data = []
-    for data, label in zip(box_data, box_labels):
-        stats_data.append({
-            'Kategori': label,
-            'Mean': f"{np.mean(data):.2f}",
-            'Median': f"{np.median(data):.2f}",
-            'Std Dev': f"{np.std(data):.2f}",
-            'Min': f"{np.min(data):.2f}",
-            'Max': f"{np.max(data):.2f}",
-            'Range': f"{np.max(data) - np.min(data):.2f}"
-        })
-
-    stats_df = pd.DataFrame(stats_data)
-    st.dataframe(stats_df, use_container_width=True, hide_index=True)
-
-    st.info("""
-    **📌 Insights:**
-    - **Box**: Range dari Q1 (25%) hingga Q3 (75%) - ini adalah 50% data tengah
-    - **Line dalam box**: Median (nilai tengah)
-    - **Diamond**: Mean (rata-rata)
-    - **Whiskers**: Min dan Max (atau 1.5×IQR)
-    - **Dots**: Outliers (nilai ekstrem)
-    - **Std Dev lebih besar** = Lebih volatile/bervariasi
-    """)
-
-# Tab 4: External Features
-with tabs[3]:
-    st.markdown("**External Features** - Fitur eksternal yang digunakan untuk forecasting")
+    from utils.external_loader import ENABLE_EXTERNAL_FEATURES
+    if not ENABLE_EXTERNAL_FEATURES:
+        st.warning("⚠️ External features sedang **dimatikan** untuk forecasting "
+                   "(`ENABLE_EXTERNAL_FEATURES = False` di `utils/external_loader.py`). "
+                   "Data di bawah hanya untuk melihat isi file - tidak dipakai model saat ini.")
 
     try:
         # Load external features (use default sheet)
@@ -586,6 +996,6 @@ with tabs[3]:
 
     except FileNotFoundError:
         st.warning("⚠️ File external_features.xlsx tidak ditemukan")
-        st.info("Upload data Trading Economics di halaman **Scraper** untuk menampilkan external features")
+        st.info("Jalankan **Scrape & Update Sentiment** di halaman **Fitur Eksternal** untuk membuat file ini")
     except Exception as e:
         st.error(f"Error loading external features: {e}")
