@@ -189,6 +189,14 @@ class VARForecaster(BaseForecaster):
             # Inverse difference to get original scale
             forecast_values = self._inverse_difference(main_forecast, 0, 'main')
 
+            # VAR yang tidak stabil (akar eksplosif) bisa menghasilkan NaN/inf
+            # TANPA melempar exception - jadi blok except di bawah tidak akan
+            # menangkapnya dan nilai NaN lolos ke perhitungan metrik. Divalidasi
+            # eksplisit di sini supaya jatuh ke fallback yang sama.
+            forecast_values = np.asarray(forecast_values, dtype=float)
+            if not np.all(np.isfinite(forecast_values)):
+                raise ValueError("VAR menghasilkan nilai non-finite (model kemungkinan tidak stabil)")
+
             return list(forecast_values), future_business_dates
 
         except Exception as e:

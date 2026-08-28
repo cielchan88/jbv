@@ -251,6 +251,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # Evaluate all leaf nodes for SELECTED models
     # IMPORTANT: Evaluate base models first, then Stacking uses their predictions
     all_results = []
+    failed_evaluations = []  # kombinasi leaf x model yang gagal, ditampilkan di akhir
     base_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
@@ -517,10 +518,23 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # ========================================================================
 
         def calculate_metrics(actual, predictions):
-            """Calculate all metrics - same formula as Prediksi.py"""
+            """
+            Calculate all metrics - same formula as Prediksi.py
+
+            Return None kalau prediksi tidak layak dinilai (kosong atau mengandung
+            NaN/inf). Sengaja TIDAK diisi 0 atau di-drop diam-diam: model yang
+            gagal akan terlihat seperti memprediksi 0 dan bisa ikut terpilih
+            sebagai "model terbaik". Lebih baik ditandai gagal secara eksplisit.
+            """
             min_len = min(len(actual), len(predictions))
-            actual = np.array(actual[:min_len])
-            predictions = np.array(predictions[:min_len])
+            if min_len == 0:
+                return None
+
+            actual = np.array(actual[:min_len], dtype=float)
+            predictions = np.array(predictions[:min_len], dtype=float)
+
+            if not np.all(np.isfinite(predictions)) or not np.all(np.isfinite(actual)):
+                return None
 
             mae = mean_absolute_error(actual, predictions)
             rmse = np.sqrt(mean_squared_error(actual, predictions))
@@ -562,6 +576,15 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                     actual = actual[-len(predictions):]
 
                 metrics = calculate_metrics(actual, predictions)
+                if metrics is None:
+                    # Model gagal menghasilkan prediksi yang bisa dinilai.
+                    # Dicatat lalu dilewati - JANGAN sampai membatalkan seluruh
+                    # evaluasi (yang bisa memakan menit-menit) hanya karena satu
+                    # model bermasalah di satu leaf node.
+                    failed_evaluations.append({'Leaf': leaf_id, 'Model': model_name,
+                                               'Alasan': 'Prediksi mengandung NaN/inf'})
+                    continue
+
                 metrics['Row_ID'] = leaf_id
                 metrics['Row_Label'] = row_label
                 metrics['Category'] = category
@@ -691,6 +714,15 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     st.session_state['evaluation_metric'] = selection_metric
 
     st.success(f"✅ Successfully evaluated {len(selected_models)} models on {len(leaf_nodes_to_run)} leaf nodes!")
+
+    # Laporkan kombinasi yang gagal supaya tidak hilang diam-diam - kalau sebuah
+    # model absen dari hasil, user perlu tahu itu karena gagal, bukan karena
+    # kebetulan tidak terpilih.
+    if failed_evaluations:
+        st.warning(f"⚠️ {len(failed_evaluations)} kombinasi leaf x model gagal dan tidak masuk hasil "
+                   f"(evaluasi tetap dilanjutkan untuk sisanya).")
+        with st.expander("📋 Detail kegagalan"):
+            st.dataframe(pd.DataFrame(failed_evaluations), use_container_width=True, hide_index=True)
 
     # ========================================================================
     # SECTION 1: OVERALL MODEL PERFORMANCE (same format as Prediksi.py)
