@@ -84,6 +84,22 @@ test_size = st.sidebar.slider(
     step=5
 )
 
+# Batas horizon evaluasi.
+# Dengan histori penuh (~5000 hari), test 20% = ~1000 hari. Mengevaluasi forecast
+# 1000 hari ke depan itu (a) sangat lambat, dan (b) tidak mencerminkan cara model
+# dipakai - Lembar Kerja defaultnya forecast 30 hari. Membatasi horizon membuat
+# metrik evaluasi selaras dengan horizon pemakaian nyata sekaligus jauh lebih cepat.
+limit_horizon = st.sidebar.checkbox(
+    "Batasi horizon evaluasi", value=True,
+    help="Evaluasi hanya N hari pertama dari periode test, bukan seluruhnya"
+)
+eval_horizon = None
+if limit_horizon:
+    eval_horizon = st.sidebar.number_input(
+        "Horizon evaluasi (hari)", min_value=7, max_value=365, value=60, step=7,
+        help="Samakan dengan horizon forecast yang biasa dipakai di Lembar Kerja"
+    )
+
 # Model selection
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
@@ -113,6 +129,24 @@ if st.sidebar.checkbox("Stacking", value=True, key="model_stack"):
 if len(selected_models) == 0:
     st.sidebar.warning("⚠️ Pilih minimal 1 model")
 
+# Pilihan subset leaf node - supaya evaluasi bisa dijalankan bertahap
+# (sekali jalan untuk semua leaf node bisa makan puluhan menit dan berisiko
+# putus koneksi sebelum selesai).
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Cakupan Leaf Node")
+evaluate_all = st.sidebar.checkbox("Evaluasi semua leaf node", value=True)
+if evaluate_all:
+    leaf_nodes_to_run = leaf_nodes
+else:
+    leaf_nodes_to_run = st.sidebar.multiselect(
+        "Pilih leaf node:",
+        options=leaf_nodes,
+        default=leaf_nodes[:5],
+        help="Jalankan sebagian dulu supaya prosesnya lebih pendek, lalu lanjutkan sisanya"
+    )
+    if len(leaf_nodes_to_run) == 0:
+        st.sidebar.warning("⚠️ Pilih minimal 1 leaf node")
+
 # Metric selection for best model
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 Metric Acuan")
@@ -141,7 +175,7 @@ run_comparison = st.sidebar.button("🚀 Jalankan Evaluasi", type="primary")
 has_results = 'evaluation_results' in st.session_state and st.session_state['evaluation_results'] is not None
 
 # Main evaluation logic
-if run_comparison and len(selected_models) > 0:
+if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
     # Load holidays
     holidays_list = load_holidays()
@@ -158,9 +192,18 @@ if run_comparison and len(selected_models) > 0:
         )
 
         @st.cache_data
-        def prepare_cross_series_data(df, leaf_nodes, time_cols):
-            """Prepare cross-series correlation data for all leaf nodes - SAME AS Lembar_Kerja.py"""
+        def prepare_cross_series_data(df, leaf_nodes, time_cols, target_leaves=None):
+            """
+            Prepare cross-series correlation data - SAME AS Lembar_Kerja.py
+
+            target_leaves: leaf node yang benar-benar akan dievaluasi. Kandidat
+            korelasinya tetap SELURUH leaf_nodes (supaya fiturnya identik dengan
+            evaluasi penuh), tapi peta hanya dihitung untuk leaf yang dipakai -
+            menghindari komputasi sia-sia saat user hanya menjalankan sebagian.
+            """
             cross_series_map = {}
+            if target_leaves is None:
+                target_leaves = leaf_nodes
 
             # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
             if ML_START_DATE is not None:
@@ -168,7 +211,7 @@ if run_comparison and len(selected_models) > 0:
             else:
                 time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
 
-            for leaf_id in leaf_nodes:
+            for leaf_id in target_leaves:
                 # 1. Get all other leaf nodes (exclude current series)
                 candidate_series = [lid for lid in leaf_nodes if lid != leaf_id]
 
@@ -189,7 +232,7 @@ if run_comparison and len(selected_models) > 0:
 
             return cross_series_map
 
-        cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols)
+        cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols, tuple(leaf_nodes_to_run))
         st.success(f"✅ Cross-series correlations calculated for {len(cross_series_map)} leaf nodes")
 
     # Display data range information (SAME AS Prediksi.py)
@@ -211,10 +254,10 @@ if run_comparison and len(selected_models) > 0:
     base_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
-    total_steps = len(leaf_nodes) * len(selected_models)
+    total_steps = len(leaf_nodes_to_run) * len(selected_models)
     current_step = 0
 
-    for leaf_id in leaf_nodes:
+    for leaf_id in leaf_nodes_to_run:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
         if len(leaf_row) == 0:
@@ -269,6 +312,12 @@ if run_comparison and len(selected_models) > 0:
         train_apuva = ts_df_apuva.iloc[:split_idx_apuva]
         test_apuva = ts_df_apuva.iloc[split_idx_apuva:]
 
+        # Potong horizon test kalau dibatasi - training tetap utuh, hanya periode
+        # yang dievaluasi yang dipotong (lihat catatan di sidebar).
+        if eval_horizon is not None:
+            test_ml = test_ml.iloc[:int(eval_horizon)]
+            test_apuva = test_apuva.iloc[:int(eval_horizon)]
+
         # Skip if test data too small
         if len(test_ml) < 5 or len(test_apuva) < 5:
             current_step += len(selected_models)
@@ -282,13 +331,27 @@ if run_comparison and len(selected_models) > 0:
 
         from utils.feature_engineering_optimized import create_features_optimized, select_top_features_optimized
 
-        # Prepare data for feature engineering (SAME AS Prediksi.py line 211-213)
-        train_fe = train_ml.rename(columns={'date': 'ds', 'value': 'y'})
-        test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
+        # Hitung fitur SEKALI pada deret utuh (train + test menyambung), baru
+        # di-split berdasarkan tanggal.
+        #
+        # Sebelumnya fitur dihitung terpisah untuk train dan test. Itu salah
+        # karena create_features_optimized() membangun lag/rolling DARI DALAM
+        # dataframe yang diberikan: potongan test tidak punya histori sebelum
+        # titik awalnya, sehingga fitur window panjang (rolling_mean_90 dst.)
+        # tidak bisa dihitung sama sekali (butuh window*3 baris) atau dihitung
+        # dari sampel yang "restart" - tidak sama dengan yang dilihat model saat
+        # training. Makin pendek horizon evaluasi, makin parah efeknya.
+        full_fe = pd.concat([train_ml, test_ml], ignore_index=True).rename(
+            columns={'date': 'ds', 'value': 'y'}
+        )
+        full_features = create_features_optimized(
+            full_fe, lag_steps=90, holidays_list=holidays_list,
+            external_series=external_series_data, external_series_dates=dates_ml
+        )
 
-        # Create optimized features ONCE (SAME AS Prediksi.py line 216-217)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
+        split_date = test_ml['date'].iloc[0]
+        train_features = full_features[full_features['date'] < split_date].copy()
+        test_features = full_features[full_features['date'] >= split_date].copy()
 
         # Get common features (SAME AS Prediksi.py line 220-222)
         train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]
@@ -627,7 +690,7 @@ if run_comparison and len(selected_models) > 0:
     st.session_state['evaluation_test_size'] = test_size
     st.session_state['evaluation_metric'] = selection_metric
 
-    st.success(f"✅ Successfully evaluated {len(selected_models)} models on {len(leaf_nodes)} leaf nodes!")
+    st.success(f"✅ Successfully evaluated {len(selected_models)} models on {len(leaf_nodes_to_run)} leaf nodes!")
 
     # ========================================================================
     # SECTION 1: OVERALL MODEL PERFORMANCE (same format as Prediksi.py)
