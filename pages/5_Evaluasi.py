@@ -109,27 +109,60 @@ st.sidebar.subheader("🤖 Pilih Model")
 # Available models with checkboxes in sidebar
 all_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "Stacking"]
 
+# Model dikelompokkan berdasarkan CARA KERJANYA, bukan sekadar rapi di layar:
+#   - Classic  : model statistik time-series yang memodelkan struktur deret
+#                (autokorelasi, tren, musiman) secara langsung.
+#   - ML       : supervised learning di atas fitur hasil rekayasa (lag, rolling,
+#                volatilitas dst.) - kualitasnya bergantung pada feature engineering.
+#   - Baseline & Ensemble : APUVA adalah rumus hardcoded (proporsi historis x
+#                konstanta sentimen) - TIDAK belajar dari data, jadi menyebutnya
+#                "ML" akan menyesatkan; Stacking adalah meta-model yang menggabung
+#                keluaran model lain, sehingga bergantung pada model di atasnya.
+# 'key' tiap checkbox sengaja dipertahankan supaya pilihan lama di session state
+# tidak ter-reset saat pengelompokan ini diterapkan.
+MODEL_GROUPS = [
+    ("📐 Classic (Statistik)", [
+        ("AutoARIMA", "model_arima", "Autoregressive Integrated Moving Average dengan pencarian order otomatis"),
+        ("VAR", "model_var", "Vector Autoregression - memanfaatkan hubungan antar series"),
+        ("Prophet", "model_prophet", "Model aditif: tren + musiman + hari libur"),
+    ]),
+    ("🤖 Machine Learning (ML)", [
+        ("RandomForest", "model_rf", "Ensemble pohon keputusan (bagging)"),
+        ("XGBoost", "model_xgb", "Gradient boosting"),
+        ("LightGBM", "model_lgbm", "Gradient boosting, lebih cepat pada data besar"),
+    ]),
+    ("📊 Baseline & Ensemble", [
+        ("APUVA", "model_apuva", "Rumus baseline warisan (proporsi historis x konstanta sentimen) - bukan model ML"),
+        ("Stacking", "model_stack", "Meta-model yang menggabungkan prediksi model-model di atas"),
+    ]),
+]
+
 selected_models = []
-if st.sidebar.checkbox("APUVA", value=True, key="model_apuva"):
-    selected_models.append("APUVA")
-if st.sidebar.checkbox("Prophet", value=True, key="model_prophet"):
-    selected_models.append("Prophet")
-if st.sidebar.checkbox("RandomForest", value=True, key="model_rf"):
-    selected_models.append("RandomForest")
-if st.sidebar.checkbox("LightGBM", value=True, key="model_lgbm"):
-    selected_models.append("LightGBM")
-if st.sidebar.checkbox("XGBoost", value=True, key="model_xgb"):
-    selected_models.append("XGBoost")
-if st.sidebar.checkbox("AutoARIMA", value=True, key="model_arima"):
-    selected_models.append("AutoARIMA")
-if st.sidebar.checkbox("VAR", value=True, key="model_var"):
-    selected_models.append("VAR")
-if st.sidebar.checkbox("Stacking", value=True, key="model_stack"):
-    selected_models.append("Stacking")
+for group_name, models_in_group in MODEL_GROUPS:
+    with st.sidebar.expander(group_name, expanded=True):
+        # Tombol pintas per grup - berguna untuk mematikan grup Classic yang
+        # jauh lebih lambat (AutoARIMA ~11 detik per leaf node).
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Pilih semua", key=f"all_{group_name}", use_container_width=True):
+                for _, key, _ in models_in_group:
+                    st.session_state[key] = True
+                st.rerun()
+        with c2:
+            if st.button("Kosongkan", key=f"none_{group_name}", use_container_width=True):
+                for _, key, _ in models_in_group:
+                    st.session_state[key] = False
+                st.rerun()
+
+        for model_name, key, help_text in models_in_group:
+            if st.checkbox(model_name, value=True, key=key, help=help_text):
+                selected_models.append(model_name)
 
 # Warning if no model selected
 if len(selected_models) == 0:
     st.sidebar.warning("⚠️ Pilih minimal 1 model")
+else:
+    st.sidebar.caption(f"✔️ {len(selected_models)} dari {len(all_models)} model dipilih")
 
 # Pilihan subset leaf node - supaya evaluasi bisa dijalankan bertahap
 # (sekali jalan untuk semua leaf node bisa makan puluhan menit dan berisiko
