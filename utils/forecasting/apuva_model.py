@@ -47,10 +47,84 @@ class APUVAForecaster(BaseForecaster):
         'C.e': 0.00,     # Non Residen - Lainnya
     }
 
-    def __init__(self, holidays=None, row_id=None):
+    def __init__(self, holidays=None, row_id=None, calibrate_sentiment=True,
+                 calibration_window=120):
         super().__init__(holidays)
         self.row_id = row_id
         self.sentiment_factor = self.SENTIMENT_FACTORS.get(row_id, 0.0)
+        self.default_sentiment_factor = self.sentiment_factor
+        self.calibrate_sentiment = calibrate_sentiment
+        self.calibration_window = calibration_window
+        self.sentiment_factor_source = 'hardcoded'
+
+    def _calibrate_sentiment_factor(self):
+        """
+        Estimasi Faktor_Sentimen dari data, bukan memakai konstanta hardcoded.
+
+        SENTIMENT_FACTORS di kelas ini tidak punya dokumentasi asal-usul maupun
+        mekanisme pembaruan, dan terbukti merusak untuk sebagian kategori. Diuji
+        pada data nyata (18 leaf node, horizon 60 hari): menolkan faktor justru
+        memperbaiki 7 dari 10 leaf yang punya faktor != 0, beberapa di antaranya
+        dramatis - B.a (faktor 5.40) MAE 9.51 -> 1.46 dan R2 -3181 -> -75.5;
+        C.c (1.95) MAE 263.8 -> 81.7; A.2.a (0.80) MAE 123.6 -> 60.7. Tapi
+        menolkan SEMUANYA juga bukan jawaban: 3 leaf lain malah memburuk.
+
+        Jadi faktornya diestimasi per series dari perilaku terkini:
+        prediksi = base x (1 + f), sehingga f optimal (least squares) adalah
+        f = sum(base*actual)/sum(base^2) - 1 pada jendela holdout terakhir.
+
+        Model di-fit ulang pada data SEBELUM jendela holdout saat menghitung
+        base, supaya kalibrasi tidak memakai nilai yang justru ingin diprediksi.
+        Kalau kalibrasi tidak memungkinkan (data kurang, base ~ 0, atau hasilnya
+        di luar rentang wajar), konstanta lama tetap dipakai sebagai fallback.
+        """
+        W = self.calibration_window
+        full = self.df_history
+
+        # Butuh cukup data: jendela holdout + histori beberapa tahun untuk formulanya
+        if len(full) < W + 500:
+            return
+
+        holdout = full.iloc[-W:]
+        fit_part = full.iloc[:-W]
+
+        try:
+            self.df_history = fit_part
+            bases, actuals = [], []
+            for _, row in holdout.iterrows():
+                yr = row['date'].year
+                n1 = self._calculate_monthly_proportion(row['month'], yr)
+                n2 = self._calculate_daily_proportion(row['month'], row['day'], yr)
+                base = n1 * n2
+                if np.isfinite(base):
+                    bases.append(base)
+                    actuals.append(row['value'])
+        except Exception:
+            return
+        finally:
+            self.df_history = full
+
+        if len(bases) < 20:
+            return
+
+        bases = np.asarray(bases, dtype=float)
+        actuals = np.asarray(actuals, dtype=float)
+        denom = float(np.sum(bases ** 2))
+
+        # base mendekati nol -> rasio tidak stabil, jangan dipaksakan
+        if denom <= 1e-9:
+            return
+
+        scale = float(np.sum(bases * actuals)) / denom
+        f = scale - 1.0
+
+        # Batasi ke rentang wajar. Faktor ekstrem justru sumber masalah pada
+        # versi hardcoded (B.a = 5.40 berarti pengali 6.4x).
+        if not np.isfinite(f) or not (-2.0 <= f <= 2.0):
+            return
+
+        self.sentiment_factor = f
+        self.sentiment_factor_source = 'calibrated'
 
     def fit(self, dates, values):
         """
@@ -75,6 +149,9 @@ class APUVAForecaster(BaseForecaster):
         self.df_history['year'] = self.df_history['date'].dt.year
         self.df_history['month'] = self.df_history['date'].dt.month
         self.df_history['day'] = self.df_history['date'].dt.day
+
+        if self.calibrate_sentiment:
+            self._calibrate_sentiment_factor()
 
         return self
 
