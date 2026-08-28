@@ -1,0 +1,30 @@
+# Konfigurasi server Streamlit untuk deployment di balik nginx.
+#
+# Ini BUKAN file rahasia (kredensial ada di config.py & .streamlit/secrets.toml,
+# keduanya tetap di-gitignore) - sengaja di-track supaya setting deployment
+# konsisten di semua environment.
+
+[server]
+# Halaman Evaluasi bisa berjalan beberapa menit tanpa mengirim apa pun lewat
+# WebSocket. Tanpa ping berkala, nginx (atau browser HP yang menidurkan tab)
+# akan menutup koneksi, lalu Streamlit reconnect dan MENJALANKAN ULANG script
+# dari awal - inilah yang terlihat sebagai "halaman refresh sendiri" di tengah
+# evaluasi. Ping rutin menjaga koneksi tetap hidup selama proses panjang.
+enableWebsocketCompression = false
+enableCORS = false
+enableXsrfProtection = true
+
+# Jangan jalankan ulang script hanya karena file di disk berubah - ETL dan
+# scraper menulis file saat aplikasi berjalan, dan itu tidak boleh memicu
+# rerun di tengah evaluasi.
+fileWatcherType = "none"
+
+# Batas ukuran upload (MB) - source-data.xlsx sekitar 5-6 MB
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# Tampilkan error lengkap di UI supaya masalah tidak "hilang" diam-diam
+showErrorDetails = true

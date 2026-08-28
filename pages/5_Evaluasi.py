@@ -20,6 +20,8 @@ import xgboost as xgb
 from prophet import Prophet
 import json
 import os
+import pickle
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -167,6 +169,93 @@ metric_info = {
 }
 st.sidebar.caption(f"ℹ️ {metric_info[selection_metric]}")
 
+# ============================================================================
+# CHECKPOINT - supaya evaluasi tahan putus koneksi
+# ============================================================================
+# Streamlit menjalankan ULANG script dari atas setiap kali WebSocket-nya
+# reconnect (timeout nginx, browser HP menidurkan tab, ganti jaringan). Untuk
+# proses yang makan menit-menit seperti evaluasi, itu berarti semua kemajuan
+# hilang - dan inilah yang terlihat sebagai "halaman refresh sendiri".
+#
+# Hasil per leaf node disimpan ke disk (bukan hanya session_state, karena
+# session_state ikut hilang kalau Streamlit membuat sesi baru saat reconnect),
+# sehingga run yang terputus bisa dilanjutkan, bukan diulang dari nol.
+CHECKPOINT_FILE = 'data/eval_checkpoint.pkl'
+
+
+def load_checkpoint():
+    try:
+        if os.path.exists(CHECKPOINT_FILE):
+            with open(CHECKPOINT_FILE, 'rb') as f:
+                return pickle.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def save_checkpoint(payload):
+    try:
+        os.makedirs(os.path.dirname(CHECKPOINT_FILE), exist_ok=True)
+        with open(CHECKPOINT_FILE, 'wb') as f:
+            pickle.dump(payload, f)
+    except Exception:
+        pass  # checkpoint gagal tidak boleh menggagalkan evaluasi
+
+
+def clear_checkpoint():
+    try:
+        if os.path.exists(CHECKPOINT_FILE):
+            os.remove(CHECKPOINT_FILE)
+    except Exception:
+        pass
+
+
+def settings_fingerprint():
+    """
+    Sidik jari pengaturan yang MEMPENGARUHI hasil metrik. Dipakai untuk menolak
+    melanjutkan checkpoint yang dibuat dengan pengaturan berbeda - kalau tidak,
+    hasil dari test_size/horizon/model yang berbeda akan tercampur dalam satu
+    tabel dan perbandingan antar model jadi tidak sahih.
+    """
+    return {
+        'test_size': test_size,
+        'eval_horizon': eval_horizon,
+        'models': sorted(selected_models),
+    }
+
+
+checkpoint = load_checkpoint()
+
+st.sidebar.markdown("---")
+resume_mode = False
+if checkpoint and checkpoint.get('done_leaves'):
+    done_n = len(checkpoint['done_leaves'])
+    saved_fp = checkpoint.get('settings')
+    current_fp = settings_fingerprint()
+
+    st.sidebar.info(f"💾 Ada hasil tersimpan: **{done_n} leaf node** sudah selesai "
+                    f"({checkpoint.get('timestamp', 'waktu tidak diketahui')})")
+
+    if saved_fp is not None and saved_fp != current_fp:
+        # Pengaturan berubah - melanjutkan akan mencampur hasil dari konfigurasi
+        # berbeda, jadi opsi lanjut sengaja tidak ditawarkan.
+        st.sidebar.warning("⚠️ Pengaturan sekarang berbeda dari hasil tersimpan "
+                           "(test size / horizon / pilihan model). Hasil lama tidak bisa "
+                           "dilanjutkan karena akan tercampur - jalankan ulang atau "
+                           "kembalikan pengaturannya seperti semula.")
+        with st.sidebar.expander("Bandingkan pengaturan"):
+            st.write("**Tersimpan:**", saved_fp)
+            st.write("**Sekarang:**", current_fp)
+    else:
+        resume_mode = st.sidebar.checkbox(
+            "Lanjutkan dari hasil tersimpan", value=True,
+            help="Leaf node yang sudah selesai akan dilewati, jadi tidak perlu mengulang dari awal"
+        )
+
+    if st.sidebar.button("🗑️ Hapus hasil tersimpan"):
+        clear_checkpoint()
+        st.rerun()
+
 # Run evaluation button
 st.sidebar.markdown("---")
 run_comparison = st.sidebar.button("🚀 Jalankan Evaluasi", type="primary")
@@ -252,13 +341,27 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # IMPORTANT: Evaluate base models first, then Stacking uses their predictions
     all_results = []
     failed_evaluations = []  # kombinasi leaf x model yang gagal, ditampilkan di akhir
+    done_leaves = []
+
+    # Kalau melanjutkan run yang terputus, pulihkan hasil yang sudah ada dan
+    # lewati leaf node yang sudah selesai.
+    if resume_mode and checkpoint:
+        all_results = list(checkpoint.get('all_results', []))
+        failed_evaluations = list(checkpoint.get('failed_evaluations', []))
+        done_leaves = list(checkpoint.get('done_leaves', []))
+
+    pending_leaves = [lid for lid in leaf_nodes_to_run if lid not in done_leaves]
+    if len(done_leaves) > 0:
+        st.info(f"⏭️ Melewati {len(done_leaves)} leaf node yang sudah selesai, "
+                f"melanjutkan {len(pending_leaves)} sisanya.")
+
     base_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
-    total_steps = len(leaf_nodes_to_run) * len(selected_models)
+    total_steps = max(1, len(pending_leaves) * len(selected_models))
     current_step = 0
 
-    for leaf_id in leaf_nodes_to_run:
+    for leaf_id in pending_leaves:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
         if len(leaf_row) == 0:
@@ -697,6 +800,19 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             current_step += 1
             progress_bar.progress(current_step / total_steps)
+
+        # Leaf node ini selesai - simpan progres ke disk SEBELUM lanjut.
+        # Kalau koneksi putus setelah titik ini, hasilnya tidak hilang.
+        done_leaves.append(leaf_id)
+        save_checkpoint({
+            'all_results': all_results,
+            'failed_evaluations': failed_evaluations,
+            'done_leaves': done_leaves,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'settings': settings_fingerprint(),
+            'test_size': test_size,
+            'selection_metric': selection_metric,
+        })
 
     progress_bar.progress(1.0)
     status_text.text("✅ Evaluation completed!")

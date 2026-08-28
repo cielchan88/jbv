@@ -35,8 +35,14 @@ Thumbs.db
 *.swo
 
 # Streamlit
-.streamlit/
+# config.toml sengaja di-track (setting deployment, bukan rahasia);
+# secrets.toml tetap diabaikan karena berisi kredensial.
+.streamlit/*
+!.streamlit/config.toml
 catboost_info/
+
+# Checkpoint evaluasi (hasil sementara, di-regenerate tiap run)
+data/eval_checkpoint.pkl
 
 # Configuration with sensitive data
 config.py
