@@ -107,7 +107,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
 
 # Available models with checkboxes in sidebar
-all_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "Stacking"]
+all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "Stacking"]
 
 # Model dikelompokkan berdasarkan CARA KERJANYA, bukan sekadar rapi di layar:
 #   - Classic  : model statistik time-series yang memodelkan struktur deret
@@ -132,6 +132,8 @@ MODEL_GROUPS = [
         ("LightGBM", "model_lgbm", "Gradient boosting, lebih cepat pada data besar"),
     ]),
     ("📊 Baseline & Ensemble", [
+        ("Naive", "model_naive", "Ulangi nilai terakhir - GARIS ACUAN. Model yang tidak bisa mengalahkan ini tidak layak dipakai"),
+        ("NaiveMean", "model_naive_mean", "Rata-rata 90 hari terakhir - garis acuan untuk deret yang mean-reverting"),
         ("APUVA", "model_apuva", "Rumus baseline warisan (proporsi historis x konstanta sentimen) - bukan model ML"),
         ("Stacking", "model_stack", "Meta-model yang menggabungkan prediksi model-model di atas"),
     ]),
@@ -388,7 +390,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         st.info(f"⏭️ Melewati {len(done_leaves)} leaf node yang sudah selesai, "
                 f"melanjutkan {len(pending_leaves)} sisanya.")
 
-    base_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
+    base_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
     total_steps = max(1, len(pending_leaves) * len(selected_models))
@@ -522,6 +524,31 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
         # Dictionary to store results like Prediksi.py
         results = {}
+
+        # --- BASELINE: Naive (garis acuan) ---
+        # Dievaluasi lebih dulu supaya selalu ada pembanding trivial di tabel
+        # hasil. Tanpa ini, angka seperti "R2 = -0.18" tidak bisa dinilai layak
+        # atau tidak - ternyata banyak model tidak mengalahkan baseline ini.
+        for naive_name, naive_kwargs in [("Naive", {'method': 'last'}),
+                                         ("NaiveMean", {'method': 'mean', 'window': 90})]:
+            if naive_name in selected_models:
+                status_text.text(f"Evaluating {leaf_id} with {naive_name}... ({current_step+1}/{total_steps})")
+                try:
+                    from utils.forecasting import NaiveForecaster
+                    nm = NaiveForecaster(holidays=holidays_list, **naive_kwargs)
+                    nm.fit(train_ml['date'].dt.strftime('%Y-%m-%d').tolist(), train_ml['value'].values)
+                    preds_naive, _ = nm.predict(
+                        train_ml['date'].dt.strftime('%Y-%m-%d').tolist(),
+                        train_ml['value'].values,
+                        len(test_ml)
+                    )
+                    preds_naive = np.array(preds_naive)
+                    results[naive_name] = {'success': True, 'predictions_test': preds_naive}
+                    leaf_predictions[naive_name] = preds_naive
+                except Exception:
+                    results[naive_name] = {'success': False}
+                current_step += 1
+                progress_bar.progress(min(current_step / total_steps, 1.0))
 
         # --- MODEL 1: APUVA (uses full data) ---
         if "APUVA" in selected_models:
@@ -891,7 +918,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     }).rename(columns={'Row_ID': 'Count'})
 
     # Sort by model order (filter to only selected models)
-    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR'] if m in selected_models]
+    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR', 'Naive', 'NaiveMean'] if m in selected_models]
     model_summary = model_summary.reindex([m for m in model_order if m in model_summary.index]).reset_index()
     model_summary = model_summary.round(2)
 

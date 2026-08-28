@@ -103,13 +103,44 @@ class VARForecaster(BaseForecaster):
         df = pd.DataFrame({'main': values}, index=pd.to_datetime(dates))
         self.series_names = ['main']
 
-        # Add external series if provided
+        # Add external series if provided.
+        #
+        # PENTING: external_series datang dari prepare_external_series_data()
+        # yang memakai SELURUH periode (mis. 5032 titik), sedangkan `values` di
+        # sini biasanya cuma potongan training (mis. 4025 titik). Cek lama
+        # `len(series_values) == len(values)` karena itu SELALU gagal, sehingga
+        # tidak ada satu pun series tambahan yang masuk dan VAR selalu jatuh ke
+        # mode univariat -> forecast konstan (fallback). Terbukti dari evaluasi:
+        # metrik VAR persis identik dengan baseline "nilai terakhir".
+        #
+        # `values` selalu merupakan potongan AWAL (prefix) dari deret penuh di
+        # semua pemanggil (train split, atau deret penuh itu sendiri), jadi
+        # potongan yang sepadan adalah series_values[:len(values)].
+        n_added, n_skipped = 0, 0
         if external_series and len(external_series) > 0:
             for series_id, series_values in external_series.items():
-                if len(series_values) == len(values):
-                    col_name = str(series_id)[:20]  # Truncate long names
-                    df[col_name] = series_values
-                    self.series_names.append(col_name)
+                sv = np.asarray(series_values, dtype=float)
+
+                if len(sv) == len(values):
+                    aligned = sv
+                elif len(sv) > len(values):
+                    aligned = sv[:len(values)]
+                else:
+                    n_skipped += 1
+                    continue  # terlalu pendek - tidak bisa disepadankan dengan aman
+
+                if not np.all(np.isfinite(aligned)):
+                    n_skipped += 1
+                    continue
+
+                col_name = str(series_id)[:20]  # Truncate long names
+                df[col_name] = aligned
+                self.series_names.append(col_name)
+                n_added += 1
+
+        self.n_external_used = n_added
+        if n_skipped > 0:
+            print(f"VAR: {n_skipped} series eksternal dilewati (panjang tidak memadai / ada nilai non-finite)")
 
         # Make all series stationary
         df_stationary = self._make_stationary(df)

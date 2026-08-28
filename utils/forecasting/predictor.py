@@ -9,6 +9,7 @@ from .apuva_model import APUVAForecaster
 from .croston_model import CrostonForecaster
 from .stacking_model import StackingForecaster
 from .var_model import VARForecaster
+from .naive_model import NaiveForecaster
 
 
 def forecast_single_series(dates, values, model_name, n_days, holidays=None, external_series=None, row_id=None):
@@ -53,7 +54,9 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
         'apuva': APUVAForecaster,
         'croston': CrostonForecaster,
         'stacking': StackingForecaster,
-        'var': VARForecaster
+        'var': VARForecaster,
+        'naive': NaiveForecaster,
+        'naivemean': NaiveForecaster,
     }
 
     model_name_lower = model_name.lower()
@@ -63,6 +66,12 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
     # Initialize forecaster
     if model_name_lower == 'apuva':
         forecaster = model_map[model_name_lower](holidays=holidays, row_id=row_id)
+    elif model_name_lower == 'naive':
+        forecaster = model_map[model_name_lower](holidays=holidays, method='last')
+    elif model_name_lower == 'naivemean':
+        # Harus sama persis dengan konfigurasi yang dipakai di halaman Evaluasi,
+        # kalau tidak model yang terpilih sebagai "terbaik" bukan model yang jalan.
+        forecaster = model_map[model_name_lower](holidays=holidays, method='mean', window=90)
     elif model_name_lower == 'stacking':
         # Stacking also needs row_id for APUVA base model
         forecaster = model_map[model_name_lower](holidays=holidays, row_id=row_id)
