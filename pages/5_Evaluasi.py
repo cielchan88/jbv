@@ -30,6 +30,7 @@ st.set_page_config(page_title="Evaluasi - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
+from utils.feature_config import ENABLE_HOLIDAY_FEATURES
 from utils.data_loader import load_etl_output, parse_children
 
 # Title
@@ -328,7 +329,15 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # waktu yang menyamar sebagai fitur, dan bisa ikut terpilih oleh feature
     # selection berbasis korelasi. Prophet juga tidak mendapat efek libur sama
     # sekali. Semua itu terjadi tanpa error apa pun.
-    if len(holidays_list) > 0:
+    if not ENABLE_HOLIDAY_FEATURES:
+        st.info(
+            "ℹ️ **Fitur hari libur dimatikan.** `is_holiday`, `days_to_holiday`, dan "
+            "`days_from_holiday` tidak dibuat, dan Prophet dijalankan tanpa komponen "
+            "libur. Hari libur tetap dipakai untuk melewati hari non-trading saat "
+            "membuat tanggal forecast. Hidupkan kembali lewat `ENABLE_HOLIDAY_FEATURES` "
+            "di `utils/feature_config.py` setelah data libur lengkap untuk semua tahun."
+        )
+    elif len(holidays_list) > 0:
         _hol = pd.to_datetime(pd.Series(holidays_list))
         _data_years = set(pd.to_datetime(pd.Series(time_cols)).dt.year)
         _hol_years = set(_hol.dt.year) & _data_years
@@ -647,7 +656,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                 # metriknya tidak mewakili model yang sesungguhnya dipakai.
                 _prophet_kwargs = dict(yearly_seasonality=True, weekly_seasonality=True,
                                        daily_seasonality=False, changepoint_prior_scale=0.05)
-                if len(holidays_list) > 0:
+                if ENABLE_HOLIDAY_FEATURES and len(holidays_list) > 0:
                     _prophet_kwargs['holidays'] = pd.DataFrame({
                         'holiday': 'holiday',
                         'ds': pd.to_datetime(holidays_list),

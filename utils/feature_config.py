@@ -12,6 +12,30 @@ Key optimization principles:
 """
 
 # ============================================================================
+# SAKLAR FITUR HARI LIBUR
+# ============================================================================
+# Dimatikan sementara. Alasannya: config/holidays.json hanya memuat tanggal
+# untuk sebagian kecil tahun yang ada di data (saat ini praktis hanya tahun
+# forecast), sehingga untuk mayoritas periode training:
+#   - is_holiday        -> selalu 0 (konstan, tanpa informasi)
+#   - days_from_holiday -> konstan
+#   - days_to_holiday   -> hitung mundur ribuan hari ke libur terdekat di masa
+#                          depan, yaitu indeks waktu yang menyamar sebagai
+#                          fitur kalender dan bisa ikut terpilih oleh feature
+#                          selection berbasis korelasi
+# Prophet juga tidak mendapat efek libur yang bermakna dari daftar sependek itu
+# (terbukti: menambahkan holidays tidak mengubah metrik Prophet sama sekali).
+#
+# CATATAN: saklar ini TIDAK memengaruhi generate_business_dates() di
+# utils/date_utils.py. Fungsi itu tetap memakai daftar libur untuk melewati
+# hari non-trading saat membuat tanggal forecast - itu pemakaian yang benar
+# dan harus tetap hidup.
+#
+# Untuk menghidupkan kembali: lengkapi hari libur lewat halaman "Hari Libur"
+# sampai mencakup seluruh tahun data, lalu set True.
+ENABLE_HOLIDAY_FEATURES = False
+
+# ============================================================================
 # FEATURE CONFIGURATION FOR HIGH VOLATILITY DATA
 # ============================================================================
 
@@ -30,7 +54,7 @@ FEATURE_CONFIG = {
     # HOLIDAY FEATURES (Keep: 3 features)
     # ========================================================================
     "holiday_features": {
-        "enabled": True,
+        "enabled": ENABLE_HOLIDAY_FEATURES,  # lihat saklar di atas
         "features": ["is_holiday", "days_to_holiday", "days_from_holiday"]  # 3 features
     },
 
