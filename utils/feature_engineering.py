@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import json
 
+from .feature_config import ENABLE_HOLIDAY_FEATURES
+
 
 def parse_children(children_value):
     """
@@ -281,7 +283,14 @@ def create_features_advanced(df, lag_steps=90, holidays_list=None, external_seri
     df['is_quarter_end'] = df['date'].dt.is_quarter_end.astype('float64')
 
     # Holiday features
-    if holidays_list is not None and len(holidays_list) > 0:
+    #
+    # Dilewati sepenuhnya kalau ENABLE_HOLIDAY_FEATURES = False. Fungsi ini
+    # dipakai oleh forecaster produksi (LightGBM/XGBoost/RandomForest di
+    # utils/forecasting/), jadi tanpa gerbang ini saklar libur hanya berlaku di
+    # halaman Evaluasi/Prediksi dan TIDAK di jalur forecast yang sebenarnya.
+    if not ENABLE_HOLIDAY_FEATURES:
+        pass
+    elif holidays_list is not None and len(holidays_list) > 0:
         df['is_holiday'] = df['date'].dt.date.isin(holidays_list).astype('float64')
 
         # Days until next holiday
