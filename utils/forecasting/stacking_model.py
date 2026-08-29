@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.model_selection import KFold
+from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMRegressor
 import xgboost as xgb
 from .base import BaseForecaster
@@ -139,7 +139,12 @@ class StackingForecaster(BaseForecaster):
         # ============ CROSS-VALIDATION FOR OUT-OF-FOLD PREDICTIONS ============
         # This prevents overfitting - SAME AS Prediksi.py
         n_splits = 5
-        kf = KFold(n_splits=n_splits, shuffle=False)  # Time series: no shuffle
+        # TimeSeriesSplit, BUKAN KFold. KFold(shuffle=False) tetap melatih tiap
+        # fold memakai SEMUA fold lain - termasuk yang berada SETELAHNYA dalam
+        # waktu. Contoh 20 titik/5 fold: fold 0 (validasi idx 0-3) dilatih pakai
+        # 16 titik masa depan. TimeSeriesSplit hanya melatih pada data sebelum
+        # jendela validasi, sehingga meta-learner tidak pernah melihat masa depan.
+        kf = TimeSeriesSplit(n_splits=n_splits)
         oof_predictions = np.zeros(len(y))
 
         for train_idx, val_idx in kf.split(train_meta_features):

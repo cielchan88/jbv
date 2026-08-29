@@ -102,6 +102,22 @@ if limit_horizon:
         help="Samakan dengan horizon forecast yang biasa dipakai di Lembar Kerja"
     )
 
+# Jumlah jendela walk-forward.
+# Memilih model terbaik dari SATU jendela test tidak reprodusibel: diuji pada
+# data nyata (18 leaf x 5 model x 4 jendela), hanya 2 dari 18 leaf yang model
+# terbaiknya konsisten - 89% berubah tergantung jendela mana yang kebetulan
+# dipakai, padahal selisih MAE antar model mencapai ~37%. Dengan beberapa
+# jendela, model dipilih berdasarkan performa MEDIAN lintas periode, bukan satu
+# periode yang bisa saja kebetulan menguntungkan satu model.
+n_windows = st.sidebar.number_input(
+    "Jumlah jendela walk-forward", min_value=1, max_value=10, value=3, step=1,
+    help="Jendela 1 = periode terakhir, jendela 2 = satu horizon sebelumnya, dst. "
+         "Makin banyak makin andal tapi makin lama (waktu proses ~ jumlah jendela)."
+)
+if n_windows == 1:
+    st.sidebar.warning("⚠️ Dengan 1 jendela, pemilihan model terbaik rawan kebetulan "
+                       "(terbukti hanya ~11% konsisten). Disarankan minimal 3.")
+
 # Model selection
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
@@ -255,6 +271,7 @@ def settings_fingerprint():
     return {
         'test_size': test_size,
         'eval_horizon': eval_horizon,
+        'n_windows': int(n_windows),
         'models': sorted(selected_models),
     }
 
@@ -379,24 +396,29 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     done_leaves = []
 
     # Kalau melanjutkan run yang terputus, pulihkan hasil yang sudah ada dan
-    # lewati leaf node yang sudah selesai.
+    # lewati unit yang sudah selesai.
     if resume_mode and checkpoint:
         all_results = list(checkpoint.get('all_results', []))
         failed_evaluations = list(checkpoint.get('failed_evaluations', []))
         done_leaves = list(checkpoint.get('done_leaves', []))
 
-    pending_leaves = [lid for lid in leaf_nodes_to_run if lid not in done_leaves]
+    # Unit kerja = (leaf node, jendela). Dibuat datar seperti ini supaya
+    # checkpoint bisa melanjutkan pada granularitas per-jendela, bukan harus
+    # mengulang seluruh jendela sebuah leaf kalau koneksi putus di tengah.
+    eval_units = [(lid, w) for lid in leaf_nodes_to_run for w in range(int(n_windows))]
+    pending_units = [u for u in eval_units if list(u) not in [list(d) for d in done_leaves]]
+
     if len(done_leaves) > 0:
-        st.info(f"⏭️ Melewati {len(done_leaves)} leaf node yang sudah selesai, "
-                f"melanjutkan {len(pending_leaves)} sisanya.")
+        st.info(f"⏭️ Melewati {len(done_leaves)} unit (leaf x jendela) yang sudah selesai, "
+                f"melanjutkan {len(pending_units)} sisanya.")
 
     base_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
-    total_steps = max(1, len(pending_leaves) * len(selected_models))
+    total_steps = max(1, len(pending_units) * len(selected_models))
     current_step = 0
 
-    for leaf_id in pending_leaves:
+    for leaf_id, eval_window in pending_units:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
         if len(leaf_row) == 0:
@@ -441,24 +463,32 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # Create time series dataframe for APUVA (SAME AS Prediksi.py line 152-156)
         ts_df_apuva = pd.DataFrame({'date': dates_full, 'value': values_full})
 
-        # Train/test split for ML models (SAME AS Prediksi.py line 158-161)
-        split_idx_ml = int(len(ts_df_ml) * (1 - test_size/100))
-        train_ml = ts_df_ml.iloc[:split_idx_ml]
-        test_ml = ts_df_ml.iloc[split_idx_ml:]
+        # ====================================================================
+        # SPLIT TRAIN/TEST - dengan dukungan jendela walk-forward
+        # ====================================================================
+        # eval_window = 0 -> jendela paling akhir (persis seperti split 80/20
+        # biasa). eval_window = 1, 2, ... -> mundur satu horizon tiap kali.
+        # Training SELALU hanya data sebelum jendela test-nya, jadi tidak ada
+        # jendela yang dilatih memakai data setelah periode yang dinilainya.
+        H_ml = int(eval_horizon) if eval_horizon is not None else max(
+            5, len(ts_df_ml) - int(len(ts_df_ml) * (1 - test_size/100)))
+        H_ap = int(eval_horizon) if eval_horizon is not None else max(
+            5, len(ts_df_apuva) - int(len(ts_df_apuva) * (1 - test_size/100)))
 
-        # Train/test split for APUVA (SAME AS Prediksi.py line 163-166)
-        split_idx_apuva = int(len(ts_df_apuva) * (1 - test_size/100))
-        train_apuva = ts_df_apuva.iloc[:split_idx_apuva]
-        test_apuva = ts_df_apuva.iloc[split_idx_apuva:]
+        anchor_ml = int(len(ts_df_ml) * (1 - test_size/100))
+        test_start_ml = anchor_ml - eval_window * H_ml
+        train_ml = ts_df_ml.iloc[:test_start_ml]
+        test_ml = ts_df_ml.iloc[test_start_ml:test_start_ml + H_ml]
 
-        # Potong horizon test kalau dibatasi - training tetap utuh, hanya periode
-        # yang dievaluasi yang dipotong (lihat catatan di sidebar).
-        if eval_horizon is not None:
-            test_ml = test_ml.iloc[:int(eval_horizon)]
-            test_apuva = test_apuva.iloc[:int(eval_horizon)]
+        anchor_ap = int(len(ts_df_apuva) * (1 - test_size/100))
+        test_start_ap = anchor_ap - eval_window * H_ap
+        train_apuva = ts_df_apuva.iloc[:test_start_ap]
+        test_apuva = ts_df_apuva.iloc[test_start_ap:test_start_ap + H_ap]
 
-        # Skip if test data too small
-        if len(test_ml) < 5 or len(test_apuva) < 5:
+        # Skip kalau jendela mundur terlalu jauh sampai data training tidak cukup
+        MIN_TRAIN = 300
+        if (test_start_ml < MIN_TRAIN or test_start_ap < MIN_TRAIN
+                or len(test_ml) < 5 or len(test_apuva) < 5):
             current_step += len(selected_models)
             progress_bar.progress(min(current_step / total_steps, 1.0))
             continue
@@ -749,6 +779,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                     continue
 
                 metrics['Row_ID'] = leaf_id
+                metrics['Window'] = eval_window
                 metrics['Row_Label'] = row_label
                 metrics['Category'] = category
                 metrics['Sub_Category'] = sub_category
@@ -770,7 +801,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             if len(successful_models_stack) >= 2:
                 try:
                     from sklearn.ensemble import GradientBoostingRegressor
-                    from sklearn.model_selection import KFold
+                    from sklearn.model_selection import TimeSeriesSplit
 
                     # Find shortest prediction length (align like Prediksi.py line 598-603)
                     ml_models_stack = [m for m in successful_models_stack if m != 'APUVA']
@@ -794,11 +825,25 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                     # Stack predictions as features (SAME AS Prediksi.py line 619)
                     X_stack = np.column_stack([aligned_preds[m] for m in successful_models_stack])
 
-                    # KFold cross-validation for OOF predictions (same as Prediksi.py)
+                    # Cross-validation untuk out-of-fold predictions.
+                    #
+                    # TimeSeriesSplit, BUKAN KFold. KFold(shuffle=False) tetap
+                    # melatih tiap fold memakai SEMUA fold lain - termasuk yang
+                    # berada setelahnya dalam waktu. Pada 20 titik / 5 fold,
+                    # fold pertama dilatih memakai 16 titik MASA DEPAN untuk
+                    # memprediksi 4 titik paling awal. Akibatnya metrik Stacking
+                    # tampak lebih baik dari yang sebenarnya bisa dicapai.
                     n_splits = min(5, len(y_actual_stack) // 2)  # Ensure enough samples per fold
                     if n_splits >= 2:
-                        kf = KFold(n_splits=n_splits, shuffle=False)
+                        kf = TimeSeriesSplit(n_splits=n_splits)
                         oof_predictions = np.zeros(len(y_actual_stack))
+                        # TimeSeriesSplit tidak pernah memvalidasi blok paling
+                        # awal (dipakai sebagai training awal), jadi sebagian
+                        # indeks tidak terisi. Kalau dibiarkan, nilai 0 sisa
+                        # inisialisasi akan ikut dinilai sebagai "prediksi" dan
+                        # merusak metrik - jadi hanya indeks yang benar-benar
+                        # terisi yang dievaluasi.
+                        oof_filled = np.zeros(len(y_actual_stack), dtype=bool)
 
                         for train_idx, val_idx in kf.split(X_stack):
                             X_fold_train, X_fold_val = X_stack[train_idx], X_stack[val_idx]
@@ -809,10 +854,11 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                             )
                             fold_meta.fit(X_fold_train, y_fold_train)
                             oof_predictions[val_idx] = fold_meta.predict(X_fold_val)
+                            oof_filled[val_idx] = True
 
                         # Use OOF predictions as test predictions (same as Prediksi.py line 654)
-                        predictions_stack = oof_predictions
-                        actual_stack = y_actual_stack
+                        predictions_stack = oof_predictions[oof_filled]
+                        actual_stack = y_actual_stack[oof_filled]
 
                         # Calculate metrics for Stacking
                         mae = mean_absolute_error(actual_stack, predictions_stack)
@@ -839,6 +885,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
                         stacking_result = {
                             'Row_ID': leaf_id,
+                            'Window': eval_window,
                             'Row_Label': row_label,
                             'Category': category,
                             'Sub_Category': sub_category,
@@ -863,7 +910,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
         # Leaf node ini selesai - simpan progres ke disk SEBELUM lanjut.
         # Kalau koneksi putus setelah titik ini, hasilnya tidak hilang.
-        done_leaves.append(leaf_id)
+        done_leaves.append((leaf_id, eval_window))
         save_checkpoint({
             'all_results': all_results,
             'failed_evaluations': failed_evaluations,
@@ -882,14 +929,52 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         st.stop()
 
     # Convert to DataFrame
-    results_df = pd.DataFrame(all_results)
+    results_raw = pd.DataFrame(all_results)
+    if 'Window' not in results_raw.columns:
+        results_raw['Window'] = 0
+
+    n_win_actual = results_raw['Window'].nunique()
+
+    # ====================================================================
+    # AGREGASI LINTAS JENDELA
+    # ====================================================================
+    # Satu baris per (leaf, model), memakai MEDIAN metrik dari semua jendela.
+    # Median dipilih, bukan mean, karena satu jendela buruk (mis. periode dengan
+    # lonjakan ekstrem) tidak boleh menentukan pemenang sendirian.
+    # Semua langkah setelah ini - tabel performa, pemilihan best model per leaf,
+    # dan penyimpanan model_configs - memakai hasil agregat ini.
+    if n_win_actual > 1:
+        metric_cols = [c for c in ['MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'Bias']
+                       if c in results_raw.columns]
+        meta_cols = ['Row_ID', 'Row_Label', 'Category', 'Sub_Category', 'Model']
+        results_df = (results_raw.groupby(meta_cols, as_index=False)[metric_cols]
+                      .median())
+        # Jumlah jendela yang benar-benar berhasil untuk tiap kombinasi -
+        # kombinasi yang hanya berhasil di sebagian jendela kurang bisa dipercaya.
+        counts = (results_raw.groupby(meta_cols, as_index=False)
+                  .size().rename(columns={'size': 'N_Window'}))
+        results_df = results_df.merge(counts, on=meta_cols, how='left')
+        # Grafik di bagian bawah halaman butuh kolom ini; ambil dari jendela
+        # terakhir (jendela 0) sebagai representasi visual.
+        rep = (results_raw[results_raw['Window'] == results_raw['Window'].min()]
+               .drop_duplicates(subset=meta_cols)[meta_cols + ['predictions', 'actual']])
+        results_df = results_df.merge(rep, on=meta_cols, how='left')
+    else:
+        results_df = results_raw
 
     # Store results in session state
     st.session_state['evaluation_results'] = results_df
+    st.session_state['evaluation_results_raw'] = results_raw
     st.session_state['evaluation_test_size'] = test_size
     st.session_state['evaluation_metric'] = selection_metric
 
-    st.success(f"✅ Successfully evaluated {len(selected_models)} models on {len(leaf_nodes_to_run)} leaf nodes!")
+    st.success(f"✅ Successfully evaluated {len(selected_models)} models on "
+               f"{results_raw['Row_ID'].nunique()} leaf nodes x {n_win_actual} jendela!")
+
+    if n_win_actual > 1:
+        st.info(f"📐 Metrik di bawah adalah **median dari {n_win_actual} jendela walk-forward**. "
+                f"Pemilihan model terbaik memakai nilai median ini, bukan satu periode saja - "
+                f"pada pengujian, model terbaik dari satu jendela hanya konsisten di ~11% leaf node.")
 
     # Laporkan kombinasi yang gagal supaya tidak hilang diam-diam - kalau sebuah
     # model absen dari hasil, user perlu tahu itu karena gagal, bukan karena
