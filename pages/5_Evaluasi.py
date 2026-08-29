@@ -119,6 +119,40 @@ if n_windows == 1:
     st.sidebar.warning("⚠️ Dengan 1 jendela, pemilihan model terbaik rawan kebetulan "
                        "(terbukti hanya ~11% konsisten). Disarankan minimal 3.")
 
+# Cara model ML membuat prediksi saat dinilai.
+#
+# Ini menentukan apakah angka di halaman ini mewakili model yang benar-benar
+# dijalankan Lembar Kerja atau tidak:
+#
+#   recursive - persis jalur produksi (forecast_single_series). Model hanya
+#               tahu data sampai akhir periode training, lalu memakai
+#               prediksinya sendiri sebagai lag untuk langkah berikutnya,
+#               sehingga error menumpuk sepanjang horizon - sama seperti saat
+#               benar-benar meramal masa depan.
+#   direct    - model diberi nilai lag DARI DATA AKTUAL periode test di setiap
+#               titik. Jauh lebih cepat, tapi optimistis: informasi seperti itu
+#               tidak pernah tersedia saat meramal sungguhan.
+#
+# Default recursive karena tujuan halaman ini adalah MEMILIH model untuk
+# dipakai di produksi - peringkat yang diukur dengan cara yang berbeda dari
+# produksi tidak bisa dipercaya untuk keperluan itu.
+eval_mode = st.sidebar.selectbox(
+    "Mode prediksi model ML",
+    ["Setia produksi (recursive)", "Cepat (direct)"],
+    index=0,
+    help="Recursive = sama persis dengan Lembar Kerja, tapi ~14 detik per model "
+         "per jendela. Direct = jauh lebih cepat, tapi metriknya optimistis "
+         "karena model diberi lag dari data aktual periode test."
+)
+recursive_eval = eval_mode.startswith("Setia")
+if not recursive_eval:
+    st.sidebar.warning(
+        "⚠️ Mode direct memberi model nilai lag dari data aktual periode test. "
+        "Metriknya lebih bagus daripada yang bisa dicapai produksi, dan peringkat "
+        "model bisa berbeda. Pakai untuk eksplorasi cepat, jangan untuk memilih "
+        "model yang akan dipakai."
+    )
+
 # Model selection
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
@@ -274,6 +308,9 @@ def settings_fingerprint():
         'eval_horizon': eval_horizon,
         'n_windows': int(n_windows),
         'models': sorted(selected_models),
+        # Wajib ikut: metrik recursive dan direct tidak sebanding, jadi
+        # checkpoint dari mode lain tidak boleh dilanjutkan begitu saja.
+        'recursive_eval': bool(recursive_eval),
     }
 
 
@@ -461,6 +498,22 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     total_steps = max(1, len(pending_units) * len(selected_models))
     current_step = 0
 
+    # Perkiraan durasi. Mode recursive jauh lebih lambat karena fitur dibangun
+    # ulang di SETIAP langkah horizon (diukur ~14 detik per model ML per unit
+    # untuk horizon 60 hari), jadi angkanya perlu disampaikan di depan - bukan
+    # dibiarkan user menunggu tanpa tahu. Hasil disimpan ke checkpoint per unit,
+    # jadi run yang panjang tetap aman kalau koneksi terputus.
+    _n_ml_sel = len([m for m in ['RandomForest', 'LightGBM', 'XGBoost'] if m in selected_models])
+    if recursive_eval and _n_ml_sel > 0:
+        _est_min = len(pending_units) * _n_ml_sel * 14 / 60
+        st.warning(
+            f"⏱️ Mode **setia produksi (recursive)**: perkiraan **~{_est_min:.0f} menit** "
+            f"untuk {len(pending_units)} unit x {_n_ml_sel} model ML (belum termasuk "
+            f"AutoARIMA/VAR/Prophet). Hasil disimpan otomatis per unit - kalau terputus, "
+            f"jalankan lagi dan pilih 'lanjutkan'. Untuk eksplorasi cepat, ganti ke mode "
+            f"direct di sidebar (metriknya optimistis, jangan dipakai memilih model)."
+        )
+
     for leaf_id, eval_window in pending_units:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
@@ -553,38 +606,47 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # tidak bisa dihitung sama sekali (butuh window*3 baris) atau dihitung
         # dari sampel yang "restart" - tidak sama dengan yang dilihat model saat
         # training. Makin pendek horizon evaluasi, makin parah efeknya.
-        full_fe = pd.concat([train_ml, test_ml], ignore_index=True).rename(
-            columns={'date': 'ds', 'value': 'y'}
-        )
-        full_features = create_features_optimized(
-            full_fe, lag_steps=90, holidays_list=holidays_list,
-            external_series=external_series_data, external_series_dates=dates_ml
-        )
-
-        split_date = test_ml['date'].iloc[0]
-        train_features = full_features[full_features['date'] < split_date].copy()
-        test_features = full_features[full_features['date'] >= split_date].copy()
-
-        # Get common features (SAME AS Prediksi.py line 220-222)
-        train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]
-        test_available = [col for col in test_features.columns if col not in ['ds', 'date', 'value']]
-        common_features = list(set(train_available) & set(test_available))
-
-        # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
-        if len(common_features) > 0:
-            top_features, _ = select_top_features_optimized(train_features, top_k=25)
-            feature_cols = [f for f in top_features if f in common_features]
-            if len(feature_cols) == 0:
-                feature_cols = common_features[:25]
-
-            # Prepare X, y ONCE (SAME AS Prediksi.py line 235-238)
-            X_train = train_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-            y_train = train_features['value']
-            X_test = test_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-            y_test = test_features['value']
-        else:
+        # Di mode recursive, fitur dibangun sendiri oleh forecaster di dalam
+        # forecast_single_series(), jadi blok ini murni pemborosan - dilewati.
+        if recursive_eval:
+            # Fitur dibangun sendiri oleh forecaster di dalam
+            # forecast_single_series(), jadi blok ini murni pemborosan.
             feature_cols = []
             X_train = X_test = y_train = y_test = None
+            test_features = None
+        else:
+            full_fe = pd.concat([train_ml, test_ml], ignore_index=True).rename(
+                columns={'date': 'ds', 'value': 'y'}
+            )
+            full_features = create_features_optimized(
+                full_fe, lag_steps=90, holidays_list=holidays_list,
+                external_series=external_series_data, external_series_dates=dates_ml
+            )
+
+            split_date = test_ml['date'].iloc[0]
+            train_features = full_features[full_features['date'] < split_date].copy()
+            test_features = full_features[full_features['date'] >= split_date].copy()
+
+            # Get common features (SAME AS Prediksi.py line 220-222)
+            train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]
+            test_available = [col for col in test_features.columns if col not in ['ds', 'date', 'value']]
+            common_features = list(set(train_available) & set(test_available))
+
+            # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
+            if len(common_features) > 0:
+                top_features, _ = select_top_features_optimized(train_features, top_k=25)
+                feature_cols = [f for f in top_features if f in common_features]
+                if len(feature_cols) == 0:
+                    feature_cols = common_features[:25]
+
+                # Prepare X, y ONCE (SAME AS Prediksi.py line 235-238)
+                X_train = train_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_train = train_features['value']
+                X_test = test_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_test = test_features['value']
+            else:
+                feature_cols = []
+                X_train = X_test = y_train = y_test = None
 
         # ========================================================================
         # EVALUATE ALL MODELS - Using prepared data
@@ -674,47 +736,87 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             current_step += 1
             progress_bar.progress(min(current_step / total_steps, 1.0))
 
-        # --- MODEL 3-5: ML Models (use shared features) ---
-        if X_train is not None and len(feature_cols) > 0:
-            # RandomForest
-            if "RandomForest" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with RandomForest... ({current_step+1}/{total_steps})")
+        # --- MODEL 3-5: ML Models ---
+        #
+        # Dua jalur, lihat penjelasan `eval_mode` di sidebar:
+        #   recursive - lewat forecast_single_series(), yaitu fungsi yang SAMA
+        #               dengan yang dipanggil Lembar Kerja. Yang dinilai di sini
+        #               benar-benar model yang akan dijalankan.
+        #   direct    - model inline yang diberi fitur dari periode test.
+        _ml_specs = [
+            ("RandomForest", lambda: RandomForestRegressor(
+                n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)),
+            ("LightGBM", lambda: LGBMRegressor(
+                n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)),
+            ("XGBoost", lambda: xgb.XGBRegressor(
+                n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)),
+        ]
+
+        if recursive_eval:
+            from utils.forecasting import forecast_single_series
+
+            _train_dates_str = train_ml['date'].dt.strftime('%Y-%m-%d').tolist()
+            _train_vals = train_ml['value'].values
+
+            for _name, _ in _ml_specs:
+                if _name not in selected_models:
+                    continue
+                status_text.text(f"Evaluating {leaf_id} with {_name} (recursive)... "
+                                 f"({current_step+1}/{total_steps})")
                 try:
-                    rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-                    rf_model.fit(X_train, y_train)
-                    predictions_rf = rf_model.predict(X_test)
-                    results['RandomForest'] = {'success': True, 'predictions_test': predictions_rf, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['RandomForest'] = predictions_rf
-                except:
-                    results['RandomForest'] = {'success': False}
+                    _fv, _ = forecast_single_series(
+                        dates=_train_dates_str,
+                        values=_train_vals,
+                        model_name=_name,
+                        n_days=len(test_ml),
+                        holidays=holidays_list,
+                        external_series=external_series_data,
+                        row_id=leaf_id,
+                    )
+                    _fv = np.asarray(_fv, dtype=float)
+
+                    # generate_business_dates bisa menghasilkan jumlah tanggal
+                    # yang sedikit berbeda dari panjang periode test (akhir
+                    # pekan/libur). Disamakan supaya metrik tetap dihitung atas
+                    # pasangan aktual-prediksi yang sejajar.
+                    _n = len(leaf_actual_ml)
+                    if len(_fv) > _n:
+                        _fv = _fv[:_n]
+                    elif len(_fv) < _n:
+                        _fv = np.pad(_fv, (0, _n - len(_fv)), mode='edge')
+
+                    if not np.all(np.isfinite(_fv)):
+                        raise ValueError("forecast mengandung NaN/inf")
+
+                    results[_name] = {'success': True, 'predictions_test': _fv,
+                                      'test_dates': test_ml['date'].values}
+                    leaf_predictions[_name] = _fv
+                except Exception as _e:
+                    results[_name] = {'success': False}
+                    failed_evaluations.append(
+                        {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': _name,
+                         'Alasan': str(_e)[:200]})
                 current_step += 1
                 progress_bar.progress(min(current_step / total_steps, 1.0))
 
-            # LightGBM
-            if "LightGBM" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with LightGBM... ({current_step+1}/{total_steps})")
+        elif X_train is not None and len(feature_cols) > 0:
+            for _name, _make in _ml_specs:
+                if _name not in selected_models:
+                    continue
+                status_text.text(f"Evaluating {leaf_id} with {_name}... "
+                                 f"({current_step+1}/{total_steps})")
                 try:
-                    lgb_model = LGBMRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)
-                    lgb_model.fit(X_train, y_train)
-                    predictions_lgb = lgb_model.predict(X_test)
-                    results['LightGBM'] = {'success': True, 'predictions_test': predictions_lgb, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['LightGBM'] = predictions_lgb
-                except:
-                    results['LightGBM'] = {'success': False}
-                current_step += 1
-                progress_bar.progress(min(current_step / total_steps, 1.0))
-
-            # XGBoost
-            if "XGBoost" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with XGBoost... ({current_step+1}/{total_steps})")
-                try:
-                    xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)
-                    xgb_model.fit(X_train, y_train, verbose=False)
-                    predictions_xgb = xgb_model.predict(X_test)
-                    results['XGBoost'] = {'success': True, 'predictions_test': predictions_xgb, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['XGBoost'] = predictions_xgb
-                except:
-                    results['XGBoost'] = {'success': False}
+                    _m = _make()
+                    _m.fit(X_train, y_train)
+                    _preds = _m.predict(X_test)
+                    results[_name] = {'success': True, 'predictions_test': _preds,
+                                      'test_dates': test_features['ds'].values}
+                    leaf_predictions[_name] = _preds
+                except Exception as _e:
+                    results[_name] = {'success': False}
+                    failed_evaluations.append(
+                        {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': _name,
+                         'Alasan': str(_e)[:200]})
                 current_step += 1
                 progress_bar.progress(min(current_step / total_steps, 1.0))
 
