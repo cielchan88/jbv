@@ -321,6 +321,40 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # Load holidays
     holidays_list = load_holidays()
 
+    # Peringatkan kalau config/holidays.json tidak mencakup periode data.
+    # Ini penting karena kegagalannya SENYAP: fitur is_holiday jadi selalu 0,
+    # days_from_holiday selalu konstan, dan days_to_holiday berubah jadi hitung
+    # mundur ribuan hari ke libur terdekat di masa depan - praktis hanya indeks
+    # waktu yang menyamar sebagai fitur, dan bisa ikut terpilih oleh feature
+    # selection berbasis korelasi. Prophet juga tidak mendapat efek libur sama
+    # sekali. Semua itu terjadi tanpa error apa pun.
+    if len(holidays_list) > 0:
+        _hol = pd.to_datetime(pd.Series(holidays_list))
+        _data_years = set(pd.to_datetime(pd.Series(time_cols)).dt.year)
+        _hol_years = set(_hol.dt.year) & _data_years
+        # Yang menentukan bukan sekadar "ada libur dalam rentang data", tapi
+        # berapa banyak TAHUN yang punya data libur. Libur yang cuma ada untuk
+        # satu tahun terakhir tidak menolong model yang dilatih pada 20 tahun.
+        _missing_years = sorted(_data_years - _hol_years)
+        if len(_hol_years) == 0:
+            st.warning(
+                f"⚠️ **Hari libur tidak mencakup periode data sama sekali.** `config/holidays.json` "
+                f"berisi {len(_hol)} tanggal ({_hol.min().date()} s/d {_hol.max().date()}), "
+                f"sementara data membentang {min(_data_years)}-{max(_data_years)}."
+            )
+        elif len(_missing_years) > 0:
+            st.warning(
+                f"⚠️ **Hari libur hanya tersedia untuk {len(_hol_years)} dari {len(_data_years)} tahun** "
+                f"data (tahun tanpa data libur: {_missing_years[0]}-{_missing_years[-1]}). "
+                f"Untuk periode tanpa data libur, `is_holiday` selalu 0, `days_from_holiday` konstan, "
+                f"dan `days_to_holiday` berubah jadi hitung mundur ribuan hari - praktis hanya indeks "
+                f"waktu, bukan informasi libur. Prophet juga tidak memodelkan efek libur di periode itu. "
+                f"Lengkapi lewat halaman **Hari Libur** agar fitur ini benar-benar berguna."
+            )
+    else:
+        st.info("ℹ️ Belum ada data hari libur (`config/holidays.json` kosong) - "
+                "fitur hari libur tidak aktif untuk semua model.")
+
     # ========================================================================
     # PREPARE CROSS-SERIES DATA FOR ALL LEAF NODES (SAME AS Lembar_Kerja.py)
     # ========================================================================
@@ -606,7 +640,21 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             try:
                 train_prophet = train_ml.rename(columns={'date': 'ds', 'value': 'y'})
                 test_prophet = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
-                model_prophet = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False, changepoint_prior_scale=0.05)
+                # Hari libur ikut disertakan supaya Prophet yang DINILAI di sini
+                # sama dengan yang benar-benar dijalankan di produksi lewat
+                # utils/forecasting/prophet_model.py (yang selalu menambahkan
+                # holidays). Sebelumnya halaman ini membuat Prophet polos, jadi
+                # metriknya tidak mewakili model yang sesungguhnya dipakai.
+                _prophet_kwargs = dict(yearly_seasonality=True, weekly_seasonality=True,
+                                       daily_seasonality=False, changepoint_prior_scale=0.05)
+                if len(holidays_list) > 0:
+                    _prophet_kwargs['holidays'] = pd.DataFrame({
+                        'holiday': 'holiday',
+                        'ds': pd.to_datetime(holidays_list),
+                        'lower_window': 0,
+                        'upper_window': 0,
+                    })
+                model_prophet = Prophet(**_prophet_kwargs)
                 model_prophet.fit(train_prophet)
                 test_forecast = model_prophet.predict(test_prophet[['ds']])
                 predictions_prophet = test_forecast['yhat'].values
@@ -710,7 +758,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # CALCULATE METRICS - EXACTLY SAME AS Prediksi.py lines 711-779
         # ========================================================================
 
-        def calculate_metrics(actual, predictions):
+        def calculate_metrics(actual, predictions, train_values=None):
             """
             Calculate all metrics - same formula as Prediksi.py
 
@@ -718,6 +766,8 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             NaN/inf). Sengaja TIDAK diisi 0 atau di-drop diam-diam: model yang
             gagal akan terlihat seperti memprediksi 0 dan bisa ikut terpilih
             sebagai "model terbaik". Lebih baik ditandai gagal secara eksplisit.
+
+            train_values dipakai untuk MASE (lihat di bawah).
             """
             min_len = min(len(actual), len(predictions))
             if min_len == 0:
@@ -751,7 +801,27 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             bias = np.mean(predictions - actual)
 
-            return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'SMAPE': smape, 'R²': r2, 'DA': da, 'Bias': bias}
+            # MASE (Mean Absolute Scaled Error) - MAE model dibagi MAE dari
+            # forecast naif satu-langkah pada data TRAINING.
+            #
+            # Ditambahkan karena metrik lain tidak bisa langsung menjawab
+            # pertanyaan yang paling penting: "apakah model ini lebih baik dari
+            # tebakan sepele?" R2 menyesatkan di sini (pembandingnya rata-rata
+            # periode test, yang butuh informasi masa depan), dan MAE/RMSE tidak
+            # punya skala acuan sehingga harus dibandingkan manual antar baris.
+            #
+            # Cara baca:  < 1 = lebih baik dari naif  |  = 1 setara  |  > 1 lebih buruk
+            mase = np.nan
+            if train_values is not None and len(train_values) > 1:
+                tv = np.asarray(train_values, dtype=float)
+                tv = tv[np.isfinite(tv)]
+                if len(tv) > 1:
+                    scale = np.mean(np.abs(np.diff(tv)))  # MAE naif satu-langkah di train
+                    if scale > 1e-9:
+                        mase = mae / scale
+
+            return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'SMAPE': smape, 'R²': r2,
+                    'DA': da, 'MASE': mase, 'Bias': bias}
 
         # Calculate metrics for each model (SAME AS Prediksi.py lines 711-779)
         for model_name, result in results.items():
@@ -768,7 +838,11 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                 if model_name in ['XGBoost', 'LightGBM', 'RandomForest'] and 'test_dates' in result:
                     actual = actual[-len(predictions):]
 
-                metrics = calculate_metrics(actual, predictions)
+                # MASE diskalakan dengan data training model bersangkutan:
+                # APUVA memakai histori penuh, model lain memakai data ML.
+                train_for_scale = (train_apuva['value'].values if model_name == 'APUVA'
+                                   else train_ml['value'].values)
+                metrics = calculate_metrics(actual, predictions, train_values=train_for_scale)
                 if metrics is None:
                     # Model gagal menghasilkan prediksi yang bisa dinilai.
                     # Dicatat lalu dilewati - JANGAN sampai membatalkan seluruh
@@ -883,6 +957,15 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
                         bias = np.mean(predictions_stack - actual_stack)
 
+                        # MASE untuk Stacking (skala dari data training ML)
+                        mase = np.nan
+                        _tv = np.asarray(train_ml['value'].values, dtype=float)
+                        _tv = _tv[np.isfinite(_tv)]
+                        if len(_tv) > 1:
+                            _scale = np.mean(np.abs(np.diff(_tv)))
+                            if _scale > 1e-9:
+                                mase = mae / _scale
+
                         stacking_result = {
                             'Row_ID': leaf_id,
                             'Window': eval_window,
@@ -896,6 +979,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                             'SMAPE': smape,
                             'R²': r2,
                             'DA': da,
+                            'MASE': mase,
                             'Bias': bias,
                             'predictions': predictions_stack,
                             'actual': actual_stack
@@ -944,7 +1028,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # Semua langkah setelah ini - tabel performa, pemilihan best model per leaf,
     # dan penyimpanan model_configs - memakai hasil agregat ini.
     if n_win_actual > 1:
-        metric_cols = [c for c in ['MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'Bias']
+        metric_cols = [c for c in ['MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'MASE', 'Bias']
                        if c in results_raw.columns]
         meta_cols = ['Row_ID', 'Row_Label', 'Category', 'Sub_Category', 'Model']
         results_df = (results_raw.groupby(meta_cols, as_index=False)[metric_cols]
@@ -998,6 +1082,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         'SMAPE': 'mean',
         'R²': 'mean',
         'DA': 'mean',
+        'MASE': 'mean',
         'Bias': 'mean',
         'Row_ID': 'count'
     }).rename(columns={'Row_ID': 'Count'})
@@ -1021,6 +1106,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         'SMAPE': best_per_leaf['SMAPE'].mean(),
         'R²': best_per_leaf['R²'].mean(),
         'DA': best_per_leaf['DA'].mean(),
+        'MASE': best_per_leaf['MASE'].mean() if 'MASE' in best_per_leaf.columns else np.nan,
         'Bias': best_per_leaf['Bias'].mean(),
         'Count': len(best_per_leaf)
     }
