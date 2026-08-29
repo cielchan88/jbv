@@ -284,10 +284,15 @@ def create_features_advanced(df, lag_steps=90, holidays_list=None, external_seri
 
     # Holiday features
     #
-    # Dilewati sepenuhnya kalau ENABLE_HOLIDAY_FEATURES = False. Fungsi ini
-    # dipakai oleh forecaster produksi (LightGBM/XGBoost/RandomForest di
-    # utils/forecasting/), jadi tanpa gerbang ini saklar libur hanya berlaku di
-    # halaman Evaluasi/Prediksi dan TIDAK di jalur forecast yang sebenarnya.
+    # Dilewati kalau ENABLE_HOLIDAY_FEATURES = False, supaya modul ini ikut
+    # patuh pada saklar yang sama dengan feature_engineering_optimized.py.
+    #
+    # CATATAN: fungsi ini BUKAN jalur produksi. Forecaster di utils/forecasting/
+    # mengimpor create_features_optimized dengan alias `create_features_advanced`,
+    # jadi yang benar-benar dipakai untuk forecast adalah versi optimized.
+    # create_features_advanced di bawah ini sekarang hanya dipakai oleh
+    # tests/test_external_integration.py. Gerbang ini dipasang untuk konsistensi,
+    # bukan untuk menutup celah di produksi.
     if not ENABLE_HOLIDAY_FEATURES:
         pass
     elif holidays_list is not None and len(holidays_list) > 0:
