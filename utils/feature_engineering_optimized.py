@@ -664,13 +664,17 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     return df
 
 
-def select_top_features_optimized(train_df, top_k=25):
+def select_top_features_optimized(train_df, top_k=25, volatility_quota=0):
     """
-    Select top K features using correlation (Spearman) only.
+    Select top K features using correlation (Spearman), with an optional
+    reserved quota for volatility features.
 
     Args:
         train_df: Training DataFrame with features
         top_k: Number of top features to select
+        volatility_quota: Berapa dari top_k slot yang dipesan untuk fitur di
+            VOLATILITY_PRIORITY_FEATURES. 0 = perilaku lama (korelasi murni).
+            Lihat penjelasan di badan fungsi.
 
     Returns:
         Tuple of (top_features_list, scores_dict)
@@ -699,6 +703,52 @@ def select_top_features_optimized(train_df, top_k=25):
 
     # Sort by correlation (descending)
     sorted_features = sorted(corr_scores.items(), key=lambda x: x[1], reverse=True)
+
+    # ------------------------------------------------------------------
+    # Kuota fitur volatilitas.
+    #
+    # Seleksi murni korelasi punya titik buta yang sudah diantisipasi penulis
+    # config (lihat get_forced_features di feature_config.py): fitur volatilitas
+    # mengukur SEBERAPA BESAR pergerakan, bukan ke arah mana, sehingga korelasi
+    # Spearman-nya terhadap level sering rendah - lalu tersingkir. Padahal
+    # volatility clustering adalah struktur terkuat di data ini (autokorelasi
+    # |perubahan| lag-1 bermedian 0,489, positif di 18 dari 18 leaf).
+    #
+    # Tanpa kuota, hanya 9 dari 29 fitur prioritas yang lolos top-25.
+    #
+    # Kuota TIDAK menambah jumlah fitur - ia hanya memesan sebagian dari top_k,
+    # sehingga perbandingan dengan baseline tetap adil (kompleksitas model sama).
+    # volatility_quota=0 mengembalikan perilaku lama persis.
+    # ------------------------------------------------------------------
+    if volatility_quota and volatility_quota > 0:
+        from .feature_config import VOLATILITY_PRIORITY_FEATURES
+        prio = set(VOLATILITY_PRIORITY_FEATURES)
+
+        # Kuota adalah LANTAI, bukan jumlah pasti. Kalau seleksi korelasi murni
+        # sudah menghasilkan fitur volatilitas sebanyak atau lebih dari kuota,
+        # tidak ada yang perlu diubah - memaksa jumlahnya turun ke angka kuota
+        # justru membuang fitur yang lolos atas kekuatannya sendiri.
+        base = sorted_features[:top_k]
+        n_vol = sum(1 for f, _ in base if f in prio)
+        need = int(volatility_quota) - n_vol
+        if need <= 0:
+            return [f for f, _ in base], {f: s for f, s in base}
+
+        # Tambahkan fitur volatilitas terbaik yang belum masuk, sambil membuang
+        # fitur non-volatilitas berkorelasi terlemah - jumlah total tetap top_k.
+        in_base = {f for f, _ in base}
+        add = [(f, s) for f, s in sorted_features if f in prio and f not in in_base][:need]
+        if not add:
+            return [f for f, _ in base], {f: s for f, s in base}
+
+        keep_vol = [(f, s) for f, s in base if f in prio]
+        keep_oth = [(f, s) for f, s in base if f not in prio]
+        drop = len(add)
+        keep_oth = keep_oth[:max(len(keep_oth) - drop, 0)]
+
+        picked = keep_vol + add + keep_oth
+        picked = sorted(picked, key=lambda x: x[1], reverse=True)[:top_k]
+        return [f for f, _ in picked], {f: s for f, s in picked}
 
     # Select top K features by correlation only
     top_features = []
