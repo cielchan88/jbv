@@ -721,6 +721,111 @@ with tabs[4]:
                                xaxis_title="Nilai (USD Juta)", yaxis_title="Densitas", height=400)
         st.plotly_chart(fig_hist, use_container_width=True)
 
+    # ========================================================================
+    # GRAFIK NORMALITAS (Q-Q plot & ECDF)
+    # ========================================================================
+    st.divider()
+    st.markdown("**📐 Grafik Normalitas**")
+
+    # Pilihan level vs perubahan harian.
+    #
+    # Ini bukan sekadar opsi tambahan - untuk data deret waktu, normalitas LEVEL
+    # jarang bermakna (level punya tren dan autokorelasi, jadi hampir selalu
+    # "tidak normal" tanpa memberi tahu apa pun yang berguna). Yang benar-benar
+    # diasumsikan normal oleh ARIMA/VAR saat membangun confidence interval
+    # adalah INOVASI-nya, dan perubahan harian adalah pendekatan terdekat yang
+    # bisa dilihat langsung dari data mentah.
+    norm_basis = st.radio(
+        "Data yang diuji:",
+        ["Perubahan harian (delta)", "Nilai (level)"],
+        index=0,
+        horizontal=True,
+        help="ARIMA/VAR mengasumsikan INOVASI berdistribusi normal, bukan levelnya. "
+             "Perubahan harian adalah pendekatan terdekat untuk itu, jadi dipakai sebagai default."
+    )
+
+    if norm_basis.startswith("Perubahan"):
+        norm_values = np.diff(analysis_values)
+        norm_unit = "Perubahan harian (USD Juta)"
+    else:
+        norm_values = analysis_values
+        norm_unit = "Nilai (USD Juta)"
+
+    nd = analytics.normality_diagnostics(norm_values)
+
+    if 'error' in nd:
+        st.error(f"❌ {nd['error']}")
+    else:
+        gq1, gq2 = st.columns(2)
+
+        with gq1:
+            fig_qq = go.Figure()
+            fig_qq.add_trace(go.Scatter(
+                x=nd['theoretical_q'], y=nd['sample_q'], mode='markers',
+                name='Data', marker=dict(color='steelblue', size=4, opacity=0.6)))
+            _lx = np.array([nd['theoretical_q'][0], nd['theoretical_q'][-1]])
+            fig_qq.add_trace(go.Scatter(
+                x=_lx, y=nd['line_slope'] * _lx + nd['line_intercept'], mode='lines',
+                name='Garis normal', line=dict(color='red', width=2)))
+            fig_qq.update_layout(
+                title=f"Q-Q Plot (R² = {nd['r_squared']:.4f})",
+                xaxis_title="Kuantil teoretis (normal)", yaxis_title=norm_unit,
+                height=430, legend=dict(orientation='h', y=1.02, yanchor='bottom'))
+            st.plotly_chart(fig_qq, use_container_width=True)
+            st.caption("Data normal jatuh tepat di garis merah. Titik yang **melengkung "
+                       "naik di kanan dan turun di kiri** berarti ekor lebih tebal dari "
+                       "normal - nilai ekstrem jauh lebih sering terjadi daripada yang "
+                       "diasumsikan model.")
+
+        with gq2:
+            fig_ecdf = go.Figure()
+            fig_ecdf.add_trace(go.Scatter(
+                x=nd['ecdf_x'], y=nd['ecdf_emp'], mode='lines',
+                name='ECDF data', line=dict(color='steelblue', width=2)))
+            fig_ecdf.add_trace(go.Scatter(
+                x=nd['ecdf_x'], y=nd['ecdf_theo'], mode='lines',
+                name='CDF normal', line=dict(color='red', width=2, dash='dash')))
+            fig_ecdf.update_layout(
+                title=f"ECDF vs CDF Normal (jarak maks = {nd['ks_distance']:.4f})",
+                xaxis_title=norm_unit, yaxis_title="Probabilitas kumulatif",
+                height=430, legend=dict(orientation='h', y=1.02, yanchor='bottom'))
+            st.plotly_chart(fig_ecdf, use_container_width=True)
+            st.caption("Jarak vertikal terbesar antara kedua kurva adalah statistik "
+                       "Kolmogorov-Smirnov. Makin lebar jaraknya, makin jauh data "
+                       "menyimpang dari normal.")
+
+        # Ringkasan uji normalitas
+        if nd['tests']:
+            _rows = []
+            for t in nd['tests']:
+                _rows.append({
+                    'Uji': t['nama'],
+                    'Statistik': f"{t['statistik']:.4f}",
+                    'p-value': f"{t['p']:.4g}" if t['p'] is not None else "—",
+                    'Kesimpulan': "Normal" if t['normal'] else "Tidak normal",
+                    'Catatan': t['catatan'],
+                })
+            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+
+            _n_tolak = sum(1 for t in nd['tests'] if not t['normal'])
+            if _n_tolak == len(nd['tests']):
+                st.warning(
+                    f"⚠️ **Seluruh {len(nd['tests'])} uji menolak normalitas.** "
+                    f"Konsekuensinya nyata: confidence interval ARIMA/VAR dan pita "
+                    f"±1,96σ di Lembar Kerja dibangun dengan asumsi normal, sehingga "
+                    f"cakupannya lebih sempit dari yang tertulis - kejadian ekstrem "
+                    f"akan lebih sering jatuh di luar pita daripada 5% yang dijanjikan."
+                )
+            elif _n_tolak == 0:
+                st.success(f"✅ Seluruh {len(nd['tests'])} uji konsisten dengan distribusi normal.")
+            else:
+                st.info(
+                    f"ℹ️ Hasil uji terbelah: {len(nd['tests']) - _n_tolak} menyatakan normal, "
+                    f"{_n_tolak} menolak. Perbedaan ini normal karena tiap uji peka pada "
+                    f"aspek yang berbeda (lihat kolom Catatan) - baca Q-Q plot untuk "
+                    f"menentukan di bagian mana penyimpangannya."
+                )
+
     # Box plot perbandingan antar kategori (dipertahankan dari versi sebelumnya)
     st.divider()
     st.markdown("**📦 Perbandingan Distribusi Antar Kategori Utama**")

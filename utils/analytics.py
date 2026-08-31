@@ -406,6 +406,139 @@ def distribution_stats(values):
     }
 
 
+def normality_diagnostics(values, shapiro_max_n=5000, random_state=42):
+    """
+    Bahan untuk grafik normalitas (Q-Q plot dan ECDF) plus uji normalitas
+    pelengkap di luar Jarque-Bera.
+
+    Kenapa Q-Q plot, bukan cukup histogram: histogram menunjukkan bentuk secara
+    kasar, tapi mata sulit menilai EKOR distribusi dari histogram - padahal
+    justru ekor yang menentukan apakah confidence interval berbasis normal
+    (ARIMA/VAR) bisa dipercaya. Q-Q plot memetakan kuantil data terhadap kuantil
+    normal teoretis, sehingga penyimpangan di ekor terlihat sebagai lengkungan
+    di ujung garis - jelas dan bisa dibaca langsung.
+
+    Kenapa beberapa uji sekaligus: masing-masing peka pada hal berbeda.
+    Jarque-Bera menghukum skewness/kurtosis, Anderson-Darling paling sensitif di
+    ekor, D'Agostino K2 menggabungkan skew dan kurtosis. Shapiro-Wilk paling
+    kuat untuk sampel kecil tapi p-value-nya tidak andal di n besar, jadi
+    dijalankan pada subsampel acak dan ditandai sebagai subsampel.
+
+    Returns dict berisi:
+        theoretical_q, sample_q : koordinat Q-Q plot
+        line_slope, line_int    : garis acuan (data normal jatuh di garis ini)
+        r_squared               : kecocokan titik terhadap garis
+        ecdf_x, ecdf_emp, ecdf_theo : ECDF empiris vs CDF normal
+        tests                   : list dict {'nama','statistik','p','normal','catatan'}
+    """
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+
+    if len(values) < 8:
+        return {'error': 'Data terlalu pendek untuk diagnostik normalitas'}
+
+    n = len(values)
+    mean = float(np.mean(values))
+    std = float(np.std(values, ddof=1))
+    if std == 0:
+        return {'error': 'Data konstan - tidak ada variasi'}
+
+    sample_q = np.sort(values)
+
+    # Posisi plotting Blom - konvensi yang sama dipakai scipy.stats.probplot,
+    # menghindari p = 0 atau 1 yang membuat ppf menjadi tak hingga.
+    i = np.arange(1, n + 1)
+    p = (i - 0.375) / (n + 0.25)
+
+    try:
+        from scipy.stats import norm
+        theoretical_q = norm.ppf(p)
+        ecdf_theo = norm.cdf((sample_q - mean) / std)
+    except Exception:
+        return {'error': 'scipy tidak tersedia - diagnostik normalitas butuh scipy'}
+
+    # Garis acuan lewat kuartil (robust): tidak ikut tertarik oleh outlier
+    # ekstrem seperti garis kuadrat terkecil, jadi penyimpangan ekor tetap
+    # terlihat sebagai penyimpangan, bukan tersamarkan oleh garis yang miring
+    # mengikuti outlier itu sendiri.
+    q25_s, q75_s = np.percentile(sample_q, [25, 75])
+    q25_t, q75_t = norm.ppf(0.25), norm.ppf(0.75)
+    slope = (q75_s - q25_s) / (q75_t - q25_t)
+    intercept = q25_s - slope * q25_t
+
+    fitted = slope * theoretical_q + intercept
+    ss_res = float(np.sum((sample_q - fitted) ** 2))
+    ss_tot = float(np.sum((sample_q - np.mean(sample_q)) ** 2))
+    r_squared = float(1 - ss_res / ss_tot) if ss_tot > 0 else np.nan
+
+    ecdf_emp = i / n
+
+    # ---- Uji normalitas pelengkap ----
+    tests = []
+
+    try:
+        from scipy.stats import jarque_bera
+        jb = jarque_bera(values)
+        tests.append({'nama': 'Jarque-Bera', 'statistik': float(jb[0]),
+                      'p': float(jb[1]), 'normal': float(jb[1]) >= 0.05,
+                      'catatan': 'Peka pada skewness & kurtosis'})
+    except Exception:
+        pass
+
+    try:
+        from scipy.stats import normaltest
+        dag = normaltest(values)
+        tests.append({'nama': "D'Agostino K²", 'statistik': float(dag[0]),
+                      'p': float(dag[1]), 'normal': float(dag[1]) >= 0.05,
+                      'catatan': 'Gabungan uji skewness dan kurtosis'})
+    except Exception:
+        pass
+
+    try:
+        from scipy.stats import anderson
+        ad = anderson(values, dist='norm')
+        # Anderson-Darling tidak memberi p-value, tapi nilai kritis per taraf.
+        # Dibandingkan pada taraf 5% (indeks 2 pada daftar bawaan scipy).
+        crit_5 = float(ad.critical_values[2])
+        tests.append({'nama': 'Anderson-Darling', 'statistik': float(ad.statistic),
+                      'p': None, 'normal': float(ad.statistic) < crit_5,
+                      'catatan': f'Paling peka di ekor. Nilai kritis 5% = {crit_5:.3f}'})
+    except Exception:
+        pass
+
+    try:
+        from scipy.stats import shapiro
+        if n > shapiro_max_n:
+            rng = np.random.default_rng(random_state)
+            sub = rng.choice(values, size=shapiro_max_n, replace=False)
+            note = f'Subsampel acak {shapiro_max_n} dari {n} (p-value tidak andal di n besar)'
+        else:
+            sub = values
+            note = 'Paling kuat untuk sampel kecil'
+        sw = shapiro(sub)
+        tests.append({'nama': 'Shapiro-Wilk', 'statistik': float(sw[0]),
+                      'p': float(sw[1]), 'normal': float(sw[1]) >= 0.05,
+                      'catatan': note})
+    except Exception:
+        pass
+
+    return {
+        'n': n,
+        'mean': mean,
+        'std': std,
+        'theoretical_q': theoretical_q,
+        'sample_q': sample_q,
+        'line_slope': float(slope),
+        'line_intercept': float(intercept),
+        'r_squared': r_squared,
+        'ecdf_x': sample_q,
+        'ecdf_emp': ecdf_emp,
+        'ecdf_theo': ecdf_theo,
+        'ks_distance': float(np.max(np.abs(ecdf_emp - ecdf_theo))),
+        'tests': tests,
+    }
+
+
 # ============================================================================
 # DATA QUALITY
 # ============================================================================
