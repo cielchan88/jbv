@@ -714,11 +714,38 @@ def select_top_features_optimized(train_df, top_k=25, volatility_quota=0):
     # volatility clustering adalah struktur terkuat di data ini (autokorelasi
     # |perubahan| lag-1 bermedian 0,489, positif di 18 dari 18 leaf).
     #
-    # Tanpa kuota, hanya 9 dari 29 fitur prioritas yang lolos top-25.
+    # Tanpa kuota, rata-rata hanya 6,7 dari 29 fitur prioritas yang lolos top-25
+    # pada data nyata.
     #
     # Kuota TIDAK menambah jumlah fitur - ia hanya memesan sebagian dari top_k,
     # sehingga perbandingan dengan baseline tetap adil (kompleksitas model sama).
     # volatility_quota=0 mengembalikan perilaku lama persis.
+    #
+    # ------------------------------------------------------------------
+    # HASIL PENGUKURAN: KUOTA MEMPERBURUK. JANGAN DIAKTIFKAN TANPA BUKTI BARU.
+    #
+    # Diuji pada 18 leaf x 3 jendela x 3 model (486 unit), horizon 60 hari:
+    #
+    #   kuota   LightGBM   RandomForest   XGBoost    Wilcoxon vs kuota 0
+    #      12    +0,88%        +1,91%      +0,82%    menang 64/162, p=0,036
+    #      18    +2,30%        +3,12%      +4,06%    menang 78/162, p=0,129
+    #
+    # Kuota 12 lebih buruk secara signifikan. Ketiga model memburuk di kedua
+    # kuota, tanpa perkecualian.
+    #
+    # Penafsirannya: dugaan penulis config bahwa seleksi korelasi "membuang
+    # fitur volatilitas yang berguna" tidak terbukti. Fitur volatilitas yang
+    # tersingkir memang tersingkir karena tidak membantu memprediksi LEVEL -
+    # yang justru ditugaskan pada model ini. Volatility clustering nyata dan
+    # kuat di data (ACF |perubahan| lag-1 median 0,489), tapi jalan untuk
+    # memanfaatkannya adalah memodelkan RAGAM BERSYARAT - misalnya untuk lebar
+    # interval, seperti sudah dilakukan di utils/intervals.py - bukan menjejalkan
+    # fitur volatilitas ke model rata-rata bersyarat.
+    #
+    # Keterbatasan: pengukuran memakai mode direct. Seleksi fitur memengaruhi
+    # model yang TERLATIH, dan model terlatihnya sama di kedua protokol, jadi
+    # hasilnya informatif - tapi kemungkinan fitur volatilitas membantu khusus
+    # pada kestabilan recursive belum diuji.
     # ------------------------------------------------------------------
     if volatility_quota and volatility_quota > 0:
         from .feature_config import VOLATILITY_PRIORITY_FEATURES
