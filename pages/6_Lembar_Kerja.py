@@ -42,6 +42,31 @@ with col2:
         help="Custom: setiap leaf pakai model terbaiknya dari evaluasi. Single Model: semua leaf pakai 1 model yang sama"
     )
 
+# Metode interval kepercayaan.
+#
+# Metode lama punya empat cacat sekaligus - residual in-sample (terlalu sempit),
+# lebar konstan sepanjang horizon, kuantil normal padahal normalitas ditolak di
+# 18 dari 18 leaf, dan mengabaikan volatility clustering yang justru merupakan
+# struktur terkuat di data ini (autokorelasi |perubahan| lag-1 bermedian 0,489).
+# Rinciannya ada di utils/intervals.py.
+ci_method = st.radio(
+    "Metode interval kepercayaan:",
+    ["Kalibrasi backtest (disarankan)", "Cepat (residual in-sample)"],
+    index=0,
+    horizontal=True,
+    help="Kalibrasi backtest mengukur error forecast yang sebenarnya lewat jalur "
+         "recursive yang sama dengan produksi, melebar seiring horizon, memakai "
+         "kuantil empiris (bukan asumsi normal), dan menyesuaikan diri dengan "
+         "volatilitas terkini. Lebih lambat karena menjalankan backtest per leaf."
+)
+use_calibrated_ci = ci_method.startswith("Kalibrasi")
+if not use_calibrated_ci:
+    st.warning(
+        "⚠️ Mode cepat memakai residual in-sample, yang jauh lebih kecil daripada "
+        "error sesungguhnya - pita kepercayaan akan terlalu sempit dan cakupan "
+        "nyatanya di bawah 95% yang tertulis. Pakai hanya untuk pratinjau cepat."
+    )
+
 if model_mode == "Custom (Hasil Evaluasi)":
     st.markdown(f"""
     Generate prediksi **{forecast_days} hari** kedepan untuk **semua leaf nodes**.
@@ -467,76 +492,81 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                 last_val = values[-1] if not np.isnan(values[-1]) else 0
                 forecast_values = np.full(len(future_date_cols), last_val)
 
-            # Calculate confidence intervals based on model residuals (consistent with 4_Prediksi.py)
-            # This approach measures actual model error rather than historical volatility
-            try:
-                # Calculate in-sample predictions to get residuals
-                if selected_model.upper() in ['RANDOMFOREST', 'XGBOOST', 'LIGHTGBM']:
-                    # ML models: use OPTIMIZED feature engineering and get fitted values
-                    from utils.feature_engineering_optimized import create_features_optimized, select_top_features_optimized
+            # ================================================================
+            # INTERVAL KEPERCAYAAN
+            # ================================================================
+            calib = None
+            if use_calibrated_ci:
+                try:
+                    from utils.intervals import calibrate_intervals, apply_intervals
+                    calib = calibrate_intervals(
+                        dates=dates, values=values, model_name=selected_model,
+                        horizon=len(forecast_values), holidays=holidays,
+                        external_series=external_series_data, row_id=leaf_id,
+                        n_windows=2)
+                    forecast_lower, forecast_upper = apply_intervals(forecast_values, calib)
+                    # Lebar rata-rata dipakai untuk agregasi ke level induk.
+                    leaf_ci_widths[leaf_id] = float(np.mean(forecast_upper - forecast_lower) / 2.0)
+                except Exception as _e:
+                    st.warning(f"⚠️ Kalibrasi interval gagal untuk {leaf_id} ({_e}); "
+                               f"memakai metode cepat.")
+                    calib = None
 
-                    ts_df_temp = pd.DataFrame({'ds': dates, 'y': values})
-                    train_features_temp = create_features_optimized(
-                        ts_df_temp,
-                        lag_steps=90,
-                        holidays_list=holidays,
-                        external_series=external_series_data,
-                        external_series_dates=dates
-                    )
+            if calib is None:
+                # ---- Metode lama (cepat): residual in-sample, lebar konstan ----
+                try:
+                    if selected_model.upper() in ['RANDOMFOREST', 'XGBOOST', 'LIGHTGBM']:
+                        from utils.feature_engineering_optimized import create_features_optimized, select_top_features_optimized
 
-                    # Select features (with volatility priority)
-                    available_features = [col for col in train_features_temp.columns if col not in ['ds', 'date', 'value']]
-                    top_features, _ = select_top_features_optimized(train_features_temp, top_k=25)
-                    feature_cols = [f for f in top_features if f in available_features]
+                        ts_df_temp = pd.DataFrame({'ds': dates, 'y': values})
+                        train_features_temp = create_features_optimized(
+                            ts_df_temp,
+                            lag_steps=90,
+                            holidays_list=holidays,
+                            external_series=external_series_data,
+                            external_series_dates=dates
+                        )
 
-                    if len(feature_cols) > 0:
-                        X_train = train_features_temp[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-                        y_train = train_features_temp['value'].fillna(0)
+                        available_features = [col for col in train_features_temp.columns if col not in ['ds', 'date', 'value']]
+                        top_features, _ = select_top_features_optimized(train_features_temp, top_k=25)
+                        feature_cols = [f for f in top_features if f in available_features]
 
-                        # Train model and get fitted values
-                        if selected_model.upper() == 'RANDOMFOREST':
-                            from sklearn.ensemble import RandomForestRegressor
-                            model_temp = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-                        elif selected_model.upper() == 'XGBOOST':
-                            import xgboost as xgb
-                            model_temp = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)
-                        elif selected_model.upper() == 'LIGHTGBM':
-                            from lightgbm import LGBMRegressor
-                            model_temp = LGBMRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)
+                        if len(feature_cols) > 0:
+                            X_train = train_features_temp[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                            y_train = train_features_temp['value'].fillna(0)
 
-                        model_temp.fit(X_train, y_train)
-                        fitted_values = model_temp.predict(X_train)
+                            if selected_model.upper() == 'RANDOMFOREST':
+                                from sklearn.ensemble import RandomForestRegressor
+                                model_temp = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+                            elif selected_model.upper() == 'XGBOOST':
+                                import xgboost as xgb
+                                model_temp = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)
+                            else:
+                                from lightgbm import LGBMRegressor
+                                model_temp = LGBMRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)
 
-                        # Calculate residuals
-                        residuals = y_train.values - fitted_values
-                        ci_std = np.std(residuals)
+                            model_temp.fit(X_train, y_train)
+                            residuals = y_train.values - model_temp.predict(X_train)
+                            ci_std = np.std(residuals)
+                        else:
+                            ci_std = np.std(values) * 0.1
+
+                    elif selected_model.upper() == 'APUVA':
+                        ci_std = np.std(values) * 0.5
+
+                    elif selected_model.upper() == 'PROPHET':
+                        ci_std = np.std(values) * 0.3
+
                     else:
-                        # Fallback if no features
-                        ci_std = np.std(values) * 0.1
+                        ci_std = np.std(values) * 0.3
 
-                elif selected_model.upper() == 'APUVA':
-                    # APUVA: use historical volatility as fallback (no easy way to get residuals)
-                    ci_std = np.std(values) * 0.5  # Conservative estimate
+                except Exception:
+                    ci_std = np.std(values) * 0.3 if len(values) > 0 else np.abs(np.mean(forecast_values)) * 0.1
 
-                elif selected_model.upper() == 'PROPHET':
-                    # Prophet: use historical volatility (Prophet has built-in CI, but we standardize here)
-                    ci_std = np.std(values) * 0.3
-
-                else:
-                    # Default fallback
-                    ci_std = np.std(values) * 0.3
-
-            except Exception as e:
-                # Fallback to conservative estimate if calculation fails
-                ci_std = np.std(values) * 0.3 if len(values) > 0 else np.abs(np.mean(forecast_values)) * 0.1
-
-            # 95% confidence interval (±1.96 * std)
-            ci_multiplier = 1.96
-            forecast_upper = forecast_values + (ci_multiplier * ci_std)
-            forecast_lower = forecast_values - (ci_multiplier * ci_std)
-
-            # Store CI width for this leaf (for later aggregation)
-            leaf_ci_widths[leaf_id] = ci_std
+                ci_multiplier = 1.96
+                forecast_upper = forecast_values + (ci_multiplier * ci_std)
+                forecast_lower = forecast_values - (ci_multiplier * ci_std)
+                leaf_ci_widths[leaf_id] = ci_std
 
             # Update dataframe with forecast values (round to 0 decimals)
             # Map forecast values to dates correctly
@@ -562,10 +592,79 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
 
     status_text.text("Aggregating hierarchy...")
 
-    # Aggregate calculated nodes (point forecast, upper, and lower bounds)
+    # Titik forecast dijumlahkan biasa - itu identitas akuntansi, D = A+B+C,
+    # dan sudah diverifikasi eksak sampai 0,000000 pada data historis.
     df_forecast = aggregate_hierarchy(df_forecast, future_date_cols)
-    df_forecast_upper = aggregate_hierarchy(df_forecast_upper, future_date_cols)
-    df_forecast_lower = aggregate_hierarchy(df_forecast_lower, future_date_cols)
+
+    # Batas atas/bawah TIDAK boleh dijumlahkan seperti itu.
+    #
+    # Menjumlahkan batas anak mengasumsikan seluruh leaf bergerak serempak.
+    # Korelasi perubahan harian antar leaf pada data ini bermedian 0,070 dan
+    # tidak ada pasangan di atas 0,384 - praktis independen - sehingga
+    # sebagian error saling meniadakan. Menjumlahkan batas membuat pita di
+    # level induk (termasuk D.UCL/D.LCL yang jadi output utama halaman ini)
+    # jauh lebih lebar daripada seharusnya.
+    #
+    # Caranya: setengah-lebar per leaf dan kuadratnya dijumlahkan memakai
+    # fungsi hierarki yang SAMA (supaya aturan induk-anak tidak terduplikasi),
+    # lalu digabung dengan rho rata-rata yang diukur dari data.
+    try:
+        from utils.intervals import mean_pairwise_correlation, combine_halfwidths
+
+        _hist = pd.DataFrame({lid: pd.to_numeric(
+            df[df['Row_ID'] == lid][time_cols].values.flatten(), errors='coerce')
+            for lid in leaf_nodes})
+        rho_bar = mean_pairwise_correlation(_hist, on_changes=True)
+
+        _hu = df_forecast_upper.copy()
+        _hl = df_forecast_lower.copy()
+        _hu2 = df_forecast_upper.copy()
+        _hl2 = df_forecast_lower.copy()
+        for lid in leaf_nodes:
+            i = df_forecast[df_forecast['Row_ID'] == lid].index
+            if len(i) == 0:
+                continue
+            i = i[0]
+            for c in future_date_cols:
+                pt = float(df_forecast.at[i, c])
+                hu = max(float(df_forecast_upper.at[i, c]) - pt, 0.0)
+                hl = max(pt - float(df_forecast_lower.at[i, c]), 0.0)
+                _hu.at[i, c], _hl.at[i, c] = hu, hl
+                _hu2.at[i, c], _hl2.at[i, c] = hu ** 2, hl ** 2
+
+        _hu = aggregate_hierarchy(_hu, future_date_cols)
+        _hl = aggregate_hierarchy(_hl, future_date_cols)
+        _hu2 = aggregate_hierarchy(_hu2, future_date_cols)
+        _hl2 = aggregate_hierarchy(_hl2, future_date_cols)
+
+        for _, r in df_forecast.iterrows():
+            rid = r['Row_ID']
+            iu = df_forecast_upper[df_forecast_upper['Row_ID'] == rid].index
+            il = df_forecast_lower[df_forecast_lower['Row_ID'] == rid].index
+            ih = _hu[_hu['Row_ID'] == rid].index
+            if len(iu) == 0 or len(il) == 0 or len(ih) == 0:
+                continue
+            pt = pd.to_numeric(r[future_date_cols], errors='coerce').to_numpy(dtype=float)
+            gu = combine_halfwidths(
+                pd.to_numeric(_hu.loc[ih[0], future_date_cols], errors='coerce').to_numpy(dtype=float),
+                pd.to_numeric(_hu2.loc[ih[0], future_date_cols], errors='coerce').to_numpy(dtype=float),
+                rho_bar)
+            gl = combine_halfwidths(
+                pd.to_numeric(_hl.loc[ih[0], future_date_cols], errors='coerce').to_numpy(dtype=float),
+                pd.to_numeric(_hl2.loc[ih[0], future_date_cols], errors='coerce').to_numpy(dtype=float),
+                rho_bar)
+            for k, c in enumerate(future_date_cols):
+                df_forecast_upper.at[iu[0], c] = round(float(pt[k] + gu[k]), 2)
+                df_forecast_lower.at[il[0], c] = round(float(pt[k] - gl[k]), 2)
+
+        st.caption(f"Interval level induk digabung dengan korelasi rata-rata "
+                   f"terukur ρ̄ = {rho_bar:.3f} (1,0 = jumlahkan batas seperti "
+                   f"cara lama, 0,0 = anggap independen).")
+    except Exception as _e:
+        st.warning(f"⚠️ Penggabungan interval hierarkis gagal ({_e}); "
+                   f"memakai penjumlahan batas seperti sebelumnya.")
+        df_forecast_upper = aggregate_hierarchy(df_forecast_upper, future_date_cols)
+        df_forecast_lower = aggregate_hierarchy(df_forecast_lower, future_date_cols)
 
     # Add D.UCL and D.LCL rows below row D
     status_text.text("Adding UCL/LCL rows for D...")
