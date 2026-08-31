@@ -12,7 +12,9 @@ from .var_model import VARForecaster
 from .naive_model import NaiveForecaster
 
 
-def forecast_single_series(dates, values, model_name, n_days, holidays=None, external_series=None, row_id=None):
+def forecast_single_series(dates, values, model_name, n_days, holidays=None,
+                           external_series=None, row_id=None,
+                           apply_sign_constraint_flag=True):
     """
     Forecast a single time series using the specified model.
 
@@ -85,6 +87,20 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
         forecaster.fit(dates, values)
 
     forecast_values, forecast_dates = forecaster.predict(dates, values, n_days)
+
+    # Batasan tanda.
+    #
+    # Sembilan dari 18 leaf tidak pernah berganti tanda dalam 20,6 tahun -
+    # Impor/Repatriasi selalu satu arah, Ekspor/Investasi selalu sebaliknya.
+    # Tanpa batasan ini model bisa mengeluarkan nilai di sisi yang tidak pernah
+    # terjadi. Polaritas disimpulkan dari `values`, yaitu histori yang tersedia
+    # pada saat forecast dibuat, sehingga tidak ada kebocoran informasi masa
+    # depan saat dievaluasi. Seri dua arah tidak tersentuh.
+    if apply_sign_constraint_flag:
+        from ..constraints import infer_sign_polarity, apply_sign_constraint
+        pol = infer_sign_polarity(values)
+        if pol != 0:
+            forecast_values = apply_sign_constraint(forecast_values, pol)
 
     return forecast_values, forecast_dates
 
