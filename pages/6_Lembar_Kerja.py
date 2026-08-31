@@ -505,6 +505,21 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                         external_series=external_series_data, row_id=leaf_id,
                         n_windows=2)
                     forecast_lower, forecast_upper = apply_intervals(forecast_values, calib)
+
+                    # Jepit pita ke sisi yang mungkin pada seri berarah tunggal.
+                    #
+                    # Ini menyempitkan pita TANPA menurunkan cakupan: untuk seri
+                    # yang tidak pernah negatif, wilayah pita di bawah nol tidak
+                    # mungkin memuat realisasi apa pun, jadi membuangnya tidak
+                    # menghilangkan satu pun nilai aktual - hanya lebar yang
+                    # terbuang. Berbeda dari batasan pada titik forecast, yang
+                    # terukur nyaris tidak berdampak (model hanya melanggar
+                    # tanda pada 0,3% prediksi).
+                    from utils.constraints import infer_sign_polarity, constrain_interval
+                    _pol = infer_sign_polarity(values)
+                    if _pol != 0:
+                        forecast_lower, forecast_upper = constrain_interval(
+                            forecast_lower, forecast_upper, _pol)
                     # Lebar rata-rata dipakai untuk agregasi ke level induk.
                     leaf_ci_widths[leaf_id] = float(np.mean(forecast_upper - forecast_lower) / 2.0)
                 except Exception as _e:
