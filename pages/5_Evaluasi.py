@@ -1028,6 +1028,13 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                 metrics['Model'] = model_name
                 metrics['predictions'] = predictions
                 metrics['actual'] = actual
+                # Tanggal disimpan agar grafik prediksi bisa diplot pada sumbu
+                # waktu yang benar. APUVA memakai histori penuh sehingga periode
+                # ujinya berbeda dari model lain - tanggalnya harus ikut model,
+                # bukan diasumsikan sama.
+                _dsrc = test_apuva if model_name == 'APUVA' else test_ml
+                _dts = pd.to_datetime(_dsrc['date']).to_numpy()
+                metrics['dates'] = _dts[-len(actual):] if len(_dts) >= len(actual) else _dts
                 all_results.append(metrics)
 
         # ========================================================================
@@ -1154,7 +1161,13 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                             'MASE': mase,
                             'Bias': bias,
                             'predictions': predictions_stack,
-                            'actual': actual_stack
+                            'actual': actual_stack,
+                            # Stacking hanya dinilai pada indeks yang benar-benar
+                            # terisi TimeSeriesSplit (blok paling awal dipakai
+                            # sebagai training awal dan tidak pernah divalidasi),
+                            # jadi tanggalnya juga harus disaring dengan mask yang
+                            # sama - kalau tidak, grafiknya akan bergeser.
+                            'dates': pd.to_datetime(test_ml['date']).to_numpy()[-min_len:][oof_filled],
                         }
                         all_results.append(stacking_result)
 
@@ -1327,6 +1340,118 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # Store best_models in session state for later use
     if len(best_models) > 0:
         st.session_state['best_models_df'] = best_models
+
+    # ========================================================================
+    # SECTION 2b: GRAFIK PREDIKSI PER LEAF
+    # ========================================================================
+    #
+    # Tabel metrik memberi tahu model mana yang lebih baik, tapi tidak
+    # menjelaskan MENGAPA. Grafik ini yang menjelaskannya: drift recursive
+    # model pohon terlihat sebagai garis yang meluncur menjauh, forecast
+    # datar terlihat mendatar, dan lonjakan yang tak tertangkap terlihat
+    # sebagai jarak vertikal di satu titik.
+    #
+    # Yang diplot adalah prediksi OUT-OF-SAMPLE pada periode uji, bukan
+    # fitted value in-sample. Penyebutannya dijaga supaya tidak tertukar:
+    # fitted value in-sample selalu terlihat jauh lebih rapat dan akan
+    # memberi kesan akurasi yang tidak pernah terjadi di produksi.
+    st.subheader("📈 Grafik Prediksi per Leaf Node")
+
+    _plot_src = results_raw if 'predictions' in results_raw.columns else None
+    if _plot_src is None or len(_plot_src) == 0:
+        st.info("Tidak ada data prediksi tersimpan untuk diplot.")
+    else:
+        _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
+        with _pc1:
+            _leaf_opts = sorted(_plot_src['Row_ID'].unique().tolist())
+            _lbl_map = {r['Row_ID']: f"{r['Row_ID']} - {r['Row_Label']}"
+                        for _, r in _plot_src.drop_duplicates('Row_ID').iterrows()}
+            _sel_leaf = st.selectbox("Leaf node:", _leaf_opts,
+                                     format_func=lambda x: _lbl_map.get(x, x),
+                                     key="plot_leaf")
+        with _pc2:
+            _wins = sorted(_plot_src[_plot_src['Row_ID'] == _sel_leaf]['Window'].dropna().unique().tolist()) \
+                if 'Window' in _plot_src.columns else [0]
+            _sel_win = st.selectbox("Jendela:", _wins, key="plot_win",
+                                    help="Jendela 0 = periode paling akhir, 1 = satu horizon sebelumnya, dst.")
+        with _pc3:
+            _ctx = st.number_input("Histori sebelum uji (hari):", min_value=0, max_value=250,
+                                   value=60, step=10, key="plot_ctx",
+                                   help="Menampilkan aktual sebelum periode uji supaya "
+                                        "level dan arah forecast bisa dinilai dalam konteks")
+
+        _sub = _plot_src[(_plot_src['Row_ID'] == _sel_leaf)]
+        if 'Window' in _sub.columns:
+            _sub = _sub[_sub['Window'] == _sel_win]
+
+        _sub = _sub[_sub['predictions'].apply(lambda x: x is not None and len(np.asarray(x)) > 0)]
+
+        if len(_sub) == 0:
+            st.info("Tidak ada prediksi untuk kombinasi ini.")
+        else:
+            _plot_models = st.multiselect(
+                "Model yang ditampilkan:",
+                options=sorted(_sub['Model'].unique().tolist()),
+                default=sorted(_sub['Model'].unique().tolist()),
+                key="plot_models")
+
+            fig_pred = go.Figure()
+
+            # Histori sebelum periode uji, untuk konteks level
+            _first_row = _sub.iloc[0]
+            _test_dates = pd.to_datetime(pd.Series(_first_row.get('dates', [])))
+            if _ctx > 0 and len(_test_dates) > 0:
+                _hist_cols = [c for c in time_cols if pd.to_datetime(c) < _test_dates.iloc[0]][-int(_ctx):]
+                if _hist_cols:
+                    _hv = pd.to_numeric(
+                        df[df['Row_ID'] == _sel_leaf][_hist_cols].values.flatten(),
+                        errors='coerce')
+                    fig_pred.add_trace(go.Scatter(
+                        x=pd.to_datetime(_hist_cols), y=_hv, mode='lines',
+                        name='Histori (sebelum uji)',
+                        line=dict(color='#9aa5ad', width=1.5)))
+
+            # Aktual pada periode uji - digambar tebal sebagai acuan
+            if len(_test_dates) > 0:
+                fig_pred.add_trace(go.Scatter(
+                    x=_test_dates, y=np.asarray(_first_row['actual'], dtype=float),
+                    mode='lines+markers', name='AKTUAL',
+                    line=dict(color='#111418', width=3), marker=dict(size=4)))
+
+            for _, _r in _sub.iterrows():
+                if _r['Model'] not in _plot_models:
+                    continue
+                _d = pd.to_datetime(pd.Series(_r.get('dates', [])))
+                _p = np.asarray(_r['predictions'], dtype=float)
+                if len(_d) != len(_p):
+                    _n = min(len(_d), len(_p))
+                    if _n == 0:
+                        continue
+                    _d, _p = _d.iloc[-_n:], _p[-_n:]
+                _mae = _r.get('MAE', np.nan)
+                fig_pred.add_trace(go.Scatter(
+                    x=_d, y=_p, mode='lines',
+                    name=f"{_r['Model']} (MAE {_mae:.1f})" if pd.notna(_mae) else str(_r['Model']),
+                    line=dict(width=1.8)))
+
+            fig_pred.update_layout(
+                title=f"{_lbl_map.get(_sel_leaf, _sel_leaf)} - jendela {_sel_win}",
+                xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
+                height=520, hovermode='x unified',
+                legend=dict(orientation='h', y=-0.18, yanchor='top'))
+            st.plotly_chart(fig_pred, use_container_width=True)
+
+            st.caption(
+                "Garis hitam tebal adalah nilai aktual. Prediksi di sini **out-of-sample** "
+                "pada periode uji, bukan fitted value in-sample - fitted value akan terlihat "
+                "jauh lebih rapat dan memberi kesan akurasi yang tidak pernah terjadi di produksi. "
+                "Model pohon yang melayang menjauh dari aktual adalah drift recursive; "
+                "garis yang mendatar berarti model kehilangan sinyal dan jatuh ke rata-rata."
+            )
+
+            _tbl = _sub[['Model'] + [c for c in ['MAE', 'RMSE', 'R²', 'DA', 'MASE', 'Bias']
+                                     if c in _sub.columns]].sort_values('MAE')
+            st.dataframe(_tbl.round(2), use_container_width=True, hide_index=True)
 
     # ========================================================================
     # SECTION 3: DETAILED COMPARISON TABLE
