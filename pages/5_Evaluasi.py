@@ -509,15 +509,27 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # untuk horizon 60 hari), jadi angkanya perlu disampaikan di depan - bukan
     # dibiarkan user menunggu tanpa tahu. Hasil disimpan ke checkpoint per unit,
     # jadi run yang panjang tetap aman kalau koneksi terputus.
-    _n_ml_sel = len([m for m in ['RandomForest', 'LightGBM', 'XGBoost'] if m in selected_models])
-    if recursive_eval and _n_ml_sel > 0:
-        _est_min = len(pending_units) * _n_ml_sel * 14 / 60
+    # LSTM dihitung terpisah karena SELALU recursive - biayanya tidak hilang
+    # saat user memilih mode direct, sehingga estimasi yang hanya menghitung
+    # model pohon akan diam saja padahal run-nya tetap memakan belasan menit.
+    _n_tree_sel = len([m for m in ['RandomForest', 'LightGBM', 'XGBoost'] if m in selected_models])
+    _n_lstm_sel = 1 if 'LSTM' in selected_models else 0
+    _sec_per_unit = (_n_tree_sel * 14 if recursive_eval else 0) + _n_lstm_sel * 11
+    if _sec_per_unit > 0:
+        _est_min = len(pending_units) * _sec_per_unit / 60
+        _rincian = []
+        if recursive_eval and _n_tree_sel:
+            _rincian.append(f"{_n_tree_sel} model pohon recursive")
+        if _n_lstm_sel:
+            _rincian.append("LSTM (selalu recursive)")
         st.warning(
-            f"⏱️ Mode **setia produksi (recursive)**: perkiraan **~{_est_min:.0f} menit** "
-            f"untuk {len(pending_units)} unit x {_n_ml_sel} model ML (belum termasuk "
-            f"AutoARIMA/VAR/Prophet). Hasil disimpan otomatis per unit - kalau terputus, "
-            f"jalankan lagi dan pilih 'lanjutkan'. Untuk eksplorasi cepat, ganti ke mode "
-            f"direct di sidebar (metriknya optimistis, jangan dipakai memilih model)."
+            f"⏱️ Perkiraan **~{_est_min:.0f} menit** untuk {len(pending_units)} unit "
+            f"({' + '.join(_rincian)}; belum termasuk AutoARIMA/VAR/Prophet). "
+            f"Hasil disimpan otomatis per unit - kalau terputus, jalankan lagi dan "
+            f"pilih 'lanjutkan'."
+            + ("" if recursive_eval else
+               " Catatan: mode direct hanya mempercepat model pohon; LSTM tetap "
+               "recursive karena mode direct tidak punya makna untuk model urutan.")
         )
 
     for leaf_id, eval_window in pending_units:
@@ -1003,7 +1015,8 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                     # Dicatat lalu dilewati - JANGAN sampai membatalkan seluruh
                     # evaluasi (yang bisa memakan menit-menit) hanya karena satu
                     # model bermasalah di satu leaf node.
-                    failed_evaluations.append({'Leaf': leaf_id, 'Model': model_name,
+                    failed_evaluations.append({'Row_ID': leaf_id, 'Jendela': eval_window,
+                                               'Model': model_name,
                                                'Alasan': 'Prediksi mengandung NaN/inf'})
                     continue
 
@@ -1024,7 +1037,11 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             status_text.text(f"Evaluating {leaf_id} with Stacking... ({current_step+1}/{total_steps})")
 
             # Stacking requires at least 2 successful base models (excluding Prophet)
-            stacking_base_models = ['APUVA', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR']
+            # LSTM ikut sebagai kandidat: ia satu-satunya base model yang tidak
+            # mengalami drift recursive (R2 -0,36 vs -4,13 milik LightGBM), jadi
+            # justru berguna sebagai penyeimbang di meta-model.
+            stacking_base_models = ['APUVA', 'RandomForest', 'LightGBM', 'XGBoost',
+                                    'AutoARIMA', 'VAR', 'LSTM']
             successful_models_stack = [m for m in stacking_base_models if results.get(m, {}).get('success')]
 
             if len(successful_models_stack) >= 2:
