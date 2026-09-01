@@ -7,6 +7,7 @@ from .arima_model import ARIMAForecaster
 from .prophet_model import ProphetForecaster
 from .apuva_model import APUVAForecaster
 from .croston_model import CrostonForecaster
+from .lstm_model import LSTMForecaster
 from .stacking_model import StackingForecaster
 from .var_model import VARForecaster
 from .naive_model import NaiveForecaster
@@ -59,6 +60,7 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None,
         'var': VARForecaster,
         'naive': NaiveForecaster,
         'naivemean': NaiveForecaster,
+        'lstm': LSTMForecaster,
     }
 
     model_name_lower = model_name.lower()

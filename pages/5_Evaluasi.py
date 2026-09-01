@@ -158,7 +158,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
 
 # Available models with checkboxes in sidebar
-all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "Stacking"]
+all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "LSTM", "Stacking"]
 
 # Model dikelompokkan berdasarkan CARA KERJANYA, bukan sekadar rapi di layar:
 #   - Classic  : model statistik time-series yang memodelkan struktur deret
@@ -181,6 +181,12 @@ MODEL_GROUPS = [
         ("RandomForest", "model_rf", "Ensemble pohon keputusan (bagging)"),
         ("XGBoost", "model_xgb", "Gradient boosting"),
         ("LightGBM", "model_lgbm", "Gradient boosting, lebih cepat pada data besar"),
+    ]),
+    ("🧠 Deep Learning (DL)", [
+        ("LSTM", "model_lstm", "Jaringan rekuren atas jendela 60 hari nilai historis. "
+                               "Distandardisasi otomatis (jaringan saraf peka skala, tidak seperti "
+                               "model pohon), Huber loss agar tidak didominasi hari ekstrem, "
+                               "early stopping pada validasi kronologis"),
     ]),
     ("📊 Baseline & Ensemble", [
         ("Naive", "model_naive", "Ulangi nilai terakhir - GARIS ACUAN. Model yang tidak bisa mengalahkan ini tidak layak dipakai"),
@@ -492,7 +498,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         st.info(f"⏭️ Melewati {len(done_leaves)} unit (leaf x jendela) yang sudah selesai, "
                 f"melanjutkan {len(pending_units)} sisanya.")
 
-    base_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
+    base_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "LSTM"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
     total_steps = max(1, len(pending_units) * len(selected_models))
@@ -865,6 +871,44 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             current_step += 1
             progress_bar.progress(min(current_step / total_steps, 1.0))
 
+        # --- MODEL: LSTM (deep learning) ---
+        #
+        # LSTM SELALU dinilai secara recursive, tanpa memandang pilihan mode di
+        # sidebar. Mode direct tidak punya makna untuk model ini: ia belajar dari
+        # jendela nilai berurutan, bukan dari matriks fitur yang bisa dihitung
+        # sekali di muka untuk seluruh periode test. Jadi angkanya selalu setara
+        # dengan yang akan dihasilkan produksi.
+        if "LSTM" in selected_models:
+            status_text.text(f"Evaluating {leaf_id} with LSTM (recursive)... "
+                             f"({current_step+1}/{total_steps})")
+            try:
+                from utils.forecasting import forecast_single_series
+                _fv, _ = forecast_single_series(
+                    dates=train_ml['date'].dt.strftime('%Y-%m-%d').tolist(),
+                    values=train_ml['value'].values,
+                    model_name='LSTM',
+                    n_days=len(test_ml),
+                    holidays=holidays_list,
+                    row_id=leaf_id,
+                )
+                _fv = np.asarray(_fv, dtype=float)
+                _n = len(leaf_actual_ml)
+                if len(_fv) > _n:
+                    _fv = _fv[:_n]
+                elif len(_fv) < _n:
+                    _fv = np.pad(_fv, (0, _n - len(_fv)), mode='edge')
+                if not np.all(np.isfinite(_fv)):
+                    raise ValueError("forecast mengandung NaN/inf")
+                results['LSTM'] = {'success': True, 'predictions_test': _fv}
+                leaf_predictions['LSTM'] = _fv
+            except Exception as _e:
+                results['LSTM'] = {'success': False}
+                failed_evaluations.append(
+                    {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': 'LSTM',
+                     'Alasan': str(_e)[:200]})
+            current_step += 1
+            progress_bar.progress(min(current_step / total_steps, 1.0))
+
         # ========================================================================
         # CALCULATE METRICS - EXACTLY SAME AS Prediksi.py lines 711-779
         # ========================================================================
@@ -1199,7 +1243,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     }).rename(columns={'Row_ID': 'Count'})
 
     # Sort by model order (filter to only selected models)
-    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR', 'Naive', 'NaiveMean'] if m in selected_models]
+    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'LSTM', 'AutoARIMA', 'VAR', 'Naive', 'NaiveMean'] if m in selected_models]
     model_summary = model_summary.reindex([m for m in model_order if m in model_summary.index]).reset_index()
     model_summary = model_summary.round(2)
 
@@ -1530,7 +1574,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
                         with col4:
                             # Use Best_Model from current row (from best_models dataframe)
                             best_model = row['Best_Model']
-                            model_options = ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR']
+                            model_options = ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'LSTM', 'AutoARIMA', 'VAR']
 
                             # Get index of best model, default to 0 if not found
                             try:
