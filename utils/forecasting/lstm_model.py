@@ -48,6 +48,42 @@ Cara membacanya:
 CATATAN: sama sekali belum ada penyetelan hyperparameter. lookback, hidden,
 learning rate, dan epoch memakai nilai tetap untuk semua leaf. Angka di atas
 adalah dasar, bukan batas atas.
+
+UJI TERHADAP KLAIM LITERATUR
+----------------------------
+Siami-Namini dkk. (2018, IEEE ICMLA) melaporkan LSTM menurunkan RMSE 84-87%
+dibanding ARIMA pada 12 deret keuangan bulanan. Klaim itu diuji pada data ini
+(18 leaf x 3 jendela, jendela dan data identik antar horizon):
+
+    horizon    AutoARIMA      LSTM     selisih    LSTM menang        p
+      1 hari      28,111    33,781      +20,2%          23/54    0,157
+     60 hari      36,980    40,558       +9,7%          23/54    0,227
+
+Klaim itu TIDAK terulang di sini, pada horizon mana pun. Dugaan awal bahwa
+keunggulan LSTM di paper adalah artefak horizon satu-langkah juga TIDAK
+terbukti - LSTM justru tertinggal lebih jauh di h=1 (+20,2%) daripada di
+h=60 (+9,7%).
+
+Penjelasan yang tersisa untuk selisih dengan paper, berdasarkan isi paper
+itu sendiri:
+  - ARIMA pembandingnya dilemahkan: order tetap (5,1,0) tanpa pencarian,
+    diakui sendiri "may not be the optimal model". Di sini pembandingnya
+    AutoARIMA dengan grid search.
+  - Pola reduksi RMSE mereka mengikuti skala deret, bukan kesulitan
+    peramalan: deret bernilai besar dapat 85-90%, deret indeks ~100 hanya
+    1-17%. Itu tanda RMSE dihitung pada skala berbeda, dan paper menyatakan
+    transformasi memang disembunyikan dari pseudocode.
+  - Deret mereka adalah level indeks bertren; deret ini aliran neto bertanda
+    dengan rata-rata mendekati nol dan ACF lag-1 hanya 0,444.
+
+Satu hal yang justru terlihat dari tabel di atas: error LSTM tumbuh lebih
+lambat terhadap horizon (+20,1% dari h=1 ke h=60) dibanding AutoARIMA
+(+31,6%). Konsisten dengan ketiadaan drift recursive di atas. Belum diuji
+apakah pada horizon lebih panjang keduanya berpotongan.
+
+Perlu dicatat: kedua selisih di tabel TIDAK signifikan secara statistik
+(p=0,157 dan p=0,227), dan LSTM menang di 23 dari 54 unit pada keduanya.
+Arahnya konsisten, tapi bukan bukti kuat.
 """
 
 import numpy as np
