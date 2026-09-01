@@ -801,6 +801,29 @@ def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_b
     # volatilitas yang sudah diuji dan GAGAL (ia memaksa masuk fitur yang
     # datanya bilang tidak berguna), di sini relevansi tetap jadi kriteria -
     # redundansi hanya memutus seri antar fitur yang sama-sama relevan.
+    #
+    # ------------------------------------------------------------------
+    # HASIL PENGUKURAN: TIDAK BERPENGARUH PADA AKURASI. DEFAULT TETAP 0.
+    #
+    # Diuji pada 18 leaf x 3 jendela x 3 model (810 unit), horizon 60 hari:
+    #
+    #   arm                       LightGBM   RandomForest   XGBoost   Wilcoxon
+    #   mRMR beta=0,5               +0,43%        -0,06%     +0,68%    p=0,782
+    #   mRMR beta=1,0               -1,74%        +0,90%     +0,73%    p=0,595
+    #   top-10 (korelasi murni)     -3,12%        +1,01%     +1,92%    p=0,068
+    #   mRMR beta=1,0, k=12         +2,20%        +0,55%     +6,00%    p=0,859
+    #
+    # Tidak ada arm yang signifikan; arah antar model saling bertentangan.
+    #
+    # Jadi: redundansinya NYATA dan mekanisme penawarnya BEKERJA (redundansi
+    # 0,578 -> 0,380, fitur efektif 9 -> 12), tapi akurasinya tidak berubah.
+    # Penjelasan yang paling masuk akal: ensemble pohon memang sudah tahan
+    # terhadap fitur redundan - pada tiap split ia memilih salah satu dari
+    # sekelompok fitur berkorelasi, sehingga menghapus duplikat tidak memberi
+    # informasi yang belum ia punya.
+    #
+    # Redundansi di sini properti nyata dari himpunan fitur, tapi bukan
+    # masalah nyata bagi model-model ini.
     # ------------------------------------------------------------------
     if mrmr_beta and mrmr_beta > 0:
         cand = [f for f, _ in sorted_features]
