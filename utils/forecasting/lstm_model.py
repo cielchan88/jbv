@@ -20,6 +20,34 @@ ukuran datanya.
 
 Prediksi bersifat RECURSIVE, sama seperti forecaster lain di sini: buffer
 digeser, prediksi dimasukkan kembali sebagai input langkah berikutnya.
+
+HASIL PENGUKURAN (18 leaf x 3 jendela, horizon 60 hari, protokol recursive):
+
+    model        MAE     RMSE      R2    MASE    bias
+    AutoARIMA  36,98    49,27  -0,124   1,244  +2,261
+    LightGBM   38,73    50,90  -4,129   1,395  -1,876
+    LSTM       40,56    53,37  -0,361   1,340  +1,335
+    NaiveMean  40,53    52,30  -0,807   1,365  -0,888
+
+Tidak ada selisih yang signifikan secara statistik (Wilcoxon, n=54: vs
+LightGBM p=0,40; vs AutoARIMA p=0,23; vs NaiveMean p=0,74).
+
+Cara membacanya:
+- Pada MAE rata-rata, LSTM setara NaiveMean dan di bawah AutoARIMA. Ia TIDAK
+  menggantikan AutoARIMA sebagai model utama.
+- Tapi per leaf, LSTM terpilih sebagai terbaik di 6 dari 18 - sama banyak
+  dengan AutoARIMA (LightGBM 4, NaiveMean 2). Jadi ia punya tempat.
+- Yang paling menonjol: LSTM TIDAK mengalami drift recursive. R2 -0,36
+  dibanding -4,13 milik LightGBM, dan bias +1,34 dibanding -1,88. Ini
+  membenarkan diagnosis sebelumnya bahwa drift itu spesifik pada
+  keterbatasan ekstrapolasi model pohon - LSTM bisa mengekstrapolasi,
+  sehingga umpan balik recursive tidak memutar turun.
+- MASE LSTM (1,340) lebih baik dari LightGBM (1,395) meski MAE rata-ratanya
+  lebih besar, artinya LSTM relatif lebih unggul pada deret yang sulit.
+
+CATATAN: sama sekali belum ada penyetelan hyperparameter. lookback, hidden,
+learning rate, dan epoch memakai nilai tetap untuk semua leaf. Angka di atas
+adalah dasar, bukan batas atas.
 """
 
 import numpy as np
