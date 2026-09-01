@@ -664,7 +664,7 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     return df
 
 
-def select_top_features_optimized(train_df, top_k=25, volatility_quota=0):
+def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_beta=0.0):
     """
     Select top K features using correlation (Spearman), with an optional
     reserved quota for volatility features.
@@ -674,6 +674,9 @@ def select_top_features_optimized(train_df, top_k=25, volatility_quota=0):
         top_k: Number of top features to select
         volatility_quota: Berapa dari top_k slot yang dipesan untuk fitur di
             VOLATILITY_PRIORITY_FEATURES. 0 = perilaku lama (korelasi murni).
+            Lihat penjelasan di badan fungsi. TERUKUR MEMPERBURUK - jangan
+            diaktifkan tanpa bukti baru.
+        mrmr_beta: Bobot penalti redundansi (mRMR). 0 = perilaku lama.
             Lihat penjelasan di badan fungsi.
 
     Returns:
@@ -776,6 +779,52 @@ def select_top_features_optimized(train_df, top_k=25, volatility_quota=0):
         picked = keep_vol + add + keep_oth
         picked = sorted(picked, key=lambda x: x[1], reverse=True)[:top_k]
         return [f for f, _ in picked], {f: s for f, s in picked}
+
+    # ------------------------------------------------------------------
+    # Seleksi sadar-redundansi (mRMR).
+    #
+    # Seleksi univariat menilai tiap fitur SENDIRI-SENDIRI terhadap target,
+    # tanpa memeriksa apakah ia sudah diwakili fitur yang terpilih sebelumnya.
+    # Pada data ini akibatnya terukur: rata-rata |korelasi| ANTAR 25 fitur
+    # terpilih adalah 0,667, dan analisis komponen utama menunjukkan ke-25
+    # fitur itu hanya membawa informasi setara 8,8 fitur bebas.
+    #
+    # Wujud konkretnya, fitur yang terpilih di >=15 dari 18 leaf mencakup
+    # rolling_mean_7/14/30/60/90, ewm_7, ewm_30, dan bb_middle_20 - delapan
+    # varian dari benda yang sama, karena garis tengah Bollinger secara
+    # definisi juga rata-rata bergerak.
+    #
+    # mRMR memilih secara serakah dengan skor:
+    #     relevansi(f) - beta * rata-rata |korelasi(f, yang sudah terpilih)|
+    #
+    # beta=0 mengembalikan perilaku lama persis. Berbeda dari kuota
+    # volatilitas yang sudah diuji dan GAGAL (ia memaksa masuk fitur yang
+    # datanya bilang tidak berguna), di sini relevansi tetap jadi kriteria -
+    # redundansi hanya memutus seri antar fitur yang sama-sama relevan.
+    # ------------------------------------------------------------------
+    if mrmr_beta and mrmr_beta > 0:
+        cand = [f for f, _ in sorted_features]
+        # Batasi kandidat agar matriks korelasinya murah dihitung
+        cand = cand[:min(len(cand), max(top_k * 3, 40))]
+        if len(cand) > 1:
+            Xc = X[cand]
+            R = Xc.corr(method='spearman').abs().fillna(0.0)
+
+            picked = [cand[0]]
+            while len(picked) < min(top_k, len(cand)):
+                best_f, best_v = None, -np.inf
+                for f in cand:
+                    if f in picked:
+                        continue
+                    red = float(R.loc[f, picked].mean())
+                    val = corr_scores[f] - mrmr_beta * red
+                    if val > best_v:
+                        best_v, best_f = val, f
+                if best_f is None:
+                    break
+                picked.append(best_f)
+
+            return picked, {f: corr_scores[f] for f in picked}
 
     # Select top K features by correlation only
     top_features = []
