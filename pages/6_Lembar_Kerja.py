@@ -426,11 +426,15 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                         from scipy.stats import spearmanr
 
                         ts_df_temp = pd.DataFrame({'ds': dates, 'y': values})
+                        # TANPA cross-series: daftar ini ditampilkan sebagai
+                        # "fitur yang dipakai model", jadi harus sama dengan
+                        # yang benar-benar dipakai peramal - dan peramal
+                        # rekursif tidak lagi memakai ext_* (lihat
+                        # ENABLE_CROSS_SERIES_FOR_RECURSIVE).
                         train_features_temp = create_features_optimized(
                             ts_df_temp,
                             lag_steps=90,
                             holidays_list=holidays,
-                            external_series=external_series_data,
                             external_series_dates=dates
                         )
 
@@ -534,11 +538,15 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                         from utils.feature_engineering_optimized import create_features_optimized, select_top_features_optimized
 
                         ts_df_temp = pd.DataFrame({'ds': dates, 'y': values})
+                        # TANPA cross-series: residual model bayangan ini
+                        # dipakai sebagai lebar interval forecast. Kalau model
+                        # bayangan memakai ext_* sementara peramal sebenarnya
+                        # tidak, residualnya terlalu kecil dan pitanya terlalu
+                        # sempit (lihat ENABLE_CROSS_SERIES_FOR_RECURSIVE).
                         train_features_temp = create_features_optimized(
                             ts_df_temp,
                             lag_steps=90,
                             holidays_list=holidays,
-                            external_series=external_series_data,
                             external_series_dates=dates
                         )
 

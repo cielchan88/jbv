@@ -219,8 +219,17 @@ if run_test and selected_series:
         test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
 
         # Create optimized features (60-70% fewer features, preserves volatility capture)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data, external_series_dates=dates_ml)
+        #
+        # TANPA cross-series, sengaja. Fitur di sini dipakai untuk metrik uji
+        # dan tabel "fitur terpilih" yang DITAMPILKAN sebagai penjelas forecast
+        # di bawah. Peramal rekursif (RandomForest/XGBoost/LightGBM) tidak lagi
+        # memakai ext_* - lihat ENABLE_CROSS_SERIES_FOR_RECURSIVE di
+        # utils/feature_config.py - jadi kalau di sini masih dipakai, angka dan
+        # daftar fitur yang ditampilkan menggambarkan model yang berbeda dari
+        # model yang menghasilkan forecast. VAR di bawah tetap memakai
+        # external_series_data lewat jalurnya sendiri.
+        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series_dates=dates_ml)
+        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series_dates=dates_ml)
 
         # Check if test_features is empty or too small
         if len(test_features) == 0:

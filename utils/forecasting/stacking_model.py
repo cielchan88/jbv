@@ -9,7 +9,7 @@ import xgboost as xgb
 from .base import BaseForecaster
 from .apuva_model import APUVAForecaster
 from .. import generate_business_dates
-from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT
+from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT, cross_series_for_recursive
 
 
 class StackingForecaster(BaseForecaster):
@@ -38,6 +38,14 @@ class StackingForecaster(BaseForecaster):
         from ..feature_engineering_optimized import create_features_optimized, select_top_features_optimized
 
         self.last_date = pd.to_datetime(dates[-1]) if not isinstance(dates[-1], pd.Timestamp) else dates[-1]
+
+        # Base model XGBoost/RandomForest/LightGBM di sini juga meramal secara
+        # rekursif. Selain masalah nol yang sama, predict() meneruskan
+        # self.external_series TANPA external_series_dates, sehingga
+        # create_features_optimized memakai jalur mundur series_values[:len(df)]
+        # - yaitu nilai seri saudara dari AWAL sejarah, ditempelkan ke tanggal
+        # masa depan. Itu bukan sekadar nol, itu data yang salah dengan yakin.
+        external_series = cross_series_for_recursive(external_series, 'Stacking')
 
         # Store raw data for APUVA and prediction
         self.dates = dates
