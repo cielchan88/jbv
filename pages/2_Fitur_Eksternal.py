@@ -1,230 +1,349 @@
 """
-📊 Fitur Eksternal - External Features Monitoring
+📊 Fitur Eksternal - unggah dan pantau file fitur eksternal
 
-Halaman sederhana untuk:
-- Melihat external features yang tersedia
-- Check apakah data up-to-date (ada gap atau tidak)
+Halaman ini HANYA menerima file fitur eksternal dari user. Scraper Trading
+Economics + FinBERT yang sebelumnya ada di sini sudah dilepas: sumber datanya
+sekarang sepenuhnya berada di tangan user, bukan hasil scraping otomatis.
+
+File yang diunggah menggantikan data/external_features.xlsx, yang dibaca oleh
+etl/load_external.py dan diteruskan ke pipeline fitur. File lama selalu
+dibackup lebih dulu.
 
 Author: APUVA Team
-Date: 2025-11-11
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
+import shutil
 import sys
 import os
 
-# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from etl.load_external import (
-    load_external_features,
-    get_external_features_info
-)
+from etl.load_external import load_external_features, get_external_features_info
 
-# Page config
-st.set_page_config(
-    page_title="Fitur Eksternal",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="Fitur Eksternal", page_icon="📊", layout="wide")
 
-# Header
+# Kontrak file, harus sama dengan etl/load_external.py
+TARGET_PATH = Path("data/external_features.xlsx")
+BACKUP_DIR = Path("data/backup")
+DATE_COL = "Tanggal"
+
 st.title("📊 Fitur Eksternal")
-st.markdown("Monitoring fitur eksternal untuk prediksi.")
+st.markdown(
+    "Unggah file fitur eksternal Anda sendiri. File yang diunggah menggantikan "
+    f"`{TARGET_PATH}` yang dibaca pipeline fitur."
+)
 st.divider()
 
-# ===== UPDATE SENTIMENT BERITA (SCRAPER + FINBERT) =====
-st.subheader("🔄 Update Sentiment Berita")
-st.markdown("""
-Scrape berita terbaru dari Trading Economics (khusus US & Indonesia), analisis sentimen
-pakai FinBERT, lalu otomatis di-*merge* ke `data/external_features.xlsx` berdasarkan
-tanggal (kolom `News_Count` & `Sentiment_TradingEconomics`) - kolom fitur lain
-(Oil Price, USD/IDR, dll) tidak tersentuh. File lama dibackup otomatis sebelum ditimpa.
-""")
-st.warning(
-    "⚠️ Proses ini **berat dan bisa memakan waktu beberapa menit**: download model "
-    "FinBERT (~400MB) saat pertama kali jalan, scraping via internet, lalu analisis "
-    "sentimen per berita. Butuh akses internet dari server ke `tradingeconomics.com` "
-    "dan `huggingface.co`."
+# ============================================================================
+# UNGGAH FILE
+# ============================================================================
+st.subheader("📤 Unggah File Fitur Eksternal")
+
+with st.expander("📌 Format yang diharapkan", expanded=not TARGET_PATH.exists()):
+    st.markdown(f"""
+    - Format **.xlsx**, **.xls**, atau **.csv**. Data dibaca dari **sheet pertama**.
+    - Wajib ada kolom **`{DATE_COL}`** berisi tanggal. Sisanya dianggap kolom fitur.
+    - Satu baris per tanggal - **tanggal tidak boleh terduplikasi**.
+    - Kolom fitur sebaiknya numerik. Kolom non-numerik tetap diterima tapi
+      tidak akan berguna untuk model.
+
+    Contoh:
+
+    | {DATE_COL} | usdidr | flows_sbn | flows_saham |
+    |---|---|---|---|
+    | 2024-01-02 | 15485 | -1250.4 | 320.1 |
+    | 2024-01-03 | 15510 | 880.0 | -145.7 |
+    """)
+
+uploaded = st.file_uploader(
+    "Pilih file fitur eksternal",
+    type=["xlsx", "xls", "csv"],
+    help="Menggantikan file yang sekarang dipakai. File lama dibackup otomatis.",
 )
 
-with st.expander("⚙️ Opsi lanjutan: isi histori dari tanggal tertentu (backfill)"):
-    st.markdown("""
-    Secara default tombol di bawah cuma mengisi **selisih dari data terakhir sampai kemarin**
-    (atau 30 hari terakhir kalau belum pernah scrape sama sekali). Model ML butuh data dari
-    **2019** ke atas - kalau mau isi histori sejauh itu, gunakan opsi ini.
-    """)
-    st.error(
-        "🚨 **Backfill rentang panjang (mis. sampai 2019) bisa makan waktu berjam-jam** "
-        "(ribuan artikel x scraping + inferensi FinBERT per artikel). Kalau dijalankan lewat "
-        "tombol di web ini, koneksinya berisiko putus di tengah jalan (timeout nginx/browser) "
-        "meskipun prosesnya sendiri tetap lanjut di server. Untuk backfill panjang, lebih aman "
-        "dijalankan langsung di server lewat SSH (bukan lewat tombol), atau isi bertahap "
-        "beberapa minggu/bulan per klik."
-    )
-    use_backfill = st.checkbox("Aktifkan backfill dari tanggal tertentu")
-    backfill_date = None
-    if use_backfill:
-        backfill_date = st.date_input(
-            "Scrape dari tanggal", value=datetime(2019, 1, 1).date(),
-            max_value=datetime.now().date()
-        )
 
-if "scrape_result" not in st.session_state:
-    st.session_state.scrape_result = None
-if "scrape_error" not in st.session_state:
-    st.session_state.scrape_error = None
-
-# Tampilkan hasil run terakhir (persist lewat session_state supaya tidak hilang setelah rerun)
-if st.session_state.scrape_error:
-    st.error(f"❌ Gagal scrape/update: {st.session_state.scrape_error}")
-    st.info("💡 Pastikan server punya akses internet ke tradingeconomics.com")
-
-if st.session_state.scrape_result:
-    result = st.session_state.scrape_result
-    st.success(
-        f"✅ Proses selesai - {result['daily_rows']} hari data sentiment "
-        f"({result['date_start'].strftime('%Y-%m-%d')} s/d {result['date_end'].strftime('%Y-%m-%d')}) "
-        f"di-merge ke external_features.xlsx ({result['merged_rows']} baris total)."
-    )
-
-    col_a, col_b, col_c, col_d = st.columns(4)
-    with col_a:
-        st.metric("📰 Berita di-scrape", result['scraped_count'])
-    with col_b:
-        st.metric("🌏 Lolos filter US/ID", f"{result['filtered_count']}/{result['total_before_filter']}")
-    with col_c:
-        st.metric("🤖 Sentiment sukses", result['sentiment_stats']['success'])
-    with col_d:
-        st.metric("❌ Sentiment gagal", result['sentiment_stats']['failed'])
-
-    st.caption(result['scrape_note'])
-
-    if result['sentiment_stats']['failed'] > 0:
-        st.warning(
-            f"⚠️ {result['sentiment_stats']['failed']} artikel gagal dianalisis sentimennya "
-            f"(fallback ke neutral/skor 0.0). Contoh error: `{result['sentiment_stats']['last_error']}`"
-        )
-    if result['sentiment_stats']['empty_title'] > 0:
-        st.warning(f"⚠️ {result['sentiment_stats']['empty_title']} artikel tidak punya judul, dianggap neutral otomatis.")
-
-    if result['flat_fallback_days'] > 0:
-        st.error(
-            f"🚩 **{result['flat_fallback_days']} hari** punya berita tapi `Sentiment_TradingEconomics` "
-            f"jatuh persis di **0.5** - tanda semua artikel di hari itu gagal dianalisis (bukan sentimen netral "
-            f"yang wajar). Ini kemungkinan besar penyebab nilai sentimen terlihat flat."
-        )
-
-if st.button("🔄 Scrape & Update Sentiment", type="primary"):
-    st.session_state.scrape_result = None
-    st.session_state.scrape_error = None
+def read_upload(f):
+    """Baca file unggahan; kembalikan (df, error)."""
     try:
-        from helper.tradingeconomics_scraper import run_scrape_and_update
-    except ImportError as e:
-        st.session_state.scrape_error = (
-            f"Dependency belum terinstall: {e}. "
-            f"Install: pip install transformers torch torchvision sentencepiece tqdm"
+        if f.name.lower().endswith(".csv"):
+            return pd.read_csv(f), None
+        return pd.read_excel(f, sheet_name=0), None
+    except Exception as e:
+        return None, f"File tidak bisa dibaca: {e}"
+
+
+def validate(df):
+    """
+    Periksa file terhadap kontrak yang dipakai etl/load_external.py.
+
+    Mengembalikan (errors, warnings). Errors memblokir penyimpanan; warnings
+    hanya diberitahukan. Pemisahan ini disengaja: file yang tanggalnya bolong
+    atau tidak mencakup periode terbaru tetap SAH untuk disimpan - user mungkin
+    memang punya data separuh - tapi file tanpa kolom Tanggal atau dengan
+    tanggal ganda akan merusak pipeline di hilir tanpa pesan yang jelas.
+    """
+    errors, warns = [], []
+
+    if df is None or len(df) == 0:
+        return ["File kosong."], []
+
+    if DATE_COL not in df.columns:
+        mirip = [c for c in df.columns if str(c).strip().lower() == DATE_COL.lower()]
+        if mirip:
+            errors.append(
+                f"Kolom tanggal bernama `{mirip[0]}` - harus persis `{DATE_COL}` "
+                f"(perhatikan spasi dan huruf besar/kecil)."
+            )
+        else:
+            errors.append(
+                f"Tidak ada kolom `{DATE_COL}`. Kolom yang ditemukan: "
+                f"{', '.join(str(c) for c in df.columns[:10])}"
+            )
+        return errors, warns
+
+    dt = pd.to_datetime(df[DATE_COL], errors="coerce")
+    n_bad = int(dt.isna().sum())
+    if n_bad == len(df):
+        errors.append(f"Tidak satu pun nilai di kolom `{DATE_COL}` bisa dibaca sebagai tanggal.")
+        return errors, warns
+    if n_bad > 0:
+        errors.append(f"{n_bad} baris punya tanggal yang tidak bisa dibaca.")
+
+    dup = int(dt.duplicated().sum())
+    if dup > 0:
+        errors.append(
+            f"{dup} tanggal terduplikasi. Pipeline mengasumsikan satu baris per "
+            f"tanggal; duplikat membuat penyelarasan ke deret SDV tidak menentu."
         )
+
+    feat_cols = [c for c in df.columns if c != DATE_COL]
+    if not feat_cols:
+        errors.append("Tidak ada kolom fitur - file hanya berisi kolom tanggal.")
+
+    non_num = [c for c in feat_cols
+               if not pd.api.types.is_numeric_dtype(pd.to_numeric(df[c], errors="coerce"))]
+    all_nan = [c for c in feat_cols if pd.to_numeric(df[c], errors="coerce").notna().sum() == 0]
+    if all_nan:
+        warns.append(f"{len(all_nan)} kolom tidak punya satu pun nilai numerik: "
+                     f"{', '.join(str(c) for c in all_nan[:5])}")
+
+    if not dt.is_monotonic_increasing:
+        warns.append("Tanggal tidak terurut menaik - akan diurutkan otomatis saat disimpan.")
+
+    valid_dt = dt.dropna()
+    if len(valid_dt) > 1:
+        full = pd.date_range(valid_dt.min(), valid_dt.max(), freq="D")
+        miss = len(full.difference(valid_dt))
+        if miss > 0:
+            warns.append(f"{miss} tanggal kalender tidak ada di antara "
+                         f"{valid_dt.min().date()} dan {valid_dt.max().date()}.")
+
+    return errors, warns
+
+
+if uploaded is not None:
+    df_new, read_err = read_upload(uploaded)
+
+    if read_err:
+        st.error(f"❌ {read_err}")
     else:
-        with st.spinner("⏳ Scraping berita & menjalankan analisis sentimen... (bisa beberapa menit)"):
+        errors, warns = validate(df_new)
+
+        c1, c2, c3, c4 = st.columns(4)
+        _dt = pd.to_datetime(df_new[DATE_COL], errors="coerce") if DATE_COL in df_new.columns else pd.Series(dtype="datetime64[ns]")
+        with c1:
+            st.metric("Baris", f"{len(df_new):,}")
+        with c2:
+            st.metric("Kolom fitur", max(len(df_new.columns) - 1, 0))
+        with c3:
+            st.metric("Tanggal awal", str(_dt.min().date()) if _dt.notna().any() else "—")
+        with c4:
+            st.metric("Tanggal akhir", str(_dt.max().date()) if _dt.notna().any() else "—")
+
+        for e in errors:
+            st.error(f"❌ {e}")
+        for w in warns:
+            st.warning(f"⚠️ {w}")
+
+        # ---- Bandingkan dengan file yang sedang dipakai ----
+        if TARGET_PATH.exists() and not errors:
             try:
-                st.session_state.scrape_result = run_scrape_and_update(
-                    backfill_start_date=backfill_date if use_backfill else None
-                )
-                st.cache_data.clear()
+                cur = pd.read_excel(TARGET_PATH, sheet_name=0)
+                cur_cols = set(cur.columns) - {DATE_COL}
+                new_cols = set(df_new.columns) - {DATE_COL}
+                hilang, tambah = sorted(cur_cols - new_cols), sorted(new_cols - cur_cols)
+
+                st.markdown("**Perbandingan dengan file yang sedang dipakai**")
+                d1, d2 = st.columns(2)
+                with d1:
+                    st.write(f"Sekarang: **{len(cur):,}** baris, **{len(cur_cols)}** fitur")
+                with d2:
+                    st.write(f"Setelah diganti: **{len(df_new):,}** baris, **{len(new_cols)}** fitur")
+
+                if hilang:
+                    st.error(
+                        f"🚨 **{len(hilang)} kolom akan HILANG**: {', '.join(str(c) for c in hilang)}. "
+                        f"Kalau kolom ini dipakai model, fiturnya ikut hilang."
+                    )
+                if tambah:
+                    st.info(f"➕ {len(tambah)} kolom baru: {', '.join(str(c) for c in tambah)}")
+                if not hilang and not tambah:
+                    st.success("✅ Susunan kolom sama persis dengan file sekarang.")
             except Exception as e:
-                st.session_state.scrape_error = str(e)
-    st.rerun()
+                st.warning(f"⚠️ Tidak bisa membandingkan dengan file lama: {e}")
+
+        # ---- Cakupan terhadap data SDV ----
+        if not errors and _dt.notna().any():
+            try:
+                from utils.data_loader import load_etl_output
+                _sdv, _meta, _tcols = load_etl_output()
+                sdv_end = pd.to_datetime(_tcols[-1])
+                lag = (sdv_end - _dt.max()).days
+                if lag > 30:
+                    st.warning(
+                        f"⚠️ Fitur eksternal berakhir {_dt.max().date()}, sedangkan data SDV "
+                        f"sampai {sdv_end.date()} - tertinggal **{lag} hari**. Periode itu "
+                        f"tidak akan punya nilai fitur eksternal."
+                    )
+            except Exception:
+                pass
+
+        st.markdown("**Pratinjau (10 baris pertama)**")
+        st.dataframe(df_new.head(10), use_container_width=True)
+
+        if errors:
+            st.info("Perbaiki kesalahan di atas, lalu unggah ulang.")
+        else:
+            st.divider()
+            konfirm = st.checkbox(
+                f"Saya paham file ini akan menggantikan `{TARGET_PATH}`"
+                + (" dan menghilangkan kolom yang disebut di atas" if TARGET_PATH.exists() else "")
+            )
+            if st.button("💾 Simpan sebagai fitur eksternal", type="primary", disabled=not konfirm):
+                try:
+                    TARGET_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+                    backup_msg = ""
+                    if TARGET_PATH.exists():
+                        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+                        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        bak = BACKUP_DIR / f"external_features_{stamp}.xlsx"
+                        shutil.copy2(TARGET_PATH, bak)
+                        backup_msg = f" File lama dibackup ke `{bak}`."
+
+                    out = df_new.copy()
+                    out[DATE_COL] = pd.to_datetime(out[DATE_COL], errors="coerce")
+                    out = out.dropna(subset=[DATE_COL]).sort_values(DATE_COL).reset_index(drop=True)
+                    out.to_excel(TARGET_PATH, index=False)
+
+                    st.cache_data.clear()
+                    st.success(f"✅ Tersimpan: {len(out):,} baris, "
+                               f"{len(out.columns) - 1} fitur.{backup_msg}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Gagal menyimpan: {e}")
 
 st.divider()
 
-# Load external features
+# ============================================================================
+# STATUS FILE YANG SEDANG DIPAKAI
+# ============================================================================
+
+
 @st.cache_data
 def load_external_data():
-    """Load external features with caching"""
     try:
         df, external_dict = load_external_features(sheet_name=None)
         return df, external_dict, None
-    except FileNotFoundError as e:
+    except FileNotFoundError:
         return None, None, "File tidak ditemukan"
     except Exception as e:
         return None, None, f"Error: {str(e)}"
 
+
 df_ext, ext_dict, error = load_external_data()
 
 if error:
-    st.error(f"❌ {error}")
-    st.info("💡 Pastikan file `data/external_features.xlsx` tersedia dengan sheet `External_Features`")
+    st.info(f"ℹ️ Belum ada fitur eksternal yang aktif ({error}). Unggah file di atas untuk memulai.")
     st.stop()
 
-# File info
 info = get_external_features_info()
 
-# Metrics
+st.subheader("📦 File yang Sedang Dipakai")
 col1, col2, col3, col4 = st.columns(4)
-
 with col1:
     st.metric("📁 File", "✅ Tersedia")
-
 with col2:
-    st.metric("📊 Jumlah Features", info.get('num_features', 0))
-
+    st.metric("📊 Jumlah Features", info.get("num_features", 0))
 with col3:
-    st.metric("📅 Total Rows", info.get('num_rows', 0))
-
+    st.metric("📅 Total Rows", info.get("num_rows", 0))
 with col4:
-    file_kb = info.get('file_size_kb', 0)
-    st.metric("💾 Size", f"{file_kb:.1f} KB")
+    st.metric("💾 Size", f"{info.get('file_size_kb', 0):.1f} KB")
+
+# Fitur eksternal bisa saja dimatikan di pipeline. Kalau ya, itu harus terlihat
+# di sini - kalau tidak, user bisa mengunggah file berkali-kali dan bingung
+# kenapa tidak ada pengaruhnya pada hasil model.
+try:
+    from utils.external_loader import ENABLE_EXTERNAL_FEATURES
+    if not ENABLE_EXTERNAL_FEATURES:
+        st.warning(
+            "⚠️ **Fitur eksternal sedang DIMATIKAN di pipeline** "
+            "(`ENABLE_EXTERNAL_FEATURES = False` di `utils/external_loader.py`). "
+            "File di halaman ini tetap tersimpan dan terpantau, tapi **tidak diteruskan "
+            "ke model mana pun** sampai saklar itu dinyalakan."
+        )
+except Exception:
+    pass
 
 st.divider()
 
-# Date info
 st.subheader("📅 Informasi Data")
-
-if 'date_range' in info:
+if "date_range" in info:
     st.write(f"**Tanggal Awal:** `{info['date_range']['start']}`")
     st.write(f"**Tanggal Akhir:** `{info['date_range']['end']}`")
+    _s = pd.to_datetime(info["date_range"]["start"])
+    _e = pd.to_datetime(info["date_range"]["end"])
+    st.write(f"**Durasi:** {(_e - _s).days} hari")
 
-    start_date = pd.to_datetime(info['date_range']['start'])
-    end_date = pd.to_datetime(info['date_range']['end'])
-    days = (end_date - start_date).days
-    st.write(f"**Durasi:** {days} hari")
-
-# Check gaps
-dates = pd.to_datetime(df_ext['Tanggal'])
-date_range = pd.date_range(start=dates.min(), end=dates.max(), freq='D')
-missing_dates = date_range.difference(dates)
+dates = pd.to_datetime(df_ext[DATE_COL])
+missing_dates = pd.date_range(dates.min(), dates.max(), freq="D").difference(dates)
 
 if len(missing_dates) == 0:
     st.success("✅ **Status:** Data lengkap, tidak ada gap")
 else:
     st.warning(f"⚠️ **Status:** Ada **{len(missing_dates)} tanggal** yang hilang")
-
     with st.expander("📋 Lihat tanggal yang hilang"):
-        missing_df = pd.DataFrame({
-            'Missing Date': missing_dates.strftime('%Y-%m-%d'),
-            'Day': missing_dates.strftime('%A')
-        })
-        st.dataframe(missing_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame({
+                "Missing Date": missing_dates.strftime("%Y-%m-%d"),
+                "Day": missing_dates.strftime("%A"),
+            }),
+            use_container_width=True, hide_index=True,
+        )
 
 st.divider()
 
-# Features list
 st.subheader("📋 Daftar Features")
-
-if 'features' in info and len(info['features']) > 0:
-    features_df = pd.DataFrame({
-        'No': range(1, len(info['features']) + 1),
-        'Feature Name': info['features']
-    })
-
-    st.dataframe(features_df, use_container_width=True, hide_index=True)
+if info.get("features"):
+    _feats = info["features"]
+    _cov = []
+    for f in _feats:
+        s = pd.to_numeric(df_ext[f], errors="coerce") if f in df_ext.columns else pd.Series(dtype=float)
+        _cov.append({
+            "No": len(_cov) + 1,
+            "Feature Name": f,
+            "Terisi": f"{s.notna().sum():,} / {len(df_ext):,}",
+            "Min": round(float(s.min()), 3) if s.notna().any() else None,
+            "Maks": round(float(s.max()), 3) if s.notna().any() else None,
+        })
+    st.dataframe(pd.DataFrame(_cov), use_container_width=True, hide_index=True)
 
 st.divider()
 
-# Data preview
 st.subheader("📈 Data")
 st.dataframe(df_ext, use_container_width=True, height=600)
