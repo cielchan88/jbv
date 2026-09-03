@@ -90,14 +90,49 @@ st.info(f"📊 Total **{len(leaf_nodes)}** leaf nodes tersedia untuk evaluasi")
 # Sidebar configuration
 st.sidebar.header("⚙️ Pengaturan Evaluasi")
 
-# Test size
-test_size = st.sidebar.slider(
-    "Ukuran Data Test (%)",
-    min_value=10,
-    max_value=40,
-    value=20,
-    step=5
+# Di mana periode test berakhir.
+#
+# Dulu satu-satunya perilaku adalah "titik potong test_size": acuan diletakkan
+# di titik (100 - test_size)% dari panjang data, lalu jendela mundur dari situ.
+# Akibatnya seluruh ekor data setelah jendela 0 TIDAK PERNAH dipakai - tidak
+# untuk training, tidak untuk test. Pada data ini dengan pengaturan bawaan itu
+# berarti 947 hari terakhir (2022-09 s/d 2026-08, hampir 4 tahun) menganggur:
+# model dinilai pada perilaku 2022 lalu dipilih untuk meramal 2026.
+#
+# Bawaannya sekarang mengakhiri jendela 0 tepat di observasi TERAKHIR, sehingga
+# yang dinilai adalah kemampuan model pada data termutakhir - yang justru paling
+# mirip dengan kondisi saat ia dipakai. Mode lama tetap disediakan supaya hasil
+# evaluasi terdahulu masih bisa direproduksi.
+anchor_mode = st.sidebar.radio(
+    "Periode test berakhir di",
+    ["Data terakhir (disarankan)", "Titik potong % (perilaku lama)"],
+    index=0,
+    help="Data terakhir: jendela 0 menguji N hari terakhir dari sampel, jendela "
+         "berikutnya mundur satu horizon. Titik potong %: acuan di "
+         "(100 - ukuran test)%, seperti perilaku sebelumnya - ekor data setelah "
+         "jendela 0 tidak dipakai sama sekali."
 )
+anchor_di_akhir = anchor_mode.startswith("Data terakhir")
+
+# Slider ini HANYA berpengaruh pada mode lama. Disembunyikan di mode baru supaya
+# tidak tampak seolah mengatur sesuatu padahal tidak - nilainya tetap disimpan ke
+# metadata konfigurasi agar berkas lama tetap terbaca.
+if anchor_di_akhir:
+    test_size = 20
+    st.sidebar.caption(
+        "ℹ️ Periode test berakhir di observasi terakhir. Panjang total periode "
+        "yang diuji ditentukan oleh **horizon × jumlah jendela** di bawah, bukan "
+        "oleh persentase."
+    )
+else:
+    test_size = st.sidebar.slider(
+        "Ukuran Data Test (%)",
+        min_value=10,
+        max_value=40,
+        value=20,
+        step=5,
+        help="Acuan jendela diletakkan di (100 - nilai ini)% dari panjang data."
+    )
 
 # Batas horizon evaluasi.
 # Dengan histori penuh (~5000 hari), test 20% = ~1000 hari. Mengevaluasi forecast
@@ -284,17 +319,34 @@ st.sidebar.caption(f"ℹ️ {metric_info[selection_metric]}")
 # Semua leaf node memakai kolom waktu yang sama (format wide dari ETL), jadi
 # batas jendelanya identik untuk semua leaf - bisa dihitung sekali di sini dan
 # berlaku untuk seluruh evaluasi.
-def hitung_jendela(n_titik, tanggal, test_size, eval_horizon, n_windows):
+def hitung_horizon(n_titik, test_size, eval_horizon):
+    """Panjang satu jendela test."""
+    return int(eval_horizon) if eval_horizon is not None else max(
+        5, n_titik - int(n_titik * (1 - test_size / 100)))
+
+
+def hitung_anchor(n_titik, H, test_size, anchor_di_akhir):
+    """
+    Indeks awal periode test jendela 0.
+
+    anchor_di_akhir=True menaruhnya di n - H, sehingga jendela 0 menguji tepat
+    H hari TERAKHIR dari sampel dan tidak ada ekor data yang terbuang.
+    False mempertahankan perilaku lama: titik (100 - test_size)% dari panjang data.
+    """
+    return (n_titik - H) if anchor_di_akhir else int(n_titik * (1 - test_size / 100))
+
+
+def hitung_jendela(n_titik, tanggal, test_size, eval_horizon, n_windows,
+                   anchor_di_akhir):
     """
     Batas train/test tiap jendela walk-forward.
 
-    Rumusnya SENGAJA disalin persis dari blok split di bawah (anchor, H,
-    test_start) supaya pratinjau tidak pernah menjanjikan sesuatu yang berbeda
-    dari yang benar-benar dijalankan.
+    Memakai hitung_horizon/hitung_anchor yang SAMA dengan blok split di bawah,
+    bukan salinan rumus - supaya pratinjau tidak pernah menjanjikan sesuatu yang
+    berbeda dari yang benar-benar dijalankan.
     """
-    H = int(eval_horizon) if eval_horizon is not None else max(
-        5, n_titik - int(n_titik * (1 - test_size / 100)))
-    anchor = int(n_titik * (1 - test_size / 100))
+    H = hitung_horizon(n_titik, test_size, eval_horizon)
+    anchor = hitung_anchor(n_titik, H, test_size, anchor_di_akhir)
     hasil = []
     for w in range(int(n_windows)):
         ts = anchor - w * H
@@ -328,7 +380,8 @@ with st.expander("📅 Periode sampel, training, dan test", expanded=True):
            f"({_tgl(_d_ml[0])}, {len(_tc_ml)} hari).")
     )
 
-    _jd = hitung_jendela(len(_tc_ml), _d_ml, test_size, eval_horizon, n_windows)
+    _jd = hitung_jendela(len(_tc_ml), _d_ml, test_size, eval_horizon, n_windows,
+                         anchor_di_akhir)
     _baris = []
     for j in _jd:
         _baris.append({
@@ -359,12 +412,11 @@ with st.expander("📅 Periode sampel, training, dan test", expanded=True):
 
     # Ekor data yang tidak tersentuh sama sekali.
     #
-    # Jendela mundur dari titik 80%, jadi apa pun yang berada SETELAH periode
-    # test jendela 0 tidak pernah masuk training maupun test. Dengan pengaturan
-    # bawaan pada data ini, itu berarti hampir 4 tahun terakhir tidak dipakai:
-    # model dinilai pada 2022 lalu dipilih untuk meramal 2026. Diam-diam, kalau
-    # tidak ditulis. Karena itu ditampilkan.
-    _akhir_uji = _jd[0]['test_awal']
+    # Di mode lama, jendela mundur dari titik (100 - test_size)%, jadi apa pun
+    # SETELAH periode test jendela 0 tidak pernah masuk training maupun test -
+    # pada data ini hampir 4 tahun terakhir. Di mode bawaan yang baru ekor ini
+    # nol, tapi pemeriksaannya tetap dijalankan supaya kalau suatu saat
+    # rumusnya berubah lagi, akibatnya langsung terlihat.
     _n_ekor = 0
     if _jd[0]['test_akhir'] is not None:
         _n_ekor = len(_d_ml) - int(np.searchsorted(_d_ml, _jd[0]['test_akhir'], side='right'))
@@ -373,13 +425,28 @@ with st.expander("📅 Periode sampel, training, dan test", expanded=True):
         st.warning(
             f"⚠️ **{_n_ekor} hari terakhir tidak dipakai sama sekali** — tidak untuk "
             f"training, tidak untuk test: `{_tgl(_mulai_ekor)}` s/d `{_tgl(_d_ml[-1])}` "
-            f"(≈{_n_ekor/252:.1f} tahun). Jendela walk-forward mundur dari titik "
-            f"{100-test_size}%, jadi apa pun setelah periode test jendela 0 berada di "
-            f"luar jangkauan. Artinya model dinilai pada perilaku "
+            f"(≈{_n_ekor/252:.1f} tahun). Artinya model dinilai pada perilaku "
             f"{_tgl(_jd[0]['test_awal'])[:4]} lalu dipakai meramal "
-            f"{_tgl(_d_ml[-1])[:4]}. Untuk menilai pada data terbaru, perkecil "
-            f"**Ukuran Data Test** (mis. 10%) sehingga titik acuannya bergeser ke kanan."
+            f"{_tgl(_d_ml[-1])[:4]}. Ganti **Periode test berakhir di** menjadi "
+            f"*Data terakhir* agar evaluasi mencakup data termutakhir."
         )
+
+    # Cakupan periode uji terhadap data termutakhir.
+    _cakupan = sum(j['test_n'] for j in _jd if j['cukup'])
+    if _n_ekor == 0 and _jd[0]['test_awal'] is not None:
+        _awal_uji = min(j['test_awal'] for j in _jd if j['cukup'] and j['test_awal'] is not None)
+        st.success(
+            f"✅ Periode test berakhir tepat di observasi terakhir "
+            f"(`{_tgl(_d_ml[-1])}`). Total **{_cakupan} hari terakhir** diuji, "
+            f"membentang `{_tgl(_awal_uji)}` s/d `{_tgl(_d_ml[-1])}` — tidak ada "
+            f"data yang terbuang di ujung."
+        )
+        if _cakupan < 60:
+            st.warning(
+                f"⚠️ Cakupan uji baru {_cakupan} hari, di bawah 60 hari terakhir. "
+                f"Naikkan **Horizon evaluasi** atau **Jumlah jendela** — cakupan = "
+                f"horizon × jendela."
+            )
     if ML_START_DATE is not None:
         st.caption(
             f"APUVA memakai histori penuh ({len(time_cols)} hari), jadi tanggal "
@@ -538,6 +605,10 @@ def settings_fingerprint():
         # Wajib ikut: metrik recursive dan direct tidak sebanding, jadi
         # checkpoint dari mode lain tidak boleh dilanjutkan begitu saja.
         'recursive_eval': bool(recursive_eval),
+        # Sama wajibnya: dua mode acuan menguji PERIODE YANG BERBEDA (2026 vs
+        # 2022 pada data ini). Melanjutkan checkpoint lintas mode akan mencampur
+        # metrik dari periode berbeda dalam satu tabel perbandingan.
+        'anchor_di_akhir': bool(anchor_di_akhir),
     }
 
 
@@ -874,21 +945,23 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # ====================================================================
         # SPLIT TRAIN/TEST - dengan dukungan jendela walk-forward
         # ====================================================================
-        # eval_window = 0 -> jendela paling akhir (persis seperti split 80/20
-        # biasa). eval_window = 1, 2, ... -> mundur satu horizon tiap kali.
-        # Training SELALU hanya data sebelum jendela test-nya, jadi tidak ada
-        # jendela yang dilatih memakai data setelah periode yang dinilainya.
-        H_ml = int(eval_horizon) if eval_horizon is not None else max(
-            5, len(ts_df_ml) - int(len(ts_df_ml) * (1 - test_size/100)))
-        H_ap = int(eval_horizon) if eval_horizon is not None else max(
-            5, len(ts_df_apuva) - int(len(ts_df_apuva) * (1 - test_size/100)))
+        # eval_window = 0 -> jendela paling akhir. eval_window = 1, 2, ... ->
+        # mundur satu horizon tiap kali. Training SELALU hanya data sebelum
+        # jendela test-nya, jadi tidak ada jendela yang dilatih memakai data
+        # setelah periode yang dinilainya.
+        #
+        # Anchor dihitung lewat hitung_horizon/hitung_anchor - fungsi yang sama
+        # dengan yang dipakai pratinjau di atas halaman, supaya keduanya tidak
+        # bisa berbeda.
+        H_ml = hitung_horizon(len(ts_df_ml), test_size, eval_horizon)
+        H_ap = hitung_horizon(len(ts_df_apuva), test_size, eval_horizon)
 
-        anchor_ml = int(len(ts_df_ml) * (1 - test_size/100))
+        anchor_ml = hitung_anchor(len(ts_df_ml), H_ml, test_size, anchor_di_akhir)
         test_start_ml = anchor_ml - eval_window * H_ml
         train_ml = ts_df_ml.iloc[:test_start_ml]
         test_ml = ts_df_ml.iloc[test_start_ml:test_start_ml + H_ml]
 
-        anchor_ap = int(len(ts_df_apuva) * (1 - test_size/100))
+        anchor_ap = hitung_anchor(len(ts_df_apuva), H_ap, test_size, anchor_di_akhir)
         test_start_ap = anchor_ap - eval_window * H_ap
         train_apuva = ts_df_apuva.iloc[:test_start_ap]
         test_apuva = ts_df_apuva.iloc[test_start_ap:test_start_ap + H_ap]
