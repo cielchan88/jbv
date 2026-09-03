@@ -214,7 +214,7 @@ if uploaded is not None:
                 pass
 
         st.markdown("**Pratinjau (10 baris pertama)**")
-        st.dataframe(df_new.head(10), use_container_width=True)
+        st.dataframe(df_new.head(10), width='stretch')
 
         if errors:
             st.info("Perbaiki kesalahan di atas, lalu unggah ulang.")
@@ -323,7 +323,7 @@ else:
                 "Missing Date": missing_dates.strftime("%Y-%m-%d"),
                 "Day": missing_dates.strftime("%A"),
             }),
-            use_container_width=True, hide_index=True,
+            width='stretch', hide_index=True,
         )
 
 st.divider()
@@ -341,9 +341,9 @@ if info.get("features"):
             "Min": round(float(s.min()), 3) if s.notna().any() else None,
             "Maks": round(float(s.max()), 3) if s.notna().any() else None,
         })
-    st.dataframe(pd.DataFrame(_cov), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_cov), width='stretch', hide_index=True)
 
 st.divider()
 
 st.subheader("📈 Data")
-st.dataframe(df_ext, use_container_width=True, height=600)
+st.dataframe(df_ext, width='stretch', height=600)

@@ -165,7 +165,7 @@ else:
 edited_df = st.data_editor(
     display_df,
     num_rows="dynamic",  # Allow add/delete rows
-    use_container_width=True,
+    width='stretch',
     column_config={
         "Komponen": st.column_config.SelectboxColumn(
             "Komponen",
@@ -288,7 +288,7 @@ if len(st.session_state[adjustment_key]) > 0:
         return styles
 
     styled_preview = preview_df_display.style.apply(highlight_forecast_cols, axis=None)
-    st.dataframe(styled_preview, use_container_width=True, height=600)
+    st.dataframe(styled_preview, width='stretch', height=600)
 
     # Get unique components from adjustments
     adjusted_components = list(set([adj['component_id'] for adj in st.session_state[adjustment_key]]))
@@ -324,7 +324,7 @@ if len(st.session_state[adjustment_key]) > 0:
                     comparison_df = pd.DataFrame(comparison_data)
                     comparison_df['Diff'] = comparison_df['Diff'].apply(lambda x: f"{x:+,.0f}")
 
-                    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                    st.dataframe(comparison_df, width='stretch', hide_index=True)
                     st.markdown("---")
 
 else:
@@ -534,7 +534,7 @@ with col1:
             file_name=f"sdv_forecast_adjusted_{selected_version_id}_{datetime.now().strftime('%H%M')}.xlsx",
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             type="primary",
-            use_container_width=True
+            width='stretch'
         )
 
         st.caption(f"""
@@ -551,7 +551,7 @@ with col1:
 
 with col2:
     # Button to clear all adjustments
-    if st.button("🗑️ Hapus Semua Adjustment", type="secondary", disabled=len(st.session_state[adjustment_key])==0, use_container_width=True):
+    if st.button("🗑️ Hapus Semua Adjustment", type="secondary", disabled=len(st.session_state[adjustment_key])==0, width='stretch'):
         st.session_state[adjustment_key] = []
         st.rerun()
 

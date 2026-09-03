@@ -225,7 +225,7 @@ try:
                 st.metric("📅 Tanggal Akhir", last_date)
 
             # Show full data directly
-            st.dataframe(df, use_container_width=True, height=600)
+            st.dataframe(df, width='stretch', height=600)
 
 except Exception as e:
     st.error(f"❌ Error saat membaca file Excel: {str(e)}")

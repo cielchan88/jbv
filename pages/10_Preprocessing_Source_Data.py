@@ -226,7 +226,7 @@ if "preprocessed_raw" in st.session_state:
             "Tanggal Akhir": df[1].max().strftime("%Y-%m-%d") if df[1].notna().any() else "N/A",
         })
     summary_df = pd.DataFrame(summary_rows)
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    st.dataframe(summary_df, width='stretch', hide_index=True)
 
     col_counts = summary_df["Kolom"].unique()
     if len(col_counts) > 1:
@@ -251,7 +251,7 @@ if "preprocessed_raw" in st.session_state:
             any_dup = True
             n_dates = dup_df[1].nunique()
             with st.expander(f"⚠️ {name}: {n_dates} tanggal terduplikasi ({len(dup_df)} baris terlibat)", expanded=True):
-                st.dataframe(dup_df, use_container_width=True)
+                st.dataframe(dup_df, width='stretch')
     if not any_dup:
         st.success("✅ Tidak ada tanggal terduplikasi di sheet manapun.")
 
@@ -259,7 +259,7 @@ if "preprocessed_raw" in st.session_state:
     diff_df = compare_date_sets(raw_results)
     if len(diff_df) > 0:
         st.warning("⚠️ Ada tanggal yang muncul di sebagian sheet tapi tidak di sheet lain:")
-        st.dataframe(diff_df, use_container_width=True, hide_index=True)
+        st.dataframe(diff_df, width='stretch', hide_index=True)
     else:
         st.success("✅ Set tanggal konsisten — semua sheet punya tanggal yang persis sama.")
 
@@ -279,7 +279,7 @@ if "preprocessed_raw" in st.session_state:
             n_before, n_after = len(raw_results[name]), len(final_results[name])
             if n_before != n_after:
                 st.caption(f"{n_before} baris → {n_after} baris setelah resolusi duplikat")
-            st.dataframe(final_results[name].head(10), use_container_width=True)
+            st.dataframe(final_results[name].head(10), width='stretch')
 
 st.divider()
 
@@ -307,12 +307,12 @@ if "preprocessed_sheets" in st.session_state:
             data=workbook_bytes,
             file_name="source-data.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width='stretch',
         )
 
     with col_save:
         st.warning("⚠️ Menyimpan akan menimpa `source-data.xlsx` yang sedang dipakai dashboard (file lama dibackup otomatis).")
-        if st.button("✅ Simpan sebagai source-data.xlsx di Server", type="primary", use_container_width=True):
+        if st.button("✅ Simpan sebagai source-data.xlsx di Server", type="primary", width='stretch'):
             try:
                 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 

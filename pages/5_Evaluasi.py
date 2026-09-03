@@ -210,12 +210,12 @@ for group_name, models_in_group in MODEL_GROUPS:
         # jauh lebih lambat (AutoARIMA ~11 detik per leaf node).
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("Pilih semua", key=f"all_{group_name}", use_container_width=True):
+            if st.button("Pilih semua", key=f"all_{group_name}", width='stretch'):
                 for _, key, _ in models_in_group:
                     st.session_state[key] = True
                 st.rerun()
         with c2:
-            if st.button("Kosongkan", key=f"none_{group_name}", use_container_width=True):
+            if st.button("Kosongkan", key=f"none_{group_name}", width='stretch'):
                 for _, key, _ in models_in_group:
                     st.session_state[key] = False
                 st.rerun()
@@ -1332,7 +1332,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         st.warning(f"⚠️ {len(failed_evaluations)} kombinasi leaf x model gagal dan tidak masuk hasil "
                    f"(evaluasi tetap dilanjutkan untuk sisanya).")
         with st.expander("📋 Detail kegagalan"):
-            st.dataframe(pd.DataFrame(failed_evaluations), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(failed_evaluations), width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 1: OVERALL MODEL PERFORMANCE (same format as Prediksi.py)
@@ -1384,7 +1384,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # Display as simple table (same as Prediksi.py)
     st.markdown("### 📋 Metrics Comparison (Average across all leaf nodes)")
     st.markdown(f"*⭐ Best Combination = setiap leaf node menggunakan model terbaik (by {selection_metric})*")
-    st.dataframe(model_summary, use_container_width=True, hide_index=True)
+    st.dataframe(model_summary, width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 2: BEST MODEL PER LEAF NODE
@@ -1519,7 +1519,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                 xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
                 height=520, hovermode='x unified',
                 legend=dict(orientation='h', y=-0.18, yanchor='top'))
-            st.plotly_chart(fig_pred, use_container_width=True)
+            st.plotly_chart(fig_pred, width='stretch')
 
             st.caption(
                 "Garis hitam tebal adalah nilai aktual. Prediksi di sini **out-of-sample** "
@@ -1531,7 +1531,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             _tbl = _sub[['Model'] + [c for c in ['MAE', 'RMSE', 'R²', 'DA', 'MASE', 'Bias']
                                      if c in _sub.columns]].sort_values('MAE')
-            st.dataframe(_tbl.round(2), use_container_width=True, hide_index=True)
+            st.dataframe(_tbl.round(2), width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 3: DETAILED COMPARISON TABLE
@@ -1570,7 +1570,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     display_cols = ['Row_ID', 'Row_Label', 'Category', 'Sub_Category', 'Model', 'MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'Bias']
     st.dataframe(
         filtered_results[display_cols].round(2),
-        use_container_width=True,
+        width='stretch',
         height=600
     )
 
@@ -1678,7 +1678,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         data=buffer,
         file_name=f"model_evaluation_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        use_container_width=True
+        width='stretch'
     )
 
 else:
@@ -1728,7 +1728,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
     if len(saved_configs) > 0:
         with st.expander("📁 Konfigurasi Tersimpan", expanded=False):
             configs_df = pd.DataFrame(saved_configs)
-            st.dataframe(configs_df[['name', 'date', 'test_size', 'metric']], use_container_width=True)
+            st.dataframe(configs_df[['name', 'date', 'test_size', 'metric']], width='stretch')
             st.caption(f"Total: {len(saved_configs)} konfigurasi tersimpan")
 
     # Initialize with best models
@@ -1826,7 +1826,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
             )
 
             # Submit button inside form
-            submitted_save = st.form_submit_button("💾 Simpan Konfigurasi", type="primary", use_container_width=True)
+            submitted_save = st.form_submit_button("💾 Simpan Konfigurasi", type="primary", width='stretch')
 
         # Handle form submission OUTSIDE the form
         if submitted_save:
@@ -1894,5 +1894,5 @@ else:
         if len(saved_configs) > 0:
             st.subheader("📁 Konfigurasi Model Tersimpan")
             configs_df = pd.DataFrame(saved_configs)
-            st.dataframe(configs_df, use_container_width=True)
+            st.dataframe(configs_df, width='stretch')
             st.caption(f"Total: {len(saved_configs)} konfigurasi tersimpan")

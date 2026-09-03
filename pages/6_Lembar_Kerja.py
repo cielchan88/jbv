@@ -810,7 +810,7 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
         return styles
 
     styled_preview = preview_df.style.apply(highlight_forecast_cols, axis=None)
-    st.dataframe(styled_preview, use_container_width=True, height=600)
+    st.dataframe(styled_preview, width='stretch', height=600)
 
     # ========================================================================
     # VISUALISASI NET SUPPLY DEMAND VALAS (D) WITH UCL/LCL
@@ -924,7 +924,7 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
             )
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         # Show statistics
         col1, col2, col3 = st.columns(3)
@@ -1051,7 +1051,7 @@ if 'df_forecast' in st.session_state:
         file_name=f"sdv_forecast_{forecast_days}days_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         type="primary",
-        use_container_width=True
+        width='stretch'
     )
 
     st.caption("""

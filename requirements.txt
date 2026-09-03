@@ -1,5 +1,12 @@
 # Core dependencies with fixed versions for Python 3.9 compatibility
-streamlit>=1.28.0,<2.0.0
+# Lantai 1.51.0 WAJIB, bukan sekadar preferensi. Seluruh halaman memakai
+# `width='stretch'` menggantikan `use_container_width`, yang sudah dideprekasi
+# dan dijadwalkan dihapus setelah 2025-12-31. Parameter `width` masuk bertahap:
+# st.button dkk. di 1.48, st.dataframe/st.data_editor di 1.49, tapi
+# st.plotly_chart baru di 1.51.0 - dan halaman ini punya 25 pemanggilan
+# st.plotly_chart. Di bawah 1.51.0 semuanya melempar TypeError, jadi jangan
+# turunkan angka ini tanpa mengembalikan pemanggilannya juga.
+streamlit>=1.51.0,<2.0.0
 pandas>=2.0.0,<3.0.0
 numpy>=1.24.0,<2.0.0
 plotly>=5.14.0

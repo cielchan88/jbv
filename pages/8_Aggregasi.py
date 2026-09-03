@@ -315,10 +315,10 @@ if timeframe != 'Harian':
                 'Tanggal Akhir': dates[-1] if dates else '-'
             })
 
-        st.dataframe(pd.DataFrame(agg_summary), use_container_width=True)
+        st.dataframe(pd.DataFrame(agg_summary), width='stretch')
 
 # Display data table
-st.dataframe(df_display, use_container_width=True, height=500)
+st.dataframe(df_display, width='stretch', height=500)
 
 # ========================================================================
 # VISUALIZATION - NET SUPPLY DEMAND VALAS (D)
@@ -400,7 +400,7 @@ if len(d_row) > 0:
         xaxis_nticks=max_ticks
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Statistics
     col1, col2, col3, col4 = st.columns(4)
@@ -429,7 +429,7 @@ if rdg_schedule:
     rdg_df = rdg_df[['id', 'period', 'start_date', 'end_date', 'rdg_date', 'notes']]
     rdg_df.columns = ['ID', 'Periode', 'Tanggal Mulai', 'Tanggal Selesai', 'Tanggal RDG', 'Catatan']
 
-    st.dataframe(rdg_df, use_container_width=True)
+    st.dataframe(rdg_df, width='stretch')
 
     st.caption("""
     💡 **Cara update jadwal RDG:**
@@ -496,7 +496,7 @@ st.download_button(
     file_name=filename,
     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     type="primary",
-    use_container_width=True
+    width='stretch'
 )
 
 st.caption(f"""

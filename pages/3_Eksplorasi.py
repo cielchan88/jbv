@@ -49,7 +49,7 @@ if len(d_row) > 0:
         height=400
     )
 
-    st.plotly_chart(fig_d, use_container_width=True)
+    st.plotly_chart(fig_d, width='stretch')
 
     # Informasi Data section
     st.subheader("📋 Informasi Data")
@@ -188,7 +188,7 @@ if len(cat_data) > 0:
                     height=500
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
     else:
         # For INDIVIDU and NON RESIDEN (2 levels only)
@@ -235,7 +235,7 @@ if len(cat_data) > 0:
                 height=500
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         else:
             # Just plot the category
@@ -258,7 +258,7 @@ if len(cat_data) > 0:
                 height=500
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 st.divider()
 
@@ -365,7 +365,7 @@ with tabs[0]:
                                      title_text=f"Decomposition: {selected_analysis_label}")
             fig_decomp.update_xaxes(title_text="Tanggal", row=4, col=1)
 
-            st.plotly_chart(fig_decomp, use_container_width=True)
+            st.plotly_chart(fig_decomp, width='stretch')
 
             # Kekuatan komponen musiman & trend (Hyndman-style strength measures)
             resid = pd.Series(decomposition.resid).dropna()
@@ -467,14 +467,14 @@ with tabs[1]:
     fig_out.update_layout(title=f"Outlier: {selected_analysis_label}",
                           xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
                           height=450, hovermode='x unified')
-    st.plotly_chart(fig_out, use_container_width=True)
+    st.plotly_chart(fig_out, width='stretch')
 
     if n_out > 0:
         st.markdown("**📋 Daftar Outlier (diurutkan dari deviasi terbesar)**")
         show_df = outlier_df.copy()
         show_df['Nilai'] = show_df['Nilai'].map(lambda v: f"{v:,.2f}")
         show_df['Skor'] = show_df['Skor'].map(lambda v: f"{v:,.2f}")
-        st.dataframe(show_df.head(50), use_container_width=True, hide_index=True)
+        st.dataframe(show_df.head(50), width='stretch', hide_index=True)
         if len(show_df) > 50:
             st.caption(f"Menampilkan 50 dari {len(show_df)} outlier.")
 
@@ -484,7 +484,7 @@ with tabs[1]:
                                     marker_color='indianred'))
         fig_year.update_layout(title="Sebaran Outlier per Tahun", xaxis_title="Tahun",
                                yaxis_title="Jumlah Outlier", height=300)
-        st.plotly_chart(fig_year, use_container_width=True)
+        st.plotly_chart(fig_year, width='stretch')
         st.caption("Outlier yang menumpuk di satu periode biasanya menandakan kejadian pasar "
                    "tertentu atau perubahan cara pencatatan data - bukan sekadar noise acak.")
     else:
@@ -537,7 +537,7 @@ with tabs[2]:
     fig_break.update_layout(title=f"Structural Break: {selected_analysis_label}",
                             xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
                             height=450, hovermode='x unified')
-    st.plotly_chart(fig_break, use_container_width=True)
+    st.plotly_chart(fig_break, width='stretch')
 
     if bps:
         st.markdown(f"**📍 {len(bps)} Break Terdeteksi**")
@@ -551,7 +551,7 @@ with tabs[2]:
                 'Rata-rata': f"{seg['mean']:,.2f}",
                 'Std Dev': f"{seg['std']:,.2f}",
             })
-        st.dataframe(pd.DataFrame(seg_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(seg_rows), width='stretch', hide_index=True)
 
         st.markdown("**Tanggal Break:**")
         for i, bp in enumerate(bps, 1):
@@ -581,7 +581,7 @@ with tabs[2]:
         fig_cusum.add_vline(x=analysis_dates[bp], line_dash='dash', line_color='black')
     fig_cusum.update_layout(xaxis_title="Tanggal", yaxis_title="CUSUM",
                             height=350, hovermode='x unified')
-    st.plotly_chart(fig_cusum, use_container_width=True)
+    st.plotly_chart(fig_cusum, width='stretch')
 
     # Rolling statistics
     st.divider()
@@ -598,7 +598,7 @@ with tabs[2]:
     fig_roll.add_trace(go.Scatter(x=analysis_dates, y=roll['std'], mode='lines',
                                   line=dict(color='orange')), row=2, col=1)
     fig_roll.update_layout(height=500, showlegend=False)
-    st.plotly_chart(fig_roll, use_container_width=True)
+    st.plotly_chart(fig_roll, width='stretch')
     st.caption("Rolling std yang melonjak = periode volatilitas tinggi. Kalau levelnya bergeser "
                "permanen, itu tanda perubahan rezim volatilitas (bukan cuma level).")
 
@@ -666,7 +666,7 @@ with tabs[3]:
             fig_acf.add_hline(y=0, line_color='gray', row=r, col=1)
         fig_acf.update_layout(height=600, showlegend=False)
         fig_acf.update_xaxes(title_text="Lag", row=2, col=1)
-        st.plotly_chart(fig_acf, use_container_width=True)
+        st.plotly_chart(fig_acf, width='stretch')
 
         sig_lags = [int(l) for l, v in zip(ap['lags'][1:], ap['acf'][1:]) if abs(v) > ap['conf']]
         if sig_lags:
@@ -719,7 +719,7 @@ with tabs[4]:
                                       name='Normal (pembanding)', line=dict(color='red', width=2)))
         fig_hist.update_layout(title="Distribusi Nilai vs Kurva Normal",
                                xaxis_title="Nilai (USD Juta)", yaxis_title="Densitas", height=400)
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width='stretch')
 
     # ========================================================================
     # GRAFIK NORMALITAS (Q-Q plot & ECDF)
@@ -771,7 +771,7 @@ with tabs[4]:
                 title=f"Q-Q Plot (R² = {nd['r_squared']:.4f})",
                 xaxis_title="Kuantil teoretis (normal)", yaxis_title=norm_unit,
                 height=430, legend=dict(orientation='h', y=1.02, yanchor='bottom'))
-            st.plotly_chart(fig_qq, use_container_width=True)
+            st.plotly_chart(fig_qq, width='stretch')
             st.caption("Data normal jatuh tepat di garis merah. Titik yang **melengkung "
                        "naik di kanan dan turun di kiri** berarti ekor lebih tebal dari "
                        "normal - nilai ekstrem jauh lebih sering terjadi daripada yang "
@@ -789,7 +789,7 @@ with tabs[4]:
                 title=f"ECDF vs CDF Normal (jarak maks = {nd['ks_distance']:.4f})",
                 xaxis_title=norm_unit, yaxis_title="Probabilitas kumulatif",
                 height=430, legend=dict(orientation='h', y=1.02, yanchor='bottom'))
-            st.plotly_chart(fig_ecdf, use_container_width=True)
+            st.plotly_chart(fig_ecdf, width='stretch')
             st.caption("Jarak vertikal terbesar antara kedua kurva adalah statistik "
                        "Kolmogorov-Smirnov. Makin lebar jaraknya, makin jauh data "
                        "menyimpang dari normal.")
@@ -805,7 +805,7 @@ with tabs[4]:
                     'Kesimpulan': "Normal" if t['normal'] else "Tidak normal",
                     'Catatan': t['catatan'],
                 })
-            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(_rows), width='stretch', hide_index=True)
 
             _n_tolak = sum(1 for t in nd['tests'] if not t['normal'])
             if _n_tolak == len(nd['tests']):
@@ -843,7 +843,7 @@ with tabs[4]:
         fig_box.add_trace(go.Box(y=data, name=label, boxmean='sd'))
     fig_box.update_layout(title="Distribusi Nilai per Kategori (dengan Mean & Std Dev)",
                           yaxis_title="Nilai (USD Juta)", height=500, showlegend=True)
-    st.plotly_chart(fig_box, use_container_width=True)
+    st.plotly_chart(fig_box, width='stretch')
 
     stats_data = []
     for data, label in zip(box_data, box_labels):
@@ -857,7 +857,7 @@ with tabs[4]:
             'Max': f"{np.max(arr):.2f}",
             'Range': f"{np.max(arr) - np.min(arr):.2f}",
         })
-    st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(stats_data), width='stretch', hide_index=True)
 
 # Tab 6: Kualitas Data
 with tabs[5]:
@@ -887,7 +887,7 @@ with tabs[5]:
     zero_runs = analytics.analyze_zero_runs(analysis_dates, analysis_values, min_run=min_run)
 
     if len(zero_runs) > 0:
-        st.dataframe(zero_runs.head(30), use_container_width=True, hide_index=True)
+        st.dataframe(zero_runs.head(30), width='stretch', hide_index=True)
         st.caption(f"Total {len(zero_runs)} deret nol dengan panjang ≥ {min_run} hari. "
                    "Deret panjang lebih mungkin masalah ketersediaan data daripada kondisi pasar riil.")
     else:
@@ -897,7 +897,7 @@ with tabs[5]:
     st.markdown("**📅 Gap Tanggal**")
     gaps = analytics.analyze_date_gaps(analysis_dates)
     if len(gaps) > 0:
-        st.dataframe(gaps.head(30), use_container_width=True, hide_index=True)
+        st.dataframe(gaps.head(30), width='stretch', hide_index=True)
         st.caption("Gap > 4 hari kalender (di luar pola akhir pekan normal) - "
                    "bisa jadi libur panjang atau data yang benar-benar hilang.")
     else:
@@ -946,7 +946,7 @@ with tabs[6]:
         height=500
     )
 
-    st.plotly_chart(fig_corr, use_container_width=True)
+    st.plotly_chart(fig_corr, width='stretch')
 
 # Tab 8: External Features
 with tabs[7]:
@@ -1018,7 +1018,7 @@ with tabs[7]:
             )
             fig_ext.update_xaxes(title_text="Tanggal", row=len(selected_features), col=1)
 
-            st.plotly_chart(fig_ext, use_container_width=True)
+            st.plotly_chart(fig_ext, width='stretch')
 
             # Correlation with SDV Categories
             st.markdown("**🔗 Korelasi dengan Kategori SDV**")
@@ -1079,7 +1079,7 @@ with tabs[7]:
                     xaxis={'side': 'bottom'}
                 )
 
-                st.plotly_chart(fig_corr_heatmap, use_container_width=True)
+                st.plotly_chart(fig_corr_heatmap, width='stretch')
 
         # Statistics table
         st.markdown("**📊 Statistik Ringkasan External Features**")
@@ -1097,7 +1097,7 @@ with tabs[7]:
             })
 
         stats_ext_df = pd.DataFrame(stats_ext)
-        st.dataframe(stats_ext_df, use_container_width=True, hide_index=True)
+        st.dataframe(stats_ext_df, width='stretch', hide_index=True)
 
     except FileNotFoundError:
         st.warning("⚠️ File external_features.xlsx tidak ditemukan")

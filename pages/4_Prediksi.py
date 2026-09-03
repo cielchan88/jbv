@@ -453,7 +453,7 @@ if run_test and selected_series:
 
         st.dataframe(
             styled_df,
-            use_container_width=True,
+            width='stretch',
             height=min(500, len(feature_df_all) * 35 + 38),
             hide_index=True
         )
@@ -1022,7 +1022,7 @@ if run_test and selected_series:
 
     # Display summary table only
     st.markdown("### 📋 Metrics Comparison")
-    st.dataframe(metrics_df.round(2), use_container_width=True)
+    st.dataframe(metrics_df.round(2), width='stretch')
 
     # ========================================================================
     # SECTION 2: VISUAL COMPARISON (3 PLOTS SIDE BY SIDE)
@@ -1161,7 +1161,7 @@ if run_test and selected_series:
                     )
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.error(f"❌ Model {model_name} gagal: {result.get('error', 'Unknown error')}")
 
@@ -1195,7 +1195,7 @@ if run_test and selected_series:
                     'Lower Bound': result['forecast_lower'][:forecast_len].round(0),
                     'Upper Bound': result['forecast_upper'][:forecast_len].round(0)
                 })
-                st.dataframe(forecast_df, use_container_width=True, height=400)
+                st.dataframe(forecast_df, width='stretch', height=400)
             else:
                 st.error(f"❌ Model {model_name} gagal: {result.get('error', 'Unknown error')}")
 
@@ -1302,7 +1302,7 @@ if run_test and selected_series:
                     showlegend=False
                 )
 
-                st.plotly_chart(fig_residuals, use_container_width=True)
+                st.plotly_chart(fig_residuals, width='stretch')
 
                 # Statistics for this model
                 st.markdown("### 📊 Residual Statistics")
@@ -1318,7 +1318,7 @@ if run_test and selected_series:
                     ]
                 }
                 residual_stats_df = pd.DataFrame(residual_stats)
-                st.dataframe(residual_stats_df.round(4), use_container_width=True, hide_index=True)
+                st.dataframe(residual_stats_df.round(4), width='stretch', hide_index=True)
             else:
                 st.warning(f"No residual data available for {model_name}")
 
@@ -1385,7 +1385,7 @@ if run_test and selected_series:
                             yaxis_title="Feature",
                             height=500
                         )
-                        st.plotly_chart(fig_importance, use_container_width=True)
+                        st.plotly_chart(fig_importance, width='stretch')
 
                         # ========== 2. SHAP Beeswarm/Summary Plot ==========
                         st.markdown(f"#### 🐝 SHAP Summary (Beeswarm)")
@@ -1454,7 +1454,7 @@ if run_test and selected_series:
                             showlegend=False
                         )
                         fig_beeswarm.add_vline(x=0, line_dash="dash", line_color="gray")
-                        st.plotly_chart(fig_beeswarm, use_container_width=True)
+                        st.plotly_chart(fig_beeswarm, width='stretch')
 
                     except Exception as e:
                         st.error(f"Error computing SHAP for {model_name}: {str(e)}")
