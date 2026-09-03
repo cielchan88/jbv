@@ -33,9 +33,16 @@ from utils import load_holidays, generate_business_dates, ML_START_DATE
 from utils.feature_config import ENABLE_HOLIDAY_FEATURES
 from utils.data_loader import load_etl_output, parse_children
 
+# Daftar model didefinisikan DI SINI, sebelum judul, supaya jumlah pada subjudul
+# bisa dihitung dari daftarnya sendiri. Sebelumnya subjudul menulis "8 model"
+# sementara daftarnya sudah berisi 11 - angka yang ditulis tangan pasti basi
+# begitu ada model baru ditambahkan, dan tidak ada yang mengingatkan.
+all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM",
+              "XGBoost", "AutoARIMA", "VAR", "LSTM", "Stacking"]
+
 # Title
 st.title("📊 Evaluasi Model")
-st.markdown("Bandingkan performa 8 model untuk semua leaf nodes.")
+st.markdown(f"Bandingkan performa {len(all_models)} model untuk semua leaf nodes.")
 
 st.divider()
 
@@ -157,8 +164,8 @@ if not recursive_eval:
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
 
-# Available models with checkboxes in sidebar
-all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "LSTM", "Stacking"]
+# all_models didefinisikan di dekat judul (dipakai untuk menghitung jumlah model
+# pada subjudul); tidak diulang di sini supaya tidak ada dua sumber kebenaran.
 
 # Model dikelompokkan berdasarkan CARA KERJANYA, bukan sekadar rapi di layar:
 #   - Classic  : model statistik time-series yang memodelkan struktur deret
