@@ -455,62 +455,66 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             f"memakainya ({'; '.join(_alasan)})."
         )
 
-    with st.spinner("🔍 Calculating cross-series correlations for all leaf nodes..."):
-        from utils.feature_engineering_optimized import (
-            calculate_series_correlations,
-            select_top_correlated_series,
-            prepare_external_series_data
-        )
+    from utils.feature_engineering_optimized import (
+        calculate_series_correlations,
+        select_top_correlated_series,
+        prepare_external_series_data
+    )
 
-        @st.cache_data
-        def prepare_cross_series_data(df, leaf_nodes, time_cols, target_leaves=None):
-            """
-            Prepare cross-series correlation data - SAME AS Lembar_Kerja.py
+    @st.cache_data
+    def prepare_cross_series_data(df, leaf_nodes, time_cols, target_leaves=None):
+        """
+        Prepare cross-series correlation data - SAME AS Lembar_Kerja.py
 
-            target_leaves: leaf node yang benar-benar akan dievaluasi. Kandidat
-            korelasinya tetap SELURUH leaf_nodes (supaya fiturnya identik dengan
-            evaluasi penuh), tapi peta hanya dihitung untuk leaf yang dipakai -
-            menghindari komputasi sia-sia saat user hanya menjalankan sebagian.
-            """
-            cross_series_map = {}
-            if target_leaves is None:
-                target_leaves = leaf_nodes
+        target_leaves: leaf node yang benar-benar akan dievaluasi. Kandidat
+        korelasinya tetap SELURUH leaf_nodes (supaya fiturnya identik dengan
+        evaluasi penuh), tapi peta hanya dihitung untuk leaf yang dipakai -
+        menghindari komputasi sia-sia saat user hanya menjalankan sebagian.
+        """
+        cross_series_map = {}
+        if target_leaves is None:
+            target_leaves = leaf_nodes
 
-            # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
-            if ML_START_DATE is not None:
-                time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
-            else:
-                time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
+        # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
+        if ML_START_DATE is not None:
+            time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+        else:
+            time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
 
-            for leaf_id in target_leaves:
-                # 1. Get all other leaf nodes (exclude current series)
-                candidate_series = [lid for lid in leaf_nodes if lid != leaf_id]
+        for leaf_id in target_leaves:
+            # 1. Get all other leaf nodes (exclude current series)
+            candidate_series = [lid for lid in leaf_nodes if lid != leaf_id]
 
-                # 2. Calculate correlations with ALL other leaf nodes (using 2019+ data)
-                correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
+            # 2. Calculate correlations with ALL other leaf nodes (using 2019+ data)
+            correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
 
-                # 3. Select top 30 correlated series
-                top_30_series = select_top_correlated_series(correlations, top_k=30)
+            # 3. Select top 30 correlated series
+            top_30_series = select_top_correlated_series(correlations, top_k=30)
 
-                # 4. Prepare external series data (cross-series only) - using 2019+ data
-                cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
+            # 4. Prepare external series data (cross-series only) - using 2019+ data
+            cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
 
-                # 5. Merge with external features from Excel
-                from utils.external_loader import load_and_merge_external_features
-                external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
+            # 5. Merge with external features from Excel
+            from utils.external_loader import load_and_merge_external_features
+            external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
-                cross_series_map[leaf_id] = external_series_data
+            cross_series_map[leaf_id] = external_series_data
 
-            return cross_series_map
+        return cross_series_map
 
-        if _perlu_cross:
+    # Spinner hanya dipasang kalau perhitungannya benar-benar dijalankan.
+    # Sebelumnya spinner "Calculating cross-series correlations..." tetap
+    # berkedip walau perhitungannya dilewati - persis membantah pesan
+    # "dilewati" yang baru saja dicetak di atasnya.
+    if _perlu_cross:
+        with st.spinner("🔍 Menghitung korelasi cross-series untuk tiap leaf node..."):
             cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols,
                                                          tuple(leaf_nodes_to_run))
-            _pemakai = (['VAR'] if 'VAR' in selected_models else []) + \
-                       ([m for m in _CROSS_SERIES_CONSUMERS if m in selected_models]
-                        if _tree_pakai_cross else [])
-            st.success(f"✅ Korelasi cross-series dihitung untuk {len(cross_series_map)} "
-                       f"leaf node (dipakai oleh: {', '.join(_pemakai)})")
+        _pemakai = (['VAR'] if 'VAR' in selected_models else []) + \
+                   ([m for m in _CROSS_SERIES_CONSUMERS if m in selected_models]
+                    if _tree_pakai_cross else [])
+        st.success(f"✅ Korelasi cross-series dihitung untuk {len(cross_series_map)} "
+                   f"leaf node (dipakai oleh: {', '.join(_pemakai)})")
 
     # ========================================================================
     # PERIODE DATA
