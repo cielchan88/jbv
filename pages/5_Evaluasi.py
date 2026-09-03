@@ -30,7 +30,7 @@ st.set_page_config(page_title="Evaluasi - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
-from utils.feature_config import ENABLE_HOLIDAY_FEATURES
+from utils.feature_config import ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE
 from utils.data_loader import load_etl_output, parse_children
 
 # Daftar model didefinisikan DI SINI, sebelum judul, supaya jumlah pada subjudul
@@ -417,6 +417,43 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     # ========================================================================
     # PREPARE CROSS-SERIES DATA FOR ALL LEAF NODES (SAME AS Lembar_Kerja.py)
     # ========================================================================
+    # Dihitung HANYA kalau ada model terpilih yang benar-benar memakainya.
+    # Sebelumnya selalu dihitung - ~40 detik untuk 18 leaf node - bahkan ketika
+    # yang dipilih cuma Naive dan NaiveMean, yang tidak tahu-menahu soal deret
+    # lain. Setelah ENABLE_CROSS_SERIES_FOR_RECURSIVE dimatikan, pemakainya
+    # tinggal sedikit, jadi pemborosannya jadi kasus yang lazim, bukan langka.
+    #
+    # Yang benar-benar memakai cross-series:
+    #   - VAR, selalu. Ia sistem persamaan multivariat; tanpa deret lain ia
+    #     jatuh jadi random walk (MAE identik Naive di 54/54 unit).
+    #   - Model pohon + Stacking, TAPI hanya lewat dua jalur:
+    #       * mode direct - fitur dibangun blok bersama di bawah (teacher-forced,
+    #         nilai aktual deret lain memang tersedia di periode uji), atau
+    #       * mode recursive DAN ENABLE_CROSS_SERIES_FOR_RECURSIVE dinyalakan.
+    #     Di mode recursive dengan saklar mati (default), forecaster menyaringnya
+    #     sendiri - jadi menghitungnya di sini murni sia-sia.
+    # Naive/NaiveMean/APUVA/Prophet/AutoARIMA/LSTM tidak pernah memakainya.
+    _CROSS_SERIES_CONSUMERS = ['RandomForest', 'XGBoost', 'LightGBM', 'Stacking']
+    _tree_pakai_cross = (
+        any(m in selected_models for m in _CROSS_SERIES_CONSUMERS)
+        and (not recursive_eval or ENABLE_CROSS_SERIES_FOR_RECURSIVE)
+    )
+    _perlu_cross = ('VAR' in selected_models) or _tree_pakai_cross
+
+    if not _perlu_cross:
+        # Dilewati - tiap leaf nanti menerima {} lewat cross_series_map.get(...).
+        cross_series_map = {}
+        _alasan = []
+        if 'VAR' not in selected_models:
+            _alasan.append("VAR tidak dipilih")
+        if any(m in selected_models for m in _CROSS_SERIES_CONSUMERS):
+            _alasan.append("model pohon berjalan di mode recursive, yang menyaring "
+                           "fitur `ext_*` (lihat `ENABLE_CROSS_SERIES_FOR_RECURSIVE` "
+                           "di `utils/feature_config.py`)")
+        st.info(
+            "⏭️ **Korelasi cross-series dilewati** - tidak ada model terpilih yang "
+            f"memakainya ({'; '.join(_alasan)})."
+        )
 
     with st.spinner("🔍 Calculating cross-series correlations for all leaf nodes..."):
         from utils.feature_engineering_optimized import (
@@ -466,16 +503,48 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             return cross_series_map
 
-        cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols, tuple(leaf_nodes_to_run))
-        st.success(f"✅ Cross-series correlations calculated for {len(cross_series_map)} leaf nodes")
+        if _perlu_cross:
+            cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols,
+                                                         tuple(leaf_nodes_to_run))
+            _pemakai = (['VAR'] if 'VAR' in selected_models else []) + \
+                       ([m for m in _CROSS_SERIES_CONSUMERS if m in selected_models]
+                        if _tree_pakai_cross else [])
+            st.success(f"✅ Korelasi cross-series dihitung untuk {len(cross_series_map)} "
+                       f"leaf node (dipakai oleh: {', '.join(_pemakai)})")
 
-    # Display data range information (SAME AS Prediksi.py)
+    # ========================================================================
+    # PERIODE DATA
+    # ========================================================================
+    # Dulu selalu dicetak dua baris - satu untuk "ML Models", satu untuk APUVA -
+    # seolah periodenya berbeda. Padahal bedanya hanya ada kalau ML_START_DATE
+    # diset; dengan ML_START_DATE = None keduanya menampilkan rentang yang PERSIS
+    # SAMA, dan baris APUVA menyebut "Full historical data" sehingga menyiratkan
+    # baris ML bukan histori penuh. Menyesatkan di halaman yang justru tugasnya
+    # menjelaskan metode dengan jujur.
+    #
+    # Daftar model pada baris itu juga sudah basi ("XGBoost, RF, LightGBM,
+    # Prophet") - AutoARIMA, VAR, LSTM, Naive, dan NaiveMean semuanya juga
+    # memakai periode ML. Yang membedakan cuma APUVA, jadi itu yang disebut.
     if ML_START_DATE is not None:
         time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
     else:
         time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
-    st.info(f"📊 **ML Models (XGBoost, RF, LightGBM, Prophet)**: {time_cols_ml[0]} to {time_cols_ml[-1]} ({len(time_cols_ml)} days)")
-    st.info(f"📊 **APUVA**: {time_cols[0]} to {time_cols[-1]} ({len(time_cols)} days) - Full historical data for year-over-year calculations")
+
+    if len(time_cols_ml) == len(time_cols):
+        st.info(
+            f"📊 **Periode data**: {time_cols[0]} s/d {time_cols[-1]} "
+            f"({len(time_cols)} hari). Semua model memakai histori yang sama - "
+            f"`ML_START_DATE` tidak diset, jadi tidak ada pemotongan periode."
+        )
+    else:
+        st.info(
+            f"📊 **Semua model kecuali APUVA**: {time_cols_ml[0]} s/d {time_cols_ml[-1]} "
+            f"({len(time_cols_ml)} hari) - dipotong dari `ML_START_DATE`."
+        )
+        st.info(
+            f"📊 **APUVA**: {time_cols[0]} s/d {time_cols[-1]} ({len(time_cols)} hari) - "
+            f"histori penuh, dibutuhkan untuk perhitungan year-over-year."
+        )
 
     # Progress tracking
     st.subheader("⚙️ Running Model Evaluation...")
