@@ -40,6 +40,11 @@ from utils.data_loader import load_etl_output, parse_children
 all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM",
               "XGBoost", "AutoARIMA", "VAR", "LSTM", "Stacking"]
 
+# Jendela yang menyisakan data training di bawah ambang ini dilewati. Konstanta
+# modul, bukan variabel lokal di dalam loop, supaya pratinjau periode dan loop
+# evaluasi memakai ambang yang sama persis.
+MIN_TRAIN = 300
+
 # Title
 st.title("📊 Evaluasi Model")
 st.markdown(f"Bandingkan performa {len(all_models)} model untuk semua leaf nodes.")
@@ -267,6 +272,215 @@ metric_info = {
     'DA': "Directional Accuracy (%). Seberapa akurat prediksi arah. Higher is better."
 }
 st.sidebar.caption(f"ℹ️ {metric_info[selection_metric]}")
+
+
+# ============================================================================
+# PRATINJAU: PERIODE SAMPEL, TRAINING, DAN TEST
+# ============================================================================
+# Ditampilkan SEBELUM tombol Jalankan ditekan, bukan sesudahnya. Evaluasi penuh
+# bisa memakan puluhan menit; kalau ternyata test_size atau horizonnya salah,
+# user baru tahu setelah menunggu. Di sini periodenya bisa diperiksa dulu.
+#
+# Semua leaf node memakai kolom waktu yang sama (format wide dari ETL), jadi
+# batas jendelanya identik untuk semua leaf - bisa dihitung sekali di sini dan
+# berlaku untuk seluruh evaluasi.
+def hitung_jendela(n_titik, tanggal, test_size, eval_horizon, n_windows):
+    """
+    Batas train/test tiap jendela walk-forward.
+
+    Rumusnya SENGAJA disalin persis dari blok split di bawah (anchor, H,
+    test_start) supaya pratinjau tidak pernah menjanjikan sesuatu yang berbeda
+    dari yang benar-benar dijalankan.
+    """
+    H = int(eval_horizon) if eval_horizon is not None else max(
+        5, n_titik - int(n_titik * (1 - test_size / 100)))
+    anchor = int(n_titik * (1 - test_size / 100))
+    hasil = []
+    for w in range(int(n_windows)):
+        ts = anchor - w * H
+        te = min(ts + H, n_titik)
+        hasil.append({
+            'w': w, 'train_n': max(ts, 0), 'test_n': max(te - ts, 0),
+            'train_awal': tanggal[0] if ts > 0 else None,
+            'train_akhir': tanggal[ts - 1] if ts > 0 else None,
+            'test_awal': tanggal[ts] if 0 <= ts < n_titik else None,
+            'test_akhir': tanggal[te - 1] if 0 < te <= n_titik else None,
+            'cukup': ts >= MIN_TRAIN and (te - ts) >= 5,
+        })
+    return hasil
+
+
+def _tgl(x):
+    return '-' if x is None else pd.Timestamp(x).strftime('%Y-%m-%d')
+
+
+_tc_ml = (time_cols if ML_START_DATE is None
+          else [c for c in time_cols if pd.to_datetime(c) >= pd.Timestamp(ML_START_DATE)])
+_d_ml = pd.to_datetime(_tc_ml)
+_d_full = pd.to_datetime(time_cols)
+
+with st.expander("📅 Periode sampel, training, dan test", expanded=True):
+    st.markdown(
+        f"**Sampel data**: `{_tgl(_d_full[0])}` s/d `{_tgl(_d_full[-1])}` "
+        f"— **{len(time_cols)} hari kerja**, {len(leaf_nodes)} leaf node."
+        + ("" if ML_START_DATE is None else
+           f" Model selain APUVA dipotong dari `ML_START_DATE` "
+           f"({_tgl(_d_ml[0])}, {len(_tc_ml)} hari).")
+    )
+
+    _jd = hitung_jendela(len(_tc_ml), _d_ml, test_size, eval_horizon, n_windows)
+    _baris = []
+    for j in _jd:
+        _baris.append({
+            'Jendela': j['w'],
+            'Training': f"{_tgl(j['train_awal'])} s/d {_tgl(j['train_akhir'])}",
+            'Hari training': j['train_n'],
+            'Test (dievaluasi)': f"{_tgl(j['test_awal'])} s/d {_tgl(j['test_akhir'])}",
+            'Hari test': j['test_n'],
+            'Status': '✅ dievaluasi' if j['cukup'] else f'⏭️ dilewati (training < {MIN_TRAIN} hari)',
+        })
+    st.dataframe(pd.DataFrame(_baris), width='stretch', hide_index=True)
+
+    _n_pakai = sum(1 for j in _jd if j['cukup'])
+    _n_unit = _n_pakai * len(leaf_nodes_to_run)
+    st.caption(
+        f"Jendela 0 adalah periode paling akhir; tiap jendela berikutnya mundur "
+        f"satu horizon. **Training selalu berhenti tepat sebelum periode test-nya** — "
+        f"tidak ada jendela yang dilatih memakai data setelah periode yang dinilainya. "
+        f"Total unit kerja: **{_n_pakai} jendela × {len(leaf_nodes_to_run)} leaf = "
+        f"{_n_unit} unit**, masing-masing dikalikan {len(selected_models)} model."
+    )
+    if _n_pakai < int(n_windows):
+        st.warning(
+            f"⚠️ {int(n_windows) - _n_pakai} dari {int(n_windows)} jendela akan dilewati "
+            f"karena data training tersisa di bawah {MIN_TRAIN} hari. Kurangi jumlah "
+            f"jendela, perkecil horizon, atau perkecil ukuran test."
+        )
+
+    # Ekor data yang tidak tersentuh sama sekali.
+    #
+    # Jendela mundur dari titik 80%, jadi apa pun yang berada SETELAH periode
+    # test jendela 0 tidak pernah masuk training maupun test. Dengan pengaturan
+    # bawaan pada data ini, itu berarti hampir 4 tahun terakhir tidak dipakai:
+    # model dinilai pada 2022 lalu dipilih untuk meramal 2026. Diam-diam, kalau
+    # tidak ditulis. Karena itu ditampilkan.
+    _akhir_uji = _jd[0]['test_awal']
+    _n_ekor = 0
+    if _jd[0]['test_akhir'] is not None:
+        _n_ekor = len(_d_ml) - int(np.searchsorted(_d_ml, _jd[0]['test_akhir'], side='right'))
+    if _n_ekor > 0:
+        _mulai_ekor = _d_ml[len(_d_ml) - _n_ekor]
+        st.warning(
+            f"⚠️ **{_n_ekor} hari terakhir tidak dipakai sama sekali** — tidak untuk "
+            f"training, tidak untuk test: `{_tgl(_mulai_ekor)}` s/d `{_tgl(_d_ml[-1])}` "
+            f"(≈{_n_ekor/252:.1f} tahun). Jendela walk-forward mundur dari titik "
+            f"{100-test_size}%, jadi apa pun setelah periode test jendela 0 berada di "
+            f"luar jangkauan. Artinya model dinilai pada perilaku "
+            f"{_tgl(_jd[0]['test_awal'])[:4]} lalu dipakai meramal "
+            f"{_tgl(_d_ml[-1])[:4]}. Untuk menilai pada data terbaru, perkecil "
+            f"**Ukuran Data Test** (mis. 10%) sehingga titik acuannya bergeser ke kanan."
+        )
+    if ML_START_DATE is not None:
+        st.caption(
+            f"APUVA memakai histori penuh ({len(time_cols)} hari), jadi tanggal "
+            f"potong train/test-nya bergeser dari tabel di atas — proporsinya sama, "
+            f"titik acuannya berbeda karena panjang serinya berbeda."
+        )
+
+
+# ============================================================================
+# PRATINJAU: KANDIDAT FITUR UNTUK FEATURE SELECTION
+# ============================================================================
+@st.cache_data(show_spinner=False)
+def daftar_fitur_kandidat(_df, time_cols, leaf_id, pakai_cross):
+    """
+    Bangun fitur pada satu leaf yang mewakili, lalu kembalikan nama kolomnya.
+
+    Dihitung dari create_features_optimized() yang SAMA dengan yang dipakai saat
+    evaluasi - bukan daftar yang ditulis tangan - supaya tidak bisa basi ketika
+    FEATURE_CONFIG berubah. Cukup satu leaf: keluarga fitur yang dibangun sama
+    untuk semua leaf, yang berbeda hanya nilainya (dan karena itu, 25 mana yang
+    akhirnya terpilih).
+    """
+    from utils.feature_engineering_optimized import create_features_optimized
+    # time_cols datang sebagai tuple supaya bisa di-hash oleh st.cache_data;
+    # pandas memperlakukan tuple sebagai SATU nama kolom, jadi harus jadi list.
+    kolom = list(time_cols)
+    v = np.nan_to_num(_df[_df['Row_ID'] == leaf_id][kolom].to_numpy(dtype=float).ravel())
+    ts = pd.DataFrame({'ds': pd.to_datetime(kolom), 'y': v})
+    f = create_features_optimized(ts, lag_steps=90, holidays_list=load_holidays())
+    return [c for c in f.columns if c not in ('ds', 'date', 'value')]
+
+
+# Pengelompokan mengikuti seksi di FEATURE_CONFIG. Urutan pemeriksaan penting:
+# interaksi diperiksa DULUAN karena namanya menggabungkan dua fitur lain
+# (rolling_mean_30_x_is_weekend) dan akan salah masuk kalau diperiksa belakangan.
+_KELOMPOK = [
+    ("Interaksi", lambda c: '_x_' in c),
+    ("Cross-series", lambda c: c.startswith('ext_')),
+    ("Lag", lambda c: c.startswith('lag_')),
+    ("Rolling (mean/min/max/std)", lambda c: c.startswith('rolling_')),
+    ("Volatilitas", lambda c: any(k in c for k in (
+        'volatility', 'ewm_std', 'z_score', 'downside', 'upside'))),
+    ("EWM & tren", lambda c: c.startswith('ewm_') or c.startswith('value_diff')
+                             or c.startswith('value_pct_change')),
+    ("Indikator teknikal", lambda c: c.startswith(('bb_', 'macd', 'rsi', 'price_position'))),
+    ("Deteksi ekstrem & lonjakan", lambda c: any(k in c for k in (
+        'is_extreme', 'jump', 'max_change', 'min_change', 'change_range'))),
+    ("Kalender & Fourier", lambda c: any(k in c for k in (
+        'day', 'week', 'month', 'quarter', 'year', 'fourier', 'holiday'))),
+]
+
+with st.expander("🧬 Kandidat fitur untuk feature selection", expanded=False):
+    try:
+        _fitur = daftar_fitur_kandidat(df, tuple(time_cols), leaf_nodes[0], False)
+    except Exception as _e:
+        _fitur = None
+        st.warning(f"⚠️ Daftar fitur tidak bisa dibangun: {_e}")
+
+    if _fitur:
+        st.markdown(
+            f"**{len(_fitur)} fitur dibangun** untuk setiap leaf node pada setiap "
+            f"jendela. Dari jumlah itu, **25 teratas** dipilih berdasarkan "
+            f"|korelasi Spearman| terhadap target — **per leaf, per jendela**, jadi "
+            f"25 yang terpilih berbeda-beda antar leaf. Yang di bawah ini adalah "
+            f"kandidatnya, bukan hasil akhirnya."
+        )
+
+        _sisa = list(_fitur)
+        _grup = []
+        for nama, cocok in _KELOMPOK:
+            anggota = sorted(c for c in _sisa if cocok(c))
+            _sisa = [c for c in _sisa if c not in anggota]
+            if anggota:
+                _grup.append((nama, anggota))
+        if _sisa:
+            _grup.append(('Lainnya', sorted(_sisa)))
+
+        # Nama fitur ditulis sebagai teks, bukan satu sel tabel. Di dalam sel,
+        # daftar sepanjang ini terpotong dan justru daftar itulah isinya.
+        st.dataframe(
+            pd.DataFrame([{'Kelompok': n, 'Jumlah': len(a)} for n, a in _grup]),
+            width='stretch', hide_index=True)
+        for nama, anggota in _grup:
+            st.markdown(f"**{nama}** ({len(anggota)}) — "
+                        + ", ".join(f"`{c}`" for c in anggota))
+
+        if not ENABLE_HOLIDAY_FEATURES:
+            st.caption(
+                "Fitur hari libur (`is_holiday`, `days_to_holiday`, `days_from_holiday`) "
+                "TIDAK ada dalam daftar karena `ENABLE_HOLIDAY_FEATURES = False`."
+            )
+        st.caption(
+            "Cross-series (`ext_*`) tidak muncul di daftar ini karena mode recursive "
+            "menyaringnya — model tidak punya nilai deret lain untuk tanggal masa "
+            "depan. Di mode direct, `ext_*` ikut menjadi kandidat. Lihat "
+            "`ENABLE_CROSS_SERIES_FOR_RECURSIVE` di `utils/feature_config.py`."
+            if recursive_eval else
+            "Mode direct: fitur `ext_*` dari deret lain ikut menjadi kandidat "
+            "(sekitar 3 fitur per deret eksternal), di atas jumlah di tabel ini."
+        )
+
 
 # ============================================================================
 # CHECKPOINT - supaya evaluasi tahan putus koneksi
@@ -679,8 +893,10 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         train_apuva = ts_df_apuva.iloc[:test_start_ap]
         test_apuva = ts_df_apuva.iloc[test_start_ap:test_start_ap + H_ap]
 
-        # Skip kalau jendela mundur terlalu jauh sampai data training tidak cukup
-        MIN_TRAIN = 300
+        # Skip kalau jendela mundur terlalu jauh sampai data training tidak cukup.
+        # MIN_TRAIN kini konstanta modul supaya pratinjau periode di atas halaman
+        # memakai ambang yang PERSIS SAMA - kalau dua angka ini pernah berbeda,
+        # pratinjau akan menjanjikan jendela yang diam-diam dilewati saat run.
         if (test_start_ml < MIN_TRAIN or test_start_ap < MIN_TRAIN
                 or len(test_ml) < 5 or len(test_apuva) < 5):
             current_step += len(selected_models)
