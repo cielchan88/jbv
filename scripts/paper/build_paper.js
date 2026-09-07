@@ -160,6 +160,21 @@ function tb(i) {                                  // tabel utuh
   }));
   return table(w, rows);
 }
+function tbPlus(i, extra, atFromEnd) {
+  // Tabel hasil bongkar, dengan baris tambahan disisipkan `atFromEnd` baris
+  // dari bawah. Dipakai untuk menambah studi ke tabel parallels tanpa
+  // menyusun ulang seluruh isinya.
+  const x = IT[i];
+  const w = x.widths;
+  // penekanan tiap sel dipertahankan; baris sisipan mengikuti pola kolom pertama
+  const rows = x.rows.map(r => r.map(c => ({ t: fix(c.t), b: c.b })));
+  rows.splice(rows.length - atFromEnd, 0,
+              extra.map((t, ci) => ({ t, b: ci === 0 })));
+  return table(w, rows.map((r, ri) => new TableRow({
+    tableHeader: ri === 0,
+    children: r.map((c, ci) => cell(c.t, w[ci], { head: ri === 0, bold: ri > 0 && c.b }))
+  })));
+}
 function im(i) {                                  // gambar
   const x = IT[i];
   return new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 120, after: 40 },
@@ -216,12 +231,23 @@ b.push(H('2. Literature Review', HeadingLevel.HEADING_1));
 b.push(H('2.1 Theoretical Background', HeadingLevel.HEADING_2));
 b.push(P('Two theoretical strands underpin the design. The first concerns multi-step forecasting strategy. Marcellino, Stock and Watson (2006) formalise the trade-off between the iterated and direct strategies: iteration reuses one set of parameters at every step and is therefore efficient when the one-step model is correctly specified, but compounds specification error when it is not; the direct strategy estimates a separate model per horizon, discarding that efficiency in exchange for robustness. Chevillon (2007) surveys the conditions under which each dominates, and Ben Taieb and Atiya (2016) express the choice as a bias–variance decomposition in which the direct strategy trades lower bias for higher estimation variance because each horizon-specific model is fitted on a shorter effective sample. Ben Taieb, Bontempi, Atiya and Sorjamaa (2012) provide the corresponding empirical comparison for machine-learning predictors.'));
 b.push(p(94));
+b.push(Rich([
+  { t: 'A third strand supplies the vocabulary in which the first of our hypotheses is best stated. Mullainathan and Spiess (2017) distinguish two tasks that econometrics and machine learning pursue with the same apparatus: the estimation of a parameter, ' },
+  { t: 'β̂', i: true },
+  { t: ', which is what most economic questions require, and the prediction of an outcome, ' },
+  { t: 'ŷ', i: true },
+  { t: ', which is what learning algorithms optimise. The distinction matters here because the criteria by which a model is judged differ with the task. In-sample fit, residual autocorrelation and normality are diagnostics of the first: they ask whether a specification is a credible description of the process that generated the estimation sample. Out-of-sample error is the criterion of the second, and a flexible learner is fitted precisely to minimise it under regularisation and cross-validated tuning. A study that selects a forecasting model on in-sample fit is therefore not merely using a noisy criterion; it is using the criterion belonging to the other task. Athey and Imbens (2019) make the same separation in surveying which learning methods are useful to economists, and note that the properties of several widely used algorithms have no established analytical basis of the kind econometric estimators are held to. Our Stage I is designed to measure what that substitution of criteria costs.' }
+]));
 b.push(P('The second strand concerns evaluation itself. Hyndman and Koehler (2006) propose the mean absolute scaled error as a scale-free accuracy measure that remains defined for series containing zeros, which matters here because a substantial minority of our series are intermittent. Tashman (2000) sets out the requirements of a credible out-of-sample test, and Bergmeir and Benítez (2012) examine when cross-validation is admissible for dependent data, concluding in favour of rolling-origin designs of the kind used below. Diebold and Mariano (1995), with the small-sample correction of Harvey, Leybourne and Newbold (1997), supply the test of equal predictive accuracy. Together these fix what an evaluation must hold constant for a comparison between protocols to be interpretable.'));
 
 b.push(H('2.2 Critical Review of Existing Literature', HeadingLevel.HEADING_2));
 b.push(p(101));
 b.push(capOf(102, `Table ${T.parallels}.`));
-b.push(tb(103));
+b.push(tbPlus(103, [
+  'Boelaert and Ollion (2018)',
+  'Swedish register data on daily gross wages, roughly 4.1 million observations; ordinary least squares, a Lasso-selected linear model and a random forest.',
+  'The random forest is the most accurate of the three on these data, but the authors report that on social science datasets machine learning "is regularly outperformed by more classic methods" on its own cross-validated criterion, and that flexible learners require very large training samples where parametric regression plateaus after a few hundred observations.'
+], 1));
 b.push(p(105));
 b.push(P('Read together, these studies establish the phenomenon but leave its interpretation contested and its magnitude unquantified in any single design. Three features recur. Each is drawn from a low signal-to-noise environment. Each infers the divergence by comparing a fitted model with a forecast exercise, rather than by reporting the two stages as separate measured quantities. And none of them isolates the contribution of evaluation protocol, because in each case a single protocol is used throughout.'));
 
@@ -442,12 +468,18 @@ b.push(P('One contrast with the machine-learning literature deserves recording. 
 b.push(H('5.3 Theoretical and Practical Implications', HeadingLevel.HEADING_2));
 b.push(P('The theoretical implication is that evaluation protocol should be treated as a first-order design parameter rather than an implementation detail. Our decomposition shows the protocol decision moving measured accuracy by 18.1 per cent, of which 7.3 points are not accuracy at all. That is the same order of magnitude as the spread between the best and worst methods in the comparison, which means that a study reporting a model ranking without specifying its protocol has not reported a result that can be compared with any other study. The corollary for the bias–variance literature is that the direct strategy’s advantage in this regime is conditional on misspecification: it is realised where the recursive bias is large and reversed where it is small, exactly as Ben Taieb and Atiya (2016) predict, and the per-algorithm pattern of Section 4.2 is a direct test of that prediction rather than an anomaly.'));
 b.push(P('The practical implications concern evaluation governance rather than modelling technique. If training-stage output is negatively related to forecast accuracy, then any review process that inspects training metrics before out-of-sample results is not merely uninformative but actively harmful, and the ordering of the review matters as much as its content. If teacher-forced accuracy overstates attainable accuracy by roughly seven per cent in this panel, then a system accepted on that basis will underperform its acceptance criteria in production by about that margin, and the shortfall will be attributed to regime change rather than to the evaluation. Both failures are avoidable at no computational cost by fixing the order and the protocol of the evaluation in advance.'));
+b.push(P('Two further qualifications place the exercise in the wider methodological debate. The first concerns the nature of the data. Boelaert and Ollion (2018) distinguish organic data — administrative records, transactions and logs accumulated for operational rather than research purposes — from data designed around a question, and observe that flexible algorithms cannot compensate for weak predictors, measurement error or selection. Our panel is organic in exactly that sense: it is a by-product of a reporting system, and the predictors available at the forecast origin are lags and transformations of the target itself. The finding that the engineered feature set is largely inert is the concrete form this constraint takes here. Volume is not the binding constraint on these series; informative conditioning variables are.'));
+b.push(P('The second concerns interpretation. A tree ensemble offers no analogue of a standard error, and its internal structure supports no reading comparable to a regression coefficient, so what the model has used must be recovered through auxiliary devices — importance measures, partial dependence — whose validity rests on the predictive quality of the model rather than on inferential theory (Athey and Imbens, 2019). That circularity is unusually visible in our setting: the models whose feature usage we examine in Section 4.2 are models that do not generalise, so the importance rankings describe what was fitted rather than what is predictive. We report them for that reason and not as evidence about the data-generating process, and the estimator-aligned selection study of Table 16 is designed to break the circularity rather than to work within it.'));
 b.push(p(91));
 
 b.push(H('5.4 Research Limitations and Constraints', HeadingLevel.HEADING_2));
 b.push(p(120));
 b.push(capOf(121, `Table ${T.threats}.`));
-b.push(tb(122));
+b.push(tbPlus(122, [
+  'Estimation sample size',
+  'Each ensemble is fitted to a single series of roughly five thousand daily observations. Boelaert and Ollion (2018) argue that parametric specifications plateau after a few hundred observations while flexible learners require very large training samples to approach their approximation capacity, and report that on social science data machine learning is regularly outperformed by classical methods on its own cross-validated criterion.',
+  'A competing explanation for H1 rather than a caveat on it: the ensembles may lose because the per-series sample is too small for them, not because the regime carries little signal. The two are distinguishable, since pooling the panel raises the effective training sample roughly eighteen-fold, and the test is specified in Table 16. We regard this as the most serious unaddressed threat to our interpretation.'
+], 9));
 
 // ============ 6. CONCLUSION AND FUTURE WORK ============
 b.push(new Paragraph({ children: [new PageBreak()] }));
@@ -467,7 +499,7 @@ b.push(Rich([
 ]));
 b.push(H('6.3 Recommendations for Future Research', HeadingLevel.HEADING_2));
 b.push(p(124));
-b.push(P(`Because a research agenda stated in prose is difficult to hold anyone to, we specify five studies in Table ${T.followup}, each with the design that would execute it and the result that would falsify the interpretation offered in this paper. The list is ordered by expected value, and the first two are the ones we would run before treating any of our recommendations as settled.`));
+b.push(P(`Because a research agenda stated in prose is difficult to hold anyone to, we specify six studies in Table ${T.followup}, each with the design that would execute it and the result that would falsify the interpretation offered in this paper. The list is ordered by expected value, and the first two are the ones we would run before treating any of our recommendations as settled.`));
 const wf = [1900, 3550, 3576];
 const tf = [new TableRow({ tableHeader: true, children: [
   cell('Study', wf[0], { head: 1 }), cell('Design', wf[1], { head: 1 }),
@@ -481,6 +513,9 @@ const tf = [new TableRow({ tableHeader: true, children: [
  ['Estimator-aligned selection',
   'Replace the marginal Spearman selector with one that optimises the estimator’s own objective — forward selection on rolling-origin validation error, or permutation importance under a conditional inference framework — and re-measure the correlation between selection score and realised importance.',
   'If that correlation remains negative under an aligned criterion, the mismatch documented under H4 is not attributable to the choice of selector, and the interpretation in Section 5.2 must be revised.'],
+ ['Pooled estimation across the panel',
+  'Refit the ensembles on the pooled panel — all eighteen series stacked, with series identity carried as a feature — so that the effective training sample rises from roughly five thousand observations to roughly ninety thousand, then repeat both stages unchanged.',
+  'If the inversion narrows or disappears under pooling, the sample-size argument of Boelaert and Ollion (2018) accounts for the Stage I result and the low signal-to-noise interpretation is at best incomplete. If it persists at roughly its present magnitude, that explanation can be set aside.'],
  ['Rolling one-step origins',
   'Repeat the maximal-training one-step test of Section 4.2 over a rolling sequence of origins — for each of the final sixty business days, train on everything up to the preceding day and forecast one step — so that the one-step ranking acquires a sampling distribution.',
   'If the one-step ranking then agrees with the sixty-step ranking of Table 11, the inversion reported in Table 12 is an artefact of the single test day rather than a property of the horizon, and the second inversion claimed in Section 4.2 must be withdrawn.'],
@@ -500,7 +535,15 @@ b.push(P('We thank the operational team responsible for the forecasting system f
 
 // ============ REFERENCES ============
 b.push(H('References', HeadingLevel.HEADING_1));
-IT.forEach((x, i) => { if (i > 144 && x.k === 'p' && !x.style) b.push(ref(x.text)); });
+// Referensi lama digabung dengan yang baru lalu diurutkan; urutan abjad
+// menurut nama belakang penulis pertama sudah tercapai dengan sort biasa
+// karena setiap entri diawali nama belakang.
+const REFS = IT.filter((x, i) => i > 144 && x.k === 'p' && !x.style).map(x => x.text).concat([
+  'Athey, S., & Imbens, G. W. (2019). Machine learning methods that economists should know about. Annual Review of Economics, 11(1), 685–725.',
+  'Boelaert, J., & Ollion, É. (2018). The great regression: Machine learning, econometrics, and the future of quantitative social sciences. Revue française de sociologie, 59(3), 475–506.',
+  'Mullainathan, S., & Spiess, J. (2017). Machine learning: An applied econometric approach. Journal of Economic Perspectives, 31(2), 87–106.'
+]).sort((a, x) => a.localeCompare(x, 'en'));
+REFS.forEach(t => b.push(ref(t)));
 
 // ============ APPENDIX ============
 b.push(new Paragraph({ children: [new PageBreak()] }));
