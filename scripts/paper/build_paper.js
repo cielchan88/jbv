@@ -35,7 +35,7 @@ const TMAP = { 1: 5, 2: 6, 3: 7, 4: 8, 5: 3, 6: 4, 7: 9, 8: 10, 9: 11, 10: 13, 1
 const T = {                       // nomor tabel BARU, dipakai teks yang ditulis ulang
   parallels: 1, hypo: 2, protocols: 3, windows: 4, desc: 5, trainfit: 6,
   diag: 7, featfam: 8, protomase: 9, horizon: 10, allten: 11, robust: 12,
-  channels: 13, threats: 14
+  channels: 13, threats: 14, followup: 15
 };
 const PHRASE = [
   ['Figure 2(a)', 'Figure 3(a)'],
@@ -178,7 +178,7 @@ const AB = [
   ['Objectives. ', 'This paper asks four questions. Does training fit predict forecast accuracy in this class of data, and if so with what sign? How much of the apparent accuracy penalty of recursive forecasting is genuine error accumulation and how much is information leakage from teacher-forced evaluation? Where along the forecast horizon does the penalty arise? And what do the machine-learning models actually use out of an engineered feature set?'],
   ['Methodology. ', 'We evaluate ten methods — six traditional and four machine-learning — on 18 daily foreign-exchange transaction-flow series observed over 5032 business days (2 January 2006 to 26 August 2026), using rolling-origin validation with three windows anchored on the final observation. The design has two stages that are reported separately. Stage I estimates every model and records in-sample fit, residual diagnostics and feature importance. Stage II tests each model out of sample under three multi-step protocols — recursive, direct and teacher-forced — on a common twelve-point horizon grid, so that the protocols differ in nothing but the way the multi-step forecast is formed. Accuracy is measured by MASE; inference uses Diebold–Mariano tests with the Harvey–Leybourne–Newbold correction, paired Wilcoxon tests, and exact permutation tests.'],
   ['Findings. ', 'Training fit is not merely uninformative for model selection but systematically misleading. The model that fits the training sample best (RandomForest, in-sample MASE 0.611) is the worst out of sample (2.195), while the worst-fitting model (Prophet, 1.037) is the best (1.441). Once the random walk is set aside — its in-sample MASE equals unity by construction — the reversal of the two rankings is exact (Spearman ρ = -1.000, exact permutation p = 0.00139), and within-series rank correlations between training fit and test accuracy are negative in 40 of 54 series-window units (Wilcoxon p = 0.0010). On the protocol question, mean MASE is 1.403 under teacher-forcing, 1.505 under the direct strategy and 1.657 under recursion: of the 18.1 per cent apparent penalty of recursion, 10.1 percentage points are genuine error accumulation and 7.3 points are information leakage. The penalty is negligible to h = 23 and reaches 29 per cent beyond h = 30. The ensembles concentrate 55 to 73 per cent of their importance on five of twenty-five retained features, and importance is mildly negatively correlated with the criterion used to select those features.'],
-  ['Significance and conclusion. ', 'Within this regime the protocol decision moves measured accuracy by an amount comparable to the model decision, and the training stage provides no guidance on either. Three operational rules follow: do not select models on training-stage metrics; evaluate under the protocol in which the system will be operated, treating teacher-forced results as diagnostic bounds; and estimate horizon-specific models where the operational horizon exceeds roughly one trading month. The paper also reports, and withdraws, a summary statistic used in an earlier version of this work whose null distribution we had not examined — a failure of the same kind the paper documents in model selection.']
+  ['Significance and conclusion. ', 'Within this regime the protocol decision moves measured accuracy by an amount comparable to the model decision, and the training stage provides no guidance on either. Three operational rules follow: do not select models on training-stage metrics; evaluate under the protocol in which the system will be operated, treating teacher-forced results as diagnostic bounds; and estimate horizon-specific models where the operational horizon exceeds roughly one trading month. The paper also reports, and withdraws, a summary statistic used in an earlier version of this work whose null distribution we had not examined — a failure of the same kind the paper documents in model selection — and specifies four follow-up studies, each with a stated falsification criterion, so that the interpretation offered here can be tested rather than accepted.']
 ];
 AB.forEach(a => b.push(Rich([{ t: a[0], b: true }, { t: a[1] }])));
 b.push(p(4));
@@ -301,6 +301,11 @@ b.push(note(31));
 b.push(p(33));
 b.push(p(34));
 b.push(p(35));
+b.push(Rich([
+  { t: `The comparison can be made sharper. On the Ljung–Box criterion the three ensembles pass in ` },
+  { t: 'none', b: true },
+  { t: ` of the 54 estimations — precisely the record of the random walk, which estimates nothing at all. The only method that removes any residual autocorrelation is AutoARIMA, at seven of 54, and it is the most parsimonious estimated model in the comparison. A procedure that fits the training sample roughly forty per cent more closely than the random walk while leaving the dependence structure of its residuals exactly as the random walk leaves it has not identified the conditional mean; it has interpolated the estimation sample. That is what overfitting denotes in this setting, and the diagnostics permit it to be stated as a measurement rather than offered as an interpretation.` }
+]));
 b.push(p(36));
 b.push(im(37));
 b.push(capOf(38, 'Figure 1.'));
@@ -391,10 +396,40 @@ b.push(H('6. Conclusion and Future Work', HeadingLevel.HEADING_1));
 b.push(H('6.1 Summary of Key Contributions', HeadingLevel.HEADING_2));
 b.push(p(127));
 b.push(p(128));
+b.push(P('A third contribution is diagnostic rather than comparative. Because Stage I records what the ensembles select and what they then use, the overfitting can be localised. It does not arise where one would first look — in the volatility features, which occupy roughly a tenth of the feature budget and earn about half that share of importance — but in redundancy among level-tracking predictors, and in a selection criterion whose ranking is mildly anti-correlated with the estimator’s own use of the features it retains. The engineered feature set, as configured in production, is therefore largely inert: five of twenty-five predictors carry most of the fitted signal while the estimation pays the variance cost of all twenty-five. That is a defect of pipeline construction, it is measurable, and unlike the regime characteristics it is under the modeller’s control.'));
 b.push(H('6.2 Policy and Practical Recommendations', HeadingLevel.HEADING_2));
 b.push(p(129));
+b.push(Rich([
+  { t: 'Two of the three cost nothing to adopt, because they are review procedure rather than modelling work. Fix the evaluation protocol before estimation begins, and record it alongside every reported accuracy figure, so that a number produced under teacher-forcing can never be compared with one produced under recursion. Withhold training-stage output from the model-selection decision altogether rather than merely discounting it: given a relationship of the sign documented here, a reviewer who sees training metrics first is worse placed than one who never sees them. The third recommendation has a computational price that should be stated plainly rather than buried. Horizon-specific estimation multiplies the number of fits by the number of horizons evaluated — a twelvefold increase on the grid used here, sixtyfold on the full horizon. Where the operational horizon is short that price buys nothing, since the two valid protocols are indistinguishable to ' },
+  { t: 'h', i: true },
+  { t: ' = 23. Where it is long the trade is clearly favourable: the 29 per cent reduction in scaled error beyond ' },
+  { t: 'h', i: true },
+  { t: ' = 30 is more than half the distance separating the best from the worst of the nine non-stacked methods in Table 11 (1.441 against 2.195). An institution operating at a one-quarter horizon is choosing between a protocol change and a model search, and on this evidence the protocol change is both the larger and the cheaper of the two.' }
+]));
 b.push(H('6.3 Recommendations for Future Research', HeadingLevel.HEADING_2));
 b.push(p(124));
+b.push(P('Because a research agenda stated in prose is difficult to hold anyone to, we specify the four studies in Table 15, each with the design that would execute it and the result that would falsify the interpretation offered in this paper. The list is ordered by expected value, and the first two are the ones we would run before treating any of our recommendations as settled.'));
+const wf = [1900, 3550, 3576];
+const tf = [new TableRow({ tableHeader: true, children: [
+  cell('Study', wf[0], { head: 1 }), cell('Design', wf[1], { head: 1 }),
+  cell('What would falsify the present interpretation', wf[2], { head: 1 })] })];
+[['Reduced feature set',
+  'Re-estimate the three ensembles on five to eight predictors drawn from the difference and exponentially weighted families, holding windows, protocol and horizon grid fixed so that the feature set is the only thing that changes.',
+  'If out-of-sample accuracy does not improve and the in-sample to out-of-sample inversion persists at its present magnitude, then the inversion is a property of the data rather than of an over-specified pipeline, and the account of channel two in Table 13 is wrong.'],
+ ['Extended test sequence',
+  'Repeat the three-protocol comparison over a rolling sequence of at least twenty non-overlapping sixty-day test blocks spanning several years, retaining the anchoring rule and the common horizon grid.',
+  'If the ordering of the protocols reverses in a material share of blocks, the recursive penalty is regime-specific rather than structural, and the threshold near h = 23 cannot be used as an operating rule.'],
+ ['Estimator-aligned selection',
+  'Replace the marginal Spearman selector with one that optimises the estimator’s own objective — forward selection on rolling-origin validation error, or permutation importance under a conditional inference framework — and re-measure the correlation between selection score and realised importance.',
+  'If that correlation remains negative under an aligned criterion, the mismatch documented under H4 is not attributable to the choice of selector, and the interpretation in Section 5.2 must be revised.'],
+ ['Tuned hyper-parameters',
+  'Tune each ensemble by rolling-origin validation inside the training sample only, never touching test data, and then repeat both stages unchanged.',
+  'If tuning lifts out-of-sample accuracy above the statistical benchmarks, the family ranking of Table 11 is an artefact of configuration rather than a property of the regime. If instead it lowers in-sample fit while leaving the out-of-sample ranking intact, the inversion is strengthened rather than weakened.']
+].forEach(r => tf.push(new TableRow({ children: [
+  cell(r[0], wf[0], { bold: true }), cell(r[1], wf[1]), cell(r[2], wf[2])] })));
+b.push(cap(`Table ${T.followup}.`, 'Specified follow-up studies and their falsification criteria.', { before: 160, after: 60 }));
+b.push(table(wf, tf));
+b.push(cap('Note.', 'Each design holds fixed everything the present study holds fixed, so that a single factor varies. The falsification criteria are stated in terms of this paper’s own claims rather than in terms of statistical significance, because with three windows the relevant question is the size and direction of an effect rather than its p-value.'));
 b.push(p(125));
 
 // ============ ACKNOWLEDGEMENTS ============
