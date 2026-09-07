@@ -1048,23 +1048,23 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                 y_train = train_features['value']
                 X_test = test_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
                 y_test = test_features['value']
-
-                # Yang disimpan hanya X dan y, bukan model yang sudah dilatih:
-                # menahan puluhan RandomForest sekaligus boros memori, sedangkan
-                # melatih ulang satu model dari matriks yang sudah jadi hanya
-                # hitungan detik. Bagian mahalnya adalah rekayasa fitur, dan
-                # itulah yang di-cache.
-                if any(m in selected_models for m in SHAP_MODELS):
-                    shap_train_data[(leaf_id, int(eval_window))] = {
-                        'X': X_train.copy(),
-                        'y': np.asarray(y_train, dtype=float),
-                        'features': list(feature_cols),
-                        'label': row_label,
-                        'n_train': int(len(X_train)),
-                    }
             else:
                 feature_cols = []
                 X_train = X_test = y_train = y_test = None
+
+        # Catatan untuk bagian SHAP di bawah: yang disimpan hanya POTONGAN DERET
+        # training, bukan matriks fitur. Di mode recursive blok fitur di atas
+        # sengaja dilewati (forecaster membangun fiturnya sendiri), jadi X_train
+        # memang tidak ada - menempelkan cache ke sana membuat panel SHAP diam-
+        # diam kosong. Fiturnya dibangun ulang saat tombol Hitung SHAP ditekan,
+        # sehingga tidak ada biaya sama sekali kalau panelnya tidak dibuka.
+        if any(m in selected_models for m in SHAP_MODELS):
+            shap_train_data[(leaf_id, int(eval_window))] = {
+                'ds': pd.to_datetime(train_ml['date']).to_numpy(),
+                'y': np.asarray(train_ml['value'], dtype=float),
+                'label': row_label,
+                'n_train': int(len(train_ml)),
+            }
 
         # ========================================================================
         # EVALUATE ALL MODELS - Using prepared data
@@ -2019,8 +2019,21 @@ st.markdown("---")
 _shap_store = st.session_state.get('shap_train_data') or {}
 _shap_results = st.session_state.get('evaluation_results')
 
-if _shap_store and _shap_results is not None:
+if _shap_results is not None:
     st.subheader("🧠 Interpretasi Fitur (SHAP) — Periode Training")
+
+if _shap_results is not None and not _shap_store:
+    # Terjadi kalau evaluasi dilanjutkan dari checkpoint: unit yang sudah
+    # selesai tidak diproses ulang, jadi potongan deret trainingnya tidak
+    # pernah tersimpan. Sebelumnya bagian ini hilang tanpa penjelasan.
+    st.info(
+        "Tidak ada data periode training yang tersimpan untuk sesi ini. "
+        "Ini terjadi kalau evaluasi dilanjutkan dari checkpoint — unit yang "
+        "sudah selesai tidak diproses ulang. Hapus checkpoint lalu jalankan "
+        "evaluasi dari awal dengan minimal satu model berbasis pohon "
+        "(RandomForest, LightGBM, atau XGBoost) untuk mengaktifkan panel ini."
+    )
+elif _shap_store and _shap_results is not None:
 
     _metric = st.session_state.get('evaluation_metric', 'SMAPE')
     _avail_models = [m for m in SHAP_MODELS if m in _shap_results['Model'].unique()]
@@ -2084,7 +2097,32 @@ if _shap_store and _shap_results is not None:
                     )
                 else:
                     _d = _shap_store[_unit_pick]
-                    _X_full, _y_full = _d['X'], _d['y']
+
+                    # Fitur dibangun ULANG di sini, bukan diambil dari cache.
+                    # Di mode recursive halaman ini sengaja tidak membangun
+                    # matriks fitur saat evaluasi (forecaster melakukannya
+                    # sendiri), jadi satu-satunya cara mendapatkannya adalah
+                    # menghitungnya saat dibutuhkan. Konsekuensinya nol biaya
+                    # kalau panel ini tidak dibuka. external_series sengaja
+                    # tidak diberikan, mengikuti ENABLE_CROSS_SERIES_FOR_RECURSIVE
+                    # yang mati - jadi fiturnya sama dengan yang benar-benar
+                    # dilihat model.
+                    with st.spinner("Membangun fitur periode training ..."):
+                        from utils.feature_engineering_optimized import (
+                            create_features_optimized, select_top_features_optimized)
+                        _fe = pd.DataFrame({'ds': pd.to_datetime(_d['ds']), 'y': _d['y']})
+                        _feats = create_features_optimized(
+                            _fe, lag_steps=90, holidays_list=load_holidays())
+                        _allc = [c for c in _feats.columns
+                                 if c not in ('ds', 'date', 'value')]
+                        _top, _ = select_top_features_optimized(_feats, top_k=25)
+                        _cols = [c for c in _top if c in _allc] or _allc[:25]
+                        _X_full = _feats[_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                        _y_full = _feats['value'].to_numpy(dtype=float)
+
+                    if len(_X_full) == 0:
+                        st.warning("Periode training terlalu pendek untuk membentuk fitur.")
+                        st.stop()
 
                     # Subsampel acak dengan benih tetap supaya bisa diulang.
                     if len(_X_full) > _n_cap:
@@ -2115,7 +2153,7 @@ if _shap_store and _shap_results is not None:
 
                     st.success(
                         f"SHAP dihitung pada {len(_Xs):,} dari {_d['n_train']:,} baris periode "
-                        f"training, {len(_d['features'])} fitur terpilih."
+                        f"training, {len(_cols)} fitur terpilih."
                     )
 
                     _g1, _g2 = st.columns(2)
