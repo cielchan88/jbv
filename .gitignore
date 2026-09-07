@@ -42,3 +42,11 @@ catboost_info/
 config.py
 .env
 .env.local
+
+# Node
+node_modules/
+
+# Naskah: keluaran scripts/paper (memuat statistik data pengawasan)
+scripts/paper/doc_items.json
+scripts/paper/fig/
+*.docx
