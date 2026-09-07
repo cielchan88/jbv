@@ -8,6 +8,9 @@ xgboost>=1.7.0
 prophet>=1.1.0
 statsmodels>=0.14.0
 lightgbm>=4.0.0
+
+# Interpretasi fitur (bar & beeswarm) di laman Evaluasi
+shap>=0.44.0
 openpyxl>=3.1.0
 xmltodict>=0.13.0
 requests>=2.31.0
