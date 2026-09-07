@@ -21,8 +21,8 @@ const {
 
 const path = require('path');
 // Pemakaian: node build_paper.js [dir-kerja] [keluaran.docx]
-// dir-kerja adalah direktori yang berisi doc_items.json dan fig/, yaitu keluaran
-// extract.py. Default: direktori kerja saat ini.
+// dir-kerja berisi doc_items.json, h1_facts2.json, dan fig/ - keluaran extract.py
+// plus hasil run_one_step.py. Default: direktori kerja saat ini.
 const S = path.resolve(process.argv[2] || '.');
 const OUT = process.argv[3] || path.join(S, 'paper.docx');
 const IT = JSON.parse(fs.readFileSync(path.join(S, 'doc_items.json'), 'utf8'));
@@ -31,14 +31,17 @@ const CW = 9026;
 
 // ---------- penomoran ----------
 // lama -> baru, mengikuti urutan kemunculan pada kerangka baru
-const TMAP = { 1: 5, 2: 6, 3: 7, 4: 8, 5: 3, 6: 4, 7: 9, 8: 10, 9: 11, 10: 13, 11: 1, 12: 12, 13: 14 };
+const TMAP = { 1: 5, 2: 6, 3: 7, 4: 8, 5: 3, 6: 4, 7: 9, 8: 10, 9: 11, 10: 14, 11: 1, 12: 13, 13: 15 };
 const T = {                       // nomor tabel BARU, dipakai teks yang ditulis ulang
   parallels: 1, hypo: 2, protocols: 3, windows: 4, desc: 5, trainfit: 6,
-  diag: 7, featfam: 8, protomase: 9, horizon: 10, allten: 11, robust: 12,
-  channels: 13, threats: 14, followup: 15
+  diag: 7, featfam: 8, protomase: 9, horizon: 10, allten: 11, onestep: 12,
+  robust: 13, channels: 14, threats: 15, followup: 16
 };
+const H1 = JSON.parse(fs.readFileSync(path.join(S, 'h1_facts2.json'), 'utf8'));
 const PHRASE = [
   ['Figure 2(a)', 'Figure 3(a)'],
+  ['This identity is a useful validation that the three pipelines are otherwise comparable.',
+   'The equality of these means is weaker evidence of pipeline comparability than it appears, however, and the one-step study reported at the end of this section examines it directly at the level of individual forecasts.'],
   ['Section 7 reports the full set of checks', 'Section 4.3 reports the full set of checks'],
   ['Section 7 answers the second', 'Section 4.3 answers the second'],
   ['Because Section 4.4 established', 'Because the evidence on H1 established'],
@@ -118,6 +121,10 @@ function ref(t) {
   return new Paragraph({ spacing: { after: 100, line: 240 }, indent: { left: 420, hanging: 420 },
     children: [new TextRun({ text: t, font: SERIF, size: 20 })] });
 }
+// Angka kecil dieja dalam prosa; angka besar tetap sebagai angka.
+const WORD = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+              'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const wd = n => WORD[n] || String(n);
 
 // ---------- ambil dari dokumen lama ----------
 const NUMRE = /^-?[\d.,+%×]+$|^[+-]?\d/;
@@ -176,8 +183,8 @@ b.push(H('Abstract', HeadingLevel.HEADING_1));
 const AB = [
   ['Background. ', 'Institutions that operate short-horizon forecasting systems make two decisions that are usually treated as separate: which model to estimate, and how a model fitted to one-step-ahead relationships should be used to forecast many steps ahead. Applied practice devotes most of its attention to the first. It also routinely selects among candidate models on training-stage output, and routinely evaluates lag-based learners by feeding them realised test-period values at each step — a procedure that is not a forecasting strategy at all.'],
   ['Objectives. ', 'This paper asks four questions. Does training fit predict forecast accuracy in this class of data, and if so with what sign? How much of the apparent accuracy penalty of recursive forecasting is genuine error accumulation and how much is information leakage from teacher-forced evaluation? Where along the forecast horizon does the penalty arise? And what do the machine-learning models actually use out of an engineered feature set?'],
-  ['Methodology. ', 'We evaluate ten methods — six traditional and four machine-learning — on 18 daily foreign-exchange transaction-flow series observed over 5032 business days (2 January 2006 to 26 August 2026), using rolling-origin validation with three windows anchored on the final observation. The design has two stages that are reported separately. Stage I estimates every model and records in-sample fit, residual diagnostics and feature importance. Stage II tests each model out of sample under three multi-step protocols — recursive, direct and teacher-forced — on a common twelve-point horizon grid, so that the protocols differ in nothing but the way the multi-step forecast is formed. Accuracy is measured by MASE; inference uses Diebold–Mariano tests with the Harvey–Leybourne–Newbold correction, paired Wilcoxon tests, and exact permutation tests.'],
-  ['Findings. ', 'Training fit is not merely uninformative for model selection but systematically misleading. The model that fits the training sample best (RandomForest, in-sample MASE 0.611) is the worst out of sample (2.195), while the worst-fitting model (Prophet, 1.037) is the best (1.441). Once the random walk is set aside — its in-sample MASE equals unity by construction — the reversal of the two rankings is exact (Spearman ρ = -1.000, exact permutation p = 0.00139), and within-series rank correlations between training fit and test accuracy are negative in 40 of 54 series-window units (Wilcoxon p = 0.0010). On the protocol question, mean MASE is 1.403 under teacher-forcing, 1.505 under the direct strategy and 1.657 under recursion: of the 18.1 per cent apparent penalty of recursion, 10.1 percentage points are genuine error accumulation and 7.3 points are information leakage. The penalty is negligible to h = 23 and reaches 29 per cent beyond h = 30. The ensembles concentrate 55 to 73 per cent of their importance on five of twenty-five retained features, and importance is mildly negatively correlated with the criterion used to select those features.'],
+  ['Methodology. ', 'We evaluate ten methods — six traditional and four machine-learning — on 18 daily foreign-exchange transaction-flow series observed over 5032 business days (2 January 2006 to 26 August 2026), using rolling-origin validation with three windows anchored on the final observation. The design has two stages that are reported separately. Stage I estimates every model and records in-sample fit, residual diagnostics and feature importance. Stage II tests each model out of sample under three multi-step protocols — recursive, direct and teacher-forced — on a common twelve-point horizon grid, so that the protocols differ in nothing but the way the multi-step forecast is formed. Accuracy is measured by MASE; inference uses Diebold–Mariano tests with the Harvey–Leybourne–Newbold correction, paired Wilcoxon tests, and exact permutation tests. A supplementary design trains on all but the final observation and tests on that single day, which isolates model quality from both horizon and protocol.'],
+  ['Findings. ', 'Training fit is not merely uninformative for model selection but systematically misleading. The model that fits the training sample best (RandomForest, in-sample MASE 0.611) is the worst out of sample (2.195), while the worst-fitting model (Prophet, 1.037) is the best (1.441). Once the random walk is set aside — its in-sample MASE equals unity by construction — the reversal of the two rankings is exact (Spearman ρ = -1.000, exact permutation p = 0.00139), and within-series rank correlations between training fit and test accuracy are negative in 40 of 54 series-window units (Wilcoxon p = 0.0010). On the protocol question, mean MASE is 1.403 under teacher-forcing, 1.505 under the direct strategy and 1.657 under recursion: of the 18.1 per cent apparent penalty of recursion, 10.1 percentage points are genuine error accumulation and 7.3 points are information leakage. The penalty is negligible to h = 23 and reaches 29 per cent beyond h = 30. The ensembles concentrate 55 to 73 per cent of their importance on five of twenty-five retained features, and importance is mildly negatively correlated with the criterion used to select those features. The one-step test adds a second inversion: the accuracy ranking one day ahead is close to the reverse of the ranking sixty days ahead (rank correlation -0.915), and it shows that the equality of protocol means at the first step conceals a median discrepancy of 7.3 per cent between individual forecasts, which is implementation rather than strategy.'],
   ['Significance and conclusion. ', 'Within this regime the protocol decision moves measured accuracy by an amount comparable to the model decision, and the training stage provides no guidance on either. Three operational rules follow: do not select models on training-stage metrics; evaluate under the protocol in which the system will be operated, treating teacher-forced results as diagnostic bounds; and estimate horizon-specific models where the operational horizon exceeds roughly one trading month. The paper also reports, and withdraws, a summary statistic used in an earlier version of this work whose null distribution we had not examined — a failure of the same kind the paper documents in model selection — and specifies four follow-up studies, each with a stated falsification criterion, so that the interpretation offered here can be tested rather than accepted.']
 ];
 AB.forEach(a => b.push(Rich([{ t: a[0], b: true }, { t: a[1] }])));
@@ -347,6 +354,58 @@ b.push(im(82));
 b.push(capOf(83, 'Figure 4.'));
 b.push(p(84));
 
+// ---------- blok baru: uji satu langkah dengan pelatihan maksimal ----------
+b.push(lead('A maximal-training, one-step test'));
+b.push(Rich([
+  { t: `The rolling design of Section 3.3 answers how the system performs over a sixty-day block. A different question is how it performs at the single setting most favourable to it: trained on every observation available, forecasting one day ahead. We therefore estimate all ${wd(H1.n_methods)} methods on the first ${H1.n_train} business days of the sample and test them on the final observation, ${H1.test_date}, under each of the three protocols. The exercise serves two purposes, one methodological and one descriptive, and the methodological one is the more consequential.` }
+]));
+b.push(Rich([
+  { t: 'At a horizon of one step the three protocols must coincide, for the reason given above: no prediction has been fed back, no realised test value has been consumed, and the direct model for ' },
+  { t: 'h', i: true },
+  { t: ` = 1 is the one-step model itself. We therefore ran the three code paths separately rather than assuming their equality, so that agreement would constitute evidence and disagreement would locate a defect. The result is mixed. The recursive and teacher-forced paths agree on all ${H1.rec_tf_identical} of ${H1.rec_tf_pairs} series-method pairs, to within ${H1.rec_tf_max.toExponential(0).replace('e-', ' × 10⁻')} — floating-point noise. The direct path does ` },
+  { t: 'not', b: true },
+  { t: ` agree: it differs from the recursive path on ${H1.dir_diff} of the ${H1.dir_pairs} pairs for which it is defined, with a median absolute discrepancy of ${H1.dir_median_pct} per cent of the recursive forecast and a maximum of ${H1.dir_max_pct} per cent. In aggregate the discrepancy is modest and adverse — mean MASE of ${H1.proto_mase['Direct']} under the direct path against ${H1.proto_mase['Recursive']} under the other two — but its existence is the point.` }
+]));
+b.push(Rich([
+  { t: 'Because protocol contributes nothing at ' },
+  { t: 'h', i: true },
+  { t: ' = 1 by construction, the whole of this discrepancy is ' },
+  { t: 'implementation', b: true },
+  { t: `, not strategy. The recursive and teacher-forced paths run through the production forecaster classes, with their own feature construction, target transformation and selection; the direct path fits an estimator to a separately engineered design matrix, which is how the direct protocol is implemented in Section 4.2 and in the appendix. The consequence for the earlier result is that the equality of protocol means at h = 1 conceals offsetting differences at the level of individual forecasts, and cannot be read as establishing that the pipelines are otherwise identical. The ${H1.dir_median_pct} per cent median discrepancy should instead be treated as a floor on the implementation noise carried by the direct-versus-recursive comparisons in Tables ${T.protomase} and ${T.horizon}. It does not overturn those comparisons — the recursive penalty beyond h = 30 is an order of magnitude larger — but it does mean that differences of a few per cent between the two valid protocols are not interpretable.` }
+]));
+const w1s = [1500, 1150, 900, 900, 900, 900, 900, 876];
+const t1s = [new TableRow({ tableHeader: true, children: [
+  cell('Method', w1s[0], { head: 1 }), cell('Family', w1s[1], { head: 1 }),
+  cell('MASE', w1s[2], { head: 1, num: 1 }), cell('Median', w1s[3], { head: 1, num: 1 }),
+  cell('MAE', w1s[4], { head: 1, num: 1 }), cell('Bias', w1s[5], { head: 1, num: 1 }),
+  cell('Best in', w1s[6], { head: 1, num: 1 }), cell('Rank h=60', w1s[7], { head: 1, num: 1 })] })];
+H1.rows.forEach(r => t1s.push(new TableRow({ children: [
+  cell(r.model, w1s[0]), cell(r.family === 'ML' ? 'Machine learning' : 'Traditional', w1s[1]),
+  cell(r.mase.toFixed(3), w1s[2], { num: 1, bold: r.r1 === 1 }),
+  cell(r.med.toFixed(3), w1s[3], { num: 1 }),
+  cell(r.mae.toFixed(1), w1s[4], { num: 1 }),
+  cell((r.bias > 0 ? '+' : '') + r.bias.toFixed(1), w1s[5], { num: 1 }),
+  cell(String(r.best), w1s[6], { num: 1 }),
+  cell(String(r.r60), w1s[7], { num: 1 })] })));
+b.push(cap(`Table ${T.onestep}.`, `One-step accuracy with maximal training: all ${wd(H1.n_methods)} methods trained on ${H1.n_train} business days and tested on ${H1.test_date}, ranked by MASE.`, { before: 160, after: 60 }));
+b.push(table(w1s, t1s));
+b.push(cap('Note.', `Each figure is computed across the ${H1.n_series} terminal series from a single test observation per series; MASE is scaled by the mean absolute first difference of that series' training sample. "Best in" counts the series on which the method attains the lowest absolute error, and sums to ${H1.n_series}. "Rank h=60" is the method's position in Table ${T.allten}, which evaluates the full sixty-step horizon under the recursive protocol. Directional accuracy is not reported: the random walk and the trailing mean predict zero and near-zero change respectively, so the statistic is determined by their functional form rather than by their performance.`));
+b.push(Rich([
+  { t: `Two descriptive results follow. First, favourable as the setting is, no method attains a mean MASE below unity — ${wd(H1.n_below_one_mean)} of ${wd(H1.n_methods)} do so — although ${wd(H1.n_below_one_med)} of ${wd(H1.n_methods)} achieve a median below unity. The typical series is therefore forecast more accurately than its own random-walk scale even at one step, while the mean is carried by a small number of large errors. This is the same tail-dominated structure documented for the sixty-step results, and it reinforces the conclusion that these flows are close to unforecastable in the mean rather than merely difficult.` }
+]));
+b.push(Rich([
+  { t: 'Second, and more strikingly, the ranking at one step is close to the reverse of the ranking at sixty. The rank correlation between the two columns of Table ' },
+  { t: `${T.onestep}`, b: true },
+  { t: ' is ' },
+  { t: `${H1.rho} (p = ${H1.rho_p})`, b: true },
+  { t: `. The stacked ensemble is the most accurate method at one step and the least accurate of all ${wd(H1.n_methods)} at sixty; the trailing mean is the least accurate at one step and second most accurate at sixty; the additive decomposition model moves from eighth to first. This is a second inversion, structurally distinct from the training-to-testing inversion of H1 but pointing the same way: accuracy rankings are properties of an evaluation configuration — horizon and protocol together — rather than of a method. An institution that selects a model on one-step accuracy and then operates it at a quarterly horizon will have selected close to the worst available option, which is exactly the error this paper documents in the training stage, displaced along the horizon rather than across the sample split.` }
+]));
+b.push(Rich([
+  { t: 'The weight this evidence can bear must be stated plainly. The design yields ' },
+  { t: `${H1.n_series} forecast errors from a single calendar day`, b: true },
+  { t: `, with no rolling windows and therefore no sampling distribution. We report no hypothesis test on the accuracy figures, and the ranking of Table ${T.onestep} should be read as a snapshot rather than as an ordering with statistical standing; the correlation with the sixty-step ranking is reported because its magnitude is large, but it too rests on one day at the one-step end. The protocol-identity result is not subject to this limitation, since it is a statement about whether two code paths return the same number and does not depend on the sampling properties of the day chosen. Extending the one-step evaluation to a rolling sequence of origins is the natural remedy and is specified in Table ${T.followup}.` }
+]));
+
 b.push(H('4.3 Robustness Checks', HeadingLevel.HEADING_2));
 b.push(p(107));
 b.push(p(109));
@@ -408,20 +467,23 @@ b.push(Rich([
 ]));
 b.push(H('6.3 Recommendations for Future Research', HeadingLevel.HEADING_2));
 b.push(p(124));
-b.push(P('Because a research agenda stated in prose is difficult to hold anyone to, we specify the four studies in Table 15, each with the design that would execute it and the result that would falsify the interpretation offered in this paper. The list is ordered by expected value, and the first two are the ones we would run before treating any of our recommendations as settled.'));
+b.push(P(`Because a research agenda stated in prose is difficult to hold anyone to, we specify five studies in Table ${T.followup}, each with the design that would execute it and the result that would falsify the interpretation offered in this paper. The list is ordered by expected value, and the first two are the ones we would run before treating any of our recommendations as settled.`));
 const wf = [1900, 3550, 3576];
 const tf = [new TableRow({ tableHeader: true, children: [
   cell('Study', wf[0], { head: 1 }), cell('Design', wf[1], { head: 1 }),
   cell('What would falsify the present interpretation', wf[2], { head: 1 })] })];
 [['Reduced feature set',
   'Re-estimate the three ensembles on five to eight predictors drawn from the difference and exponentially weighted families, holding windows, protocol and horizon grid fixed so that the feature set is the only thing that changes.',
-  'If out-of-sample accuracy does not improve and the in-sample to out-of-sample inversion persists at its present magnitude, then the inversion is a property of the data rather than of an over-specified pipeline, and the account of channel two in Table 13 is wrong.'],
+  `If out-of-sample accuracy does not improve and the in-sample to out-of-sample inversion persists at its present magnitude, then the inversion is a property of the data rather than of an over-specified pipeline, and the account of channel two in Table ${T.channels} is wrong.`],
  ['Extended test sequence',
   'Repeat the three-protocol comparison over a rolling sequence of at least twenty non-overlapping sixty-day test blocks spanning several years, retaining the anchoring rule and the common horizon grid.',
   'If the ordering of the protocols reverses in a material share of blocks, the recursive penalty is regime-specific rather than structural, and the threshold near h = 23 cannot be used as an operating rule.'],
  ['Estimator-aligned selection',
   'Replace the marginal Spearman selector with one that optimises the estimator’s own objective — forward selection on rolling-origin validation error, or permutation importance under a conditional inference framework — and re-measure the correlation between selection score and realised importance.',
   'If that correlation remains negative under an aligned criterion, the mismatch documented under H4 is not attributable to the choice of selector, and the interpretation in Section 5.2 must be revised.'],
+ ['Rolling one-step origins',
+  'Repeat the maximal-training one-step test of Section 4.2 over a rolling sequence of origins — for each of the final sixty business days, train on everything up to the preceding day and forecast one step — so that the one-step ranking acquires a sampling distribution.',
+  'If the one-step ranking then agrees with the sixty-step ranking of Table 11, the inversion reported in Table 12 is an artefact of the single test day rather than a property of the horizon, and the second inversion claimed in Section 4.2 must be withdrawn.'],
  ['Tuned hyper-parameters',
   'Tune each ensemble by rolling-origin validation inside the training sample only, never touching test data, and then repeat both stages unchanged.',
   'If tuning lifts out-of-sample accuracy above the statistical benchmarks, the family ranking of Table 11 is an artefact of configuration rather than a property of the regime. If instead it lowers in-sample fit while leaving the out-of-sample ranking intact, the inversion is strengthened rather than weakened.']

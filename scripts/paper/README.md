@@ -15,12 +15,19 @@ tabel, dan gambar diambil apa adanya dari `.docx` masukan.
 # 1. bongkar naskah lama -> doc_items.json + fig/
 python3 scripts/paper/extract.py naskah-lama.docx -o kerja/
 
-# 2. pasang dependensi sekali saja
+# 2. evaluasi satu langkah -> h1_results.csv + h1_facts2.json
+#    (butuh data/processed/sdv-wide.csv dan worktree kode yang menghasilkan naskah)
+python3 scripts/paper/run_one_step.py
+
+# 3. pasang dependensi sekali saja
 cd scripts/paper && npm install && cd -
 
-# 3. susun ulang -> naskah baru
+# 4. susun ulang -> naskah baru
 node scripts/paper/build_paper.js kerja/ naskah-baru.docx
 ```
+
+`build_paper.js` membaca `doc_items.json`, `h1_facts2.json`, dan `fig/` dari
+dir-kerja. Kalau `h1_facts2.json` belum ada, langkah 2 belum dijalankan.
 
 `extract.py` menulis `doc_items.json` (paragraf beserta gaya tiap run, isi
 tabel, dan lebar kolom) dan menyalin gambar tertanam ke `kerja/fig/` dengan
