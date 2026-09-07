@@ -7,11 +7,15 @@ from .arima_model import ARIMAForecaster
 from .prophet_model import ProphetForecaster
 from .apuva_model import APUVAForecaster
 from .croston_model import CrostonForecaster
+from .lstm_model import LSTMForecaster
 from .stacking_model import StackingForecaster
 from .var_model import VARForecaster
+from .naive_model import NaiveForecaster
 
 
-def forecast_single_series(dates, values, model_name, n_days, holidays=None, external_series=None, row_id=None):
+def forecast_single_series(dates, values, model_name, n_days, holidays=None,
+                           external_series=None, row_id=None,
+                           apply_sign_constraint_flag=True):
     """
     Forecast a single time series using the specified model.
 
@@ -53,7 +57,10 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
         'apuva': APUVAForecaster,
         'croston': CrostonForecaster,
         'stacking': StackingForecaster,
-        'var': VARForecaster
+        'var': VARForecaster,
+        'naive': NaiveForecaster,
+        'naivemean': NaiveForecaster,
+        'lstm': LSTMForecaster,
     }
 
     model_name_lower = model_name.lower()
@@ -63,6 +70,12 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
     # Initialize forecaster
     if model_name_lower == 'apuva':
         forecaster = model_map[model_name_lower](holidays=holidays, row_id=row_id)
+    elif model_name_lower == 'naive':
+        forecaster = model_map[model_name_lower](holidays=holidays, method='last')
+    elif model_name_lower == 'naivemean':
+        # Harus sama persis dengan konfigurasi yang dipakai di halaman Evaluasi,
+        # kalau tidak model yang terpilih sebagai "terbaik" bukan model yang jalan.
+        forecaster = model_map[model_name_lower](holidays=holidays, method='mean', window=90)
     elif model_name_lower == 'stacking':
         # Stacking also needs row_id for APUVA base model
         forecaster = model_map[model_name_lower](holidays=holidays, row_id=row_id)
@@ -76,6 +89,20 @@ def forecast_single_series(dates, values, model_name, n_days, holidays=None, ext
         forecaster.fit(dates, values)
 
     forecast_values, forecast_dates = forecaster.predict(dates, values, n_days)
+
+    # Batasan tanda.
+    #
+    # Sembilan dari 18 leaf tidak pernah berganti tanda dalam 20,6 tahun -
+    # Impor/Repatriasi selalu satu arah, Ekspor/Investasi selalu sebaliknya.
+    # Tanpa batasan ini model bisa mengeluarkan nilai di sisi yang tidak pernah
+    # terjadi. Polaritas disimpulkan dari `values`, yaitu histori yang tersedia
+    # pada saat forecast dibuat, sehingga tidak ada kebocoran informasi masa
+    # depan saat dievaluasi. Seri dua arah tidak tersentuh.
+    if apply_sign_constraint_flag:
+        from ..constraints import infer_sign_polarity, apply_sign_constraint
+        pol = infer_sign_polarity(values)
+        if pol != 0:
+            forecast_values = apply_sign_constraint(forecast_values, pol)
 
     return forecast_values, forecast_dates
 

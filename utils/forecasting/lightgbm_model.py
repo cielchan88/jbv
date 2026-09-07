@@ -6,6 +6,7 @@ from lightgbm import LGBMRegressor
 from .base import BaseForecaster
 from ..feature_engineering_optimized import create_features_optimized as create_features_advanced, select_top_features_optimized as select_top_features, transform_target, inverse_transform_target
 from .. import generate_business_dates
+from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT, cross_series_for_recursive, warn_missing_at_predict
 
 
 class LightGBMForecaster(BaseForecaster):
@@ -25,6 +26,11 @@ class LightGBMForecaster(BaseForecaster):
         values = np.array(values, dtype=float)
         values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
         ts_df = pd.DataFrame({'ds': pd.to_datetime(dates), 'y': values})
+
+        # predict() di bawah tidak punya nilai seri lain untuk tanggal masa
+        # depan, jadi fitur ext_* yang dibangun di sini hanya akan dinolkan
+        # nanti. Saring dulu supaya tidak ikut terpilih.
+        external_series = cross_series_for_recursive(external_series, 'LightGBM')
 
         # Create features with optional cross-series data
         train_features = create_features_advanced(ts_df, lag_steps=90, holidays_list=self.holidays, external_series=external_series)
@@ -74,12 +80,13 @@ class LightGBMForecaster(BaseForecaster):
         values = np.array(values, dtype=float)
         values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
         ts_df = pd.DataFrame({'ds': pd.to_datetime(dates), 'y': values})
-        last_data = ts_df.tail(30).copy()
+        last_data = ts_df.tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT).copy()
 
         # Generate business dates for forecasting
         future_business_dates = generate_business_dates(last_data['ds'].iloc[-1], n_days, self.holidays)
 
         forecast_values = []
+        checked_missing = False
 
         for next_date in future_business_dates:
             temp_df = pd.DataFrame({'ds': [next_date], 'y': [0]})
@@ -89,9 +96,12 @@ class LightGBMForecaster(BaseForecaster):
             if len(temp_features) > 0:
                 X_next = temp_features[[col for col in temp_features.columns if col in self.feature_cols]].iloc[-1:]
 
-                for feat in self.feature_cols:
-                    if feat not in X_next.columns:
-                        X_next[feat] = 0
+                missing = [f for f in self.feature_cols if f not in X_next.columns]
+                if not checked_missing:
+                    warn_missing_at_predict(missing, 'LightGBM')
+                    checked_missing = True
+                for feat in missing:
+                    X_next[feat] = 0
 
                 X_next = X_next[self.feature_cols]
 
@@ -114,7 +124,7 @@ class LightGBMForecaster(BaseForecaster):
                 last_data = pd.concat([
                     last_data,
                     pd.DataFrame({'ds': [next_date], 'y': [pred]})
-                ], ignore_index=True).tail(30)
+                ], ignore_index=True).tail(MIN_HISTORY_FOR_RECURSIVE_PREDICT)
             else:
                 forecast_values.append(values[-1])
 

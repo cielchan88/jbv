@@ -60,7 +60,26 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://tradingeconomics.com/stream",
 }
-LABEL_INDEX = {'LABEL_0': 'positive', 'LABEL_1': 'neutral', 'LABEL_2': 'negative'}
+# ProsusAI/finbert's pipeline() already returns human-readable labels
+# ('positive'/'negative'/'neutral') via the model's own id2label config, NOT
+# generic 'LABEL_0'/'LABEL_1'/'LABEL_2'. The old LABEL_0/1/2-only mapping never
+# matched, so LABEL_INDEX.get(label, 'neutral') silently fell through to the
+# 'neutral' default for every single article regardless of the real prediction
+# (confirmed: sentiment_score was always a real, varied confidence value, but
+# sentiment_label was 100% 'neutral' even for clearly positive/negative titles).
+# Keep the LABEL_N entries too in case a different checkpoint is swapped in later.
+LABEL_INDEX = {
+    'label_0': 'positive', 'label_1': 'neutral', 'label_2': 'negative',
+    'positive': 'positive', 'negative': 'negative', 'neutral': 'neutral',
+}
+
+# Bump this whenever add_sentiment()'s labeling/scoring logic changes in a way
+# that would give a different result for the SAME article (e.g. the LABEL_INDEX
+# fix above). Every row is stamped with the version that produced it; rows
+# stamped with an older version are treated as "needs retry" even if their
+# score looks perfectly valid - so a future logic fix self-heals existing data
+# on the next run instead of requiring someone to manually delete the raw file.
+SENTIMENT_LOGIC_VERSION = 2
 
 # Filter countries: US and Indonesia (case-insensitive)
 TARGET_COUNTRIES = ['united states', 'indonesia']
@@ -227,7 +246,14 @@ def load_sentiment_model():
 
 
 def add_sentiment(df, sentiment_pipeline):
-    """Add sentiment untuk row yang belum ada"""
+    """
+    Add sentiment untuk row yang belum ada.
+
+    Returns (df, stats) - stats berisi hitungan sukses/gagal/title kosong,
+    supaya caller bisa tahu kalau semua row jatuh ke fallback neutral/0.0
+    (penyebab Sentiment_TradingEconomics harian jadi flat 0.5, lihat
+    catatan di daily-aggregation step) alih-alih diam-diam dianggap sukses.
+    """
     logger.info(f"\n{'='*70}")
     logger.info(f"Adding sentiment analysis...")
     logger.info(f"{'='*70}")
@@ -235,14 +261,30 @@ def add_sentiment(df, sentiment_pipeline):
     if 'sentiment_label' not in df.columns:
         df['sentiment_label'] = None
         df['sentiment_score'] = None
+    if 'sentiment_model_version' not in df.columns:
+        df['sentiment_model_version'] = None
 
-    # Count rows that need sentiment
-    needs_sentiment = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()]
+    # Count rows that need (re)processing:
+    # - never processed (label/score null)
+    # - score exactly 0.0 (fallback signature from a prior failed/empty-title attempt)
+    # - stamped with an OLDER SENTIMENT_LOGIC_VERSION - i.e. processed before a
+    #   labeling/scoring bugfix, so the stored result may be wrong even though
+    #   it looks like a normal, valid value (this is what makes old data
+    #   self-heal after a logic fix, instead of needing manual file deletion)
+    needs_mask = (
+        df['sentiment_label'].isna()
+        | df['sentiment_score'].isna()
+        | (df['sentiment_score'] == 0.0)
+        | (df['sentiment_model_version'].fillna(0) != SENTIMENT_LOGIC_VERSION)
+    )
+    needs_sentiment = df[needs_mask]
     total_need = len(needs_sentiment)
 
+    stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
+
     if total_need == 0:
-        logger.info("✓ All rows already have sentiment!")
-        return df
+        logger.info("✓ All rows already have sentiment (current logic version)!")
+        return df, stats
 
     logger.info(f"  Processing {total_need:,} rows...")
 
@@ -250,8 +292,10 @@ def add_sentiment(df, sentiment_pipeline):
 
     processed = 0
     for idx, row in df.iterrows():
-        # Skip jika sudah ada sentiment
-        if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')):
+        # Skip hanya kalau sudah diproses versi logika SEKARANG dengan hasil valid
+        if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')) \
+                and row.get('sentiment_score') != 0.0 \
+                and row.get('sentiment_model_version') == SENTIMENT_LOGIC_VERSION:
             pbar.update(1)
             continue
 
@@ -260,22 +304,31 @@ def add_sentiment(df, sentiment_pipeline):
         if text:
             try:
                 result = sentiment_pipeline(text[:512])
-                df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(result[0]['label'], 'neutral')
+                raw_label = str(result[0]['label']).strip().lower()
+                df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(raw_label, 'neutral')
                 df.at[idx, 'sentiment_score'] = result[0]['score']
-            except:
+                stats['success'] += 1
+            except Exception as e:
                 df.at[idx, 'sentiment_label'] = 'neutral'
                 df.at[idx, 'sentiment_score'] = 0.0
+                stats['failed'] += 1
+                stats['last_error'] = f"{type(e).__name__}: {e}"
+                logger.error(f"  Sentiment inference failed for row {idx}: {stats['last_error']}")
         else:
             df.at[idx, 'sentiment_label'] = 'neutral'
             df.at[idx, 'sentiment_score'] = 0.0
+            stats['empty_title'] += 1
+
+        df.at[idx, 'sentiment_model_version'] = SENTIMENT_LOGIC_VERSION
 
         processed += 1
         pbar.set_description(f"🤖 BERT sentiment ({processed}/{total_need} processed)")
         pbar.update(1)
 
     pbar.close()
-    logger.info(f"✓ Sentiment complete! Processed {total_need:,} rows")
-    return df
+    logger.info(f"✓ Sentiment complete! Processed {total_need:,} rows "
+                f"({stats['success']} sukses, {stats['failed']} gagal, {stats['empty_title']} judul kosong)")
+    return df, stats
 
 
 # ============================================================================
@@ -329,10 +382,14 @@ def main(input_filename=None):
     if len(df) == 0:
         raise Exception("❌ No data after filtering US & Indonesia!")
 
-    # Step 4: Check sentiment gap
+    # Step 4: Check sentiment gap (score==0.0 = fallback, or an older logic version = needs retry too)
     has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
     if has_cols:
-        missing = df[df['sentiment_label'].isna() | df['sentiment_score'].isna()]
+        version_col = df['sentiment_model_version'] if 'sentiment_model_version' in df.columns else pd.Series(0, index=df.index)
+        missing = df[
+            df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+            | (version_col.fillna(0) != SENTIMENT_LOGIC_VERSION)
+        ]
         logger.info(f"\n{'='*70}")
         logger.info(f"Sentiment Gap Check:")
         logger.info(f"  Total rows: {len(df):,}")
@@ -347,7 +404,10 @@ def main(input_filename=None):
     # Step 5: Add sentiment
     if not has_cols or len(missing) > 0:
         sentiment_pipeline = load_sentiment_model()
-        df = add_sentiment(df, sentiment_pipeline)
+        df, sentiment_stats = add_sentiment(df, sentiment_pipeline)
+        if sentiment_stats['failed'] > 0:
+            logger.warning(f"⚠️ {sentiment_stats['failed']} row gagal analisis sentimen "
+                            f"(fallback ke neutral/0.0). Contoh error: {sentiment_stats['last_error']}")
     else:
         logger.info("\n✓ All rows already have sentiment - skip BERT")
 
@@ -363,7 +423,7 @@ def main(input_filename=None):
     col_order = [
         'no', 'ID', 'date', 'title', 'description', 'url', 'author',
         'country', 'category', 'image', 'importance',
-        'sentiment_label', 'sentiment_score',
+        'sentiment_label', 'sentiment_score', 'sentiment_model_version',
         'expiration', 'html', 'type'
     ]
 
@@ -466,6 +526,200 @@ def main(input_filename=None):
     print(f"   3. Download: trading_economics_<tanggal-besok>.xlsx + external_features_sentiment_<tanggal-besok>.xlsx")
 
     return output_filename, external_features_filename
+
+
+# ============================================================================
+# STEP 4b: Dashboard Integration (persistent files, merge into external_features.xlsx)
+# ============================================================================
+# Dipakai oleh pages/2_Fitur_Eksternal.py untuk menjalankan scraping ini langsung
+# dari dashboard, bukan manual di Google Colab. Bedanya dengan main() di atas:
+# - Raw stream disimpan di path TETAP (bukan nama file bertanggal) supaya
+#   detect_gap() bisa jalan incremental antar run.
+# - Hasil agregasi harian di-MERGE ke data/external_features.xlsx berdasarkan
+#   tanggal (bukan file terpisah yang perlu di-copy manual).
+
+import shutil
+
+
+def merge_daily_sentiment_into_external_features(daily_agg, external_features_path):
+    """
+    Merge kolom News_Count & Sentiment_TradingEconomics (hasil agregasi harian)
+    ke data/external_features.xlsx berdasarkan Tanggal - menimpa kolom lama
+    dengan nama sama (kalau ada) tapi tidak menyentuh kolom fitur lain
+    (Oil_Price, USD_IDR, dll).
+    """
+    external_features_path = Path(external_features_path)
+
+    if external_features_path.exists():
+        existing = pd.read_excel(external_features_path)
+        existing['Tanggal'] = pd.to_datetime(existing['Tanggal'])
+    else:
+        existing = pd.DataFrame({'Tanggal': pd.Series(dtype='datetime64[ns]')})
+
+    for col in ['News_Count', 'Sentiment_TradingEconomics']:
+        if col in existing.columns:
+            existing = existing.drop(columns=[col])
+
+    merged = existing.merge(
+        daily_agg[['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']],
+        on='Tanggal', how='outer'
+    )
+    return merged.sort_values('Tanggal').reset_index(drop=True)
+
+
+def run_scrape_and_update(
+    raw_stream_path='data/raw/tradingeconomics_stream.xlsx',
+    external_features_path='data/external_features.xlsx',
+    backfill_start_date=None,
+):
+    """
+    Orkestrasi penuh untuk dipanggil dari dashboard: deteksi gap -> scrape ->
+    filter US/Indonesia -> sentiment (FinBERT) -> agregasi harian -> merge ke
+    data/external_features.xlsx (dengan backup otomatis file lama).
+
+    Parameters
+    ----------
+    backfill_start_date : date, optional
+        Kalau diisi, PAKSA scrape dari tanggal ini sampai H-1, mengabaikan
+        gap-detection normal (yang cuma isi selisih sejak data terakhir).
+        Dipakai untuk mengisi histori jauh ke belakang (mis. sampai 2019
+        untuk kebutuhan model ML). HATI-HATI: rentang panjang = banyak
+        batch scraping + banyak inferensi FinBERT, bisa makan waktu lama
+        (puluhan menit sampai berjam-jam tergantung volume berita). Kalau
+        dijalankan lewat tombol di web, ini berisiko timeout di nginx/browser
+        walau proses di server tetap lanjut - untuk backfill panjang lebih
+        aman dijalankan langsung di server (SSH), bukan lewat tombol.
+
+    Returns dict ringkasan hasil (raw_rows, daily_rows, date_range, merged_rows).
+    Raises Exception kalau tidak ada data sama sekali (baru & lama).
+    """
+    raw_stream_path = Path(raw_stream_path)
+    raw_stream_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if backfill_start_date is not None:
+        gap_info = (backfill_start_date, datetime.now().date() - timedelta(days=1))
+    else:
+        gap_info = detect_gap(str(raw_stream_path) if raw_stream_path.exists() else None)
+
+    if gap_info is None:
+        df_existing = pd.read_excel(raw_stream_path)
+        df_scraped = pd.DataFrame()
+        scrape_note = "Data sudah lengkap sampai H-1, tidak ada scraping baru."
+    else:
+        start_date, end_date = gap_info
+        items = scrape_date_range(start_date, end_date)
+        df_scraped = pd.DataFrame(items) if items else pd.DataFrame()
+        df_existing = pd.read_excel(raw_stream_path) if raw_stream_path.exists() else pd.DataFrame()
+        if len(df_scraped) == 0:
+            scrape_note = (
+                f"⚠️ 0 berita berhasil di-scrape untuk rentang {start_date} s/d {end_date}. "
+                f"Kemungkinan server tidak bisa akses tradingeconomics.com (cek firewall/koneksi)."
+            )
+        else:
+            scrape_note = f"{len(df_scraped)} berita baru di-scrape ({start_date} s/d {end_date})."
+
+    scraped_count = len(df_scraped)
+
+    if len(df_existing) == 0 and len(df_scraped) == 0:
+        raise Exception("Tidak ada data baru (scraping kosong) maupun data lama. " + scrape_note)
+
+    if len(df_existing) > 0 and len(df_scraped) > 0:
+        df = pd.concat([df_existing, df_scraped], ignore_index=True)
+        df = df.drop_duplicates(subset=['ID'], keep='first')
+    else:
+        df = df_existing if len(df_existing) > 0 else df_scraped
+
+    total_before_filter = len(df)
+    df = filter_us_indonesia(df)
+    filtered_count = len(df)
+    if len(df) == 0:
+        raise Exception("Tidak ada data tersisa setelah filter US & Indonesia.")
+
+    # score==0.0 (fallback) atau versi logika lebih lama dari SENTIMENT_LOGIC_VERSION
+    # (mis. baris yang sudah diproses sebelum bugfix label) - retry juga
+    has_cols = 'sentiment_label' in df.columns and 'sentiment_score' in df.columns
+    if has_cols:
+        version_col = df['sentiment_model_version'] if 'sentiment_model_version' in df.columns else pd.Series(0, index=df.index)
+        missing = df[
+            df['sentiment_label'].isna() | df['sentiment_score'].isna() | (df['sentiment_score'] == 0.0)
+            | (version_col.fillna(0) != SENTIMENT_LOGIC_VERSION)
+        ]
+    else:
+        missing = df
+    sentiment_stats = {'success': 0, 'failed': 0, 'empty_title': 0, 'last_error': None}
+    if not has_cols or len(missing) > 0:
+        sentiment_pipeline = load_sentiment_model()
+        df, sentiment_stats = add_sentiment(df, sentiment_pipeline)
+
+    # Simpan raw stream (path tetap, dipakai lagi utk incremental run berikutnya)
+    col_order = [
+        'no', 'ID', 'date', 'title', 'description', 'url', 'author',
+        'country', 'category', 'image', 'importance',
+        'sentiment_label', 'sentiment_score', 'sentiment_model_version',
+        'expiration', 'html', 'type'
+    ]
+    for col in col_order:
+        if col not in df.columns:
+            df[col] = None
+    df_to_save = df[col_order].copy()
+    df_to_save['no'] = range(1, len(df_to_save) + 1)
+    df_to_save.to_excel(raw_stream_path, sheet_name='stream_data', index=False)
+
+    # Agregasi harian (sama seperti main(), lihat Step 7 di atas)
+    sentiment_map = {'positive': 1.0, 'neutral': 0.5, 'negative': 0.0}
+    df['sentiment_numeric'] = df['sentiment_label'].map(sentiment_map)
+    df['date_only'] = pd.to_datetime(df['date'], format='mixed', errors='coerce').dt.date
+
+    daily_agg = df.groupby('date_only').agg({
+        'ID': 'count',
+        'sentiment_numeric': lambda x: (
+            (x * df.loc[x.index, 'sentiment_score']).sum() / df.loc[x.index, 'sentiment_score'].sum()
+            if df.loc[x.index, 'sentiment_score'].sum() > 0 else 0.5
+        )
+    }).reset_index()
+    daily_agg.columns = ['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']
+    daily_agg['Tanggal'] = pd.to_datetime(daily_agg['Tanggal'])
+    daily_agg = daily_agg.sort_values('Tanggal').reset_index(drop=True)
+
+    # Hari dengan berita (News_Count > 0) tapi Sentiment_TradingEconomics persis 0.5
+    # berarti SEMUA artikel hari itu gagal/kosong (lihat fallback di lambda di atas
+    # dan di add_sentiment) - bukan sentimen netral yang wajar, tapi tanda analisis
+    # sentimennya tidak jalan sama sekali untuk hari tersebut.
+    flat_fallback_mask = (daily_agg['News_Count'] > 0) & (daily_agg['Sentiment_TradingEconomics'] == 0.5)
+    flat_fallback_days = int(flat_fallback_mask.sum())
+
+    date_range_complete = pd.date_range(
+        start=daily_agg['Tanggal'].min(), end=daily_agg['Tanggal'].max(), freq='D'
+    )
+    df_complete = pd.DataFrame({'Tanggal': date_range_complete})
+    daily_agg = df_complete.merge(daily_agg, on='Tanggal', how='left')
+    daily_agg['News_Count'] = daily_agg['News_Count'].fillna(0).astype(int)
+    daily_agg['Sentiment_TradingEconomics'] = daily_agg['Sentiment_TradingEconomics'].fillna(0.0)
+
+    # Merge ke external_features.xlsx (backup dulu file lama)
+    external_features_path = Path(external_features_path)
+    if external_features_path.exists():
+        backup_dir = external_features_path.parent / 'backup'
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_file = backup_dir / f"external_features_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        shutil.copy2(external_features_path, backup_file)
+
+    merged = merge_daily_sentiment_into_external_features(daily_agg, external_features_path)
+    merged.to_excel(external_features_path, index=False)
+
+    return {
+        'scrape_note': scrape_note,
+        'scraped_count': scraped_count,
+        'total_before_filter': total_before_filter,
+        'filtered_count': filtered_count,
+        'sentiment_stats': sentiment_stats,
+        'flat_fallback_days': flat_fallback_days,
+        'raw_rows': len(df),
+        'daily_rows': len(daily_agg),
+        'date_start': daily_agg['Tanggal'].min(),
+        'date_end': daily_agg['Tanggal'].max(),
+        'merged_rows': len(merged),
+    }
 
 
 # ============================================================================

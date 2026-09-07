@@ -1,15 +1,28 @@
 # Core dependencies with fixed versions for Python 3.9 compatibility
-streamlit>=1.28.0,<2.0.0
+# Lantai 1.51.0 WAJIB, bukan sekadar preferensi. Seluruh halaman memakai
+# `width='stretch'` menggantikan `use_container_width`, yang sudah dideprekasi
+# dan dijadwalkan dihapus setelah 2025-12-31. Parameter `width` masuk bertahap:
+# st.button dkk. di 1.48, st.dataframe/st.data_editor di 1.49, tapi
+# st.plotly_chart baru di 1.51.0 - dan halaman ini punya 25 pemanggilan
+# st.plotly_chart. Di bawah 1.51.0 semuanya melempar TypeError, jadi jangan
+# turunkan angka ini tanpa mengembalikan pemanggilannya juga.
+streamlit>=1.51.0,<2.0.0
 pandas>=2.0.0,<3.0.0
 numpy>=1.24.0,<2.0.0
 plotly>=5.14.0
 scikit-learn>=1.3.0
+# Dipakai langsung oleh utils/analytics.py (uji normalitas, Q-Q plot) dan
+# feature selection berbasis Spearman. Selama ini ikut terpasang sebagai
+# dependensi tidak langsung scikit-learn/statsmodels/prophet, tapi karena
+# dipakai langsung, harus dideklarasikan sendiri.
+scipy>=1.10.0
 xgboost>=1.7.0
 prophet>=1.1.0
 statsmodels>=0.14.0
 lightgbm>=4.0.0
 
-# Interpretasi fitur (bar & beeswarm) di laman Evaluasi
+# Interpretasi fitur (bar & beeswarm) di laman Evaluasi.
+# Menarik numba + llvmlite; di VPS pastikan wheel-nya cocok dengan Python 3.12.
 shap>=0.44.0
 openpyxl>=3.1.0
 xmltodict>=0.13.0
@@ -21,3 +34,15 @@ altair>=5.0.0,<6.0.0
 matplotlib>=3.7.0,<4.0.0
 protobuf>=3.20.0,<4.0.0
 typing-extensions>=4.4.0
+
+# Sentiment scraper (Fitur Eksternal page - Trading Economics + FinBERT)
+# On a VPS with no GPU, install the CPU-only build to save disk/bandwidth:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# then `pip install -r requirements.txt` for the rest.
+# torchvision is required even though this app is text-only - transformers'
+# import chain (pipeline/AutoModel) fails with ModuleNotFoundError without it.
+transformers>=4.35.0
+torch>=2.0.0
+torchvision>=0.15.0
+sentencepiece>=0.1.99
+tqdm>=4.66.0

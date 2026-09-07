@@ -244,7 +244,8 @@ def merge_external_features_with_cross_series(
     return combined
 
 
-def create_features_optimized(df, lag_steps=90, holidays_list=None, external_series=None, config=None):
+def create_features_optimized(df, lag_steps=90, holidays_list=None, external_series=None,
+                               external_series_dates=None, config=None):
     """
     OPTIMIZED feature engineering for high volatility time series
     Reduces from 250+ features to ~92-104 features
@@ -254,6 +255,13 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
         lag_steps: Maximum lag steps to create (ignored - using config)
         holidays_list: List of holiday dates (optional)
         external_series: Dict of {series_id: values_array} for cross-series features (optional)
+        external_series_dates: Dates that each array in external_series corresponds to,
+            in order (optional but strongly recommended). When provided, values are
+            aligned to df['date'] by actual date instead of raw array position - this
+            matters because df is often a train/test SLICE of the full series, so
+            positional truncation (series_values[:len(df)]) silently grabs the wrong
+            date range for anything but the very first rows. Falls back to the old
+            positional behavior when omitted, for backward compatibility.
         config: Feature configuration dict (default: FEATURE_CONFIG from feature_config.py)
 
     Returns:
@@ -586,12 +594,28 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     # CROSS-SERIES FEATURES (~12 features for 3 external series)
     # ========================================================================
     if config["cross_series_features"]["enabled"] and external_series is not None and len(external_series) > 0:
+        if external_series_dates is not None:
+            full_date_index = pd.DatetimeIndex(pd.to_datetime(external_series_dates))
+
         for series_id, series_values in external_series.items():
             try:
                 clean_id = series_id.replace('.', '_')
+
+                if external_series_dates is not None:
+                    # Align by actual date so a train/test SLICE of df still gets the
+                    # correct segment of series_values, not just its first len(df) entries.
+                    aligned_values = (
+                        pd.Series(series_values, index=full_date_index)
+                        .reindex(df['date'])
+                        .values
+                    )
+                else:
+                    # Legacy fallback: assumes df starts at the same date as series_values.
+                    aligned_values = series_values[:len(df)]
+
                 ext_df = pd.DataFrame({
                     'date': df['date'],
-                    f'ext_{clean_id}': series_values[:len(df)]
+                    f'ext_{clean_id}': aligned_values
                 })
 
                 # Lag features from external series
@@ -640,13 +664,20 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     return df
 
 
-def select_top_features_optimized(train_df, top_k=25):
+def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_beta=0.0):
     """
-    Select top K features using correlation (Spearman) only.
+    Select top K features using correlation (Spearman), with an optional
+    reserved quota for volatility features.
 
     Args:
         train_df: Training DataFrame with features
         top_k: Number of top features to select
+        volatility_quota: Berapa dari top_k slot yang dipesan untuk fitur di
+            VOLATILITY_PRIORITY_FEATURES. 0 = perilaku lama (korelasi murni).
+            Lihat penjelasan di badan fungsi. TERUKUR MEMPERBURUK - jangan
+            diaktifkan tanpa bukti baru.
+        mrmr_beta: Bobot penalti redundansi (mRMR). 0 = perilaku lama.
+            Lihat penjelasan di badan fungsi.
 
     Returns:
         Tuple of (top_features_list, scores_dict)
@@ -675,6 +706,148 @@ def select_top_features_optimized(train_df, top_k=25):
 
     # Sort by correlation (descending)
     sorted_features = sorted(corr_scores.items(), key=lambda x: x[1], reverse=True)
+
+    # ------------------------------------------------------------------
+    # Kuota fitur volatilitas.
+    #
+    # Seleksi murni korelasi punya titik buta yang sudah diantisipasi penulis
+    # config (lihat get_forced_features di feature_config.py): fitur volatilitas
+    # mengukur SEBERAPA BESAR pergerakan, bukan ke arah mana, sehingga korelasi
+    # Spearman-nya terhadap level sering rendah - lalu tersingkir. Padahal
+    # volatility clustering adalah struktur terkuat di data ini (autokorelasi
+    # |perubahan| lag-1 bermedian 0,489, positif di 18 dari 18 leaf).
+    #
+    # Tanpa kuota, rata-rata hanya 6,7 dari 29 fitur prioritas yang lolos top-25
+    # pada data nyata.
+    #
+    # Kuota TIDAK menambah jumlah fitur - ia hanya memesan sebagian dari top_k,
+    # sehingga perbandingan dengan baseline tetap adil (kompleksitas model sama).
+    # volatility_quota=0 mengembalikan perilaku lama persis.
+    #
+    # ------------------------------------------------------------------
+    # HASIL PENGUKURAN: KUOTA MEMPERBURUK. JANGAN DIAKTIFKAN TANPA BUKTI BARU.
+    #
+    # Diuji pada 18 leaf x 3 jendela x 3 model (486 unit), horizon 60 hari:
+    #
+    #   kuota   LightGBM   RandomForest   XGBoost    Wilcoxon vs kuota 0
+    #      12    +0,88%        +1,91%      +0,82%    menang 64/162, p=0,036
+    #      18    +2,30%        +3,12%      +4,06%    menang 78/162, p=0,129
+    #
+    # Kuota 12 lebih buruk secara signifikan. Ketiga model memburuk di kedua
+    # kuota, tanpa perkecualian.
+    #
+    # Penafsirannya: dugaan penulis config bahwa seleksi korelasi "membuang
+    # fitur volatilitas yang berguna" tidak terbukti. Fitur volatilitas yang
+    # tersingkir memang tersingkir karena tidak membantu memprediksi LEVEL -
+    # yang justru ditugaskan pada model ini. Volatility clustering nyata dan
+    # kuat di data (ACF |perubahan| lag-1 median 0,489), tapi jalan untuk
+    # memanfaatkannya adalah memodelkan RAGAM BERSYARAT - misalnya untuk lebar
+    # interval, seperti sudah dilakukan di utils/intervals.py - bukan menjejalkan
+    # fitur volatilitas ke model rata-rata bersyarat.
+    #
+    # Keterbatasan: pengukuran memakai mode direct. Seleksi fitur memengaruhi
+    # model yang TERLATIH, dan model terlatihnya sama di kedua protokol, jadi
+    # hasilnya informatif - tapi kemungkinan fitur volatilitas membantu khusus
+    # pada kestabilan recursive belum diuji.
+    # ------------------------------------------------------------------
+    if volatility_quota and volatility_quota > 0:
+        from .feature_config import VOLATILITY_PRIORITY_FEATURES
+        prio = set(VOLATILITY_PRIORITY_FEATURES)
+
+        # Kuota adalah LANTAI, bukan jumlah pasti. Kalau seleksi korelasi murni
+        # sudah menghasilkan fitur volatilitas sebanyak atau lebih dari kuota,
+        # tidak ada yang perlu diubah - memaksa jumlahnya turun ke angka kuota
+        # justru membuang fitur yang lolos atas kekuatannya sendiri.
+        base = sorted_features[:top_k]
+        n_vol = sum(1 for f, _ in base if f in prio)
+        need = int(volatility_quota) - n_vol
+        if need <= 0:
+            return [f for f, _ in base], {f: s for f, s in base}
+
+        # Tambahkan fitur volatilitas terbaik yang belum masuk, sambil membuang
+        # fitur non-volatilitas berkorelasi terlemah - jumlah total tetap top_k.
+        in_base = {f for f, _ in base}
+        add = [(f, s) for f, s in sorted_features if f in prio and f not in in_base][:need]
+        if not add:
+            return [f for f, _ in base], {f: s for f, s in base}
+
+        keep_vol = [(f, s) for f, s in base if f in prio]
+        keep_oth = [(f, s) for f, s in base if f not in prio]
+        drop = len(add)
+        keep_oth = keep_oth[:max(len(keep_oth) - drop, 0)]
+
+        picked = keep_vol + add + keep_oth
+        picked = sorted(picked, key=lambda x: x[1], reverse=True)[:top_k]
+        return [f for f, _ in picked], {f: s for f, s in picked}
+
+    # ------------------------------------------------------------------
+    # Seleksi sadar-redundansi (mRMR).
+    #
+    # Seleksi univariat menilai tiap fitur SENDIRI-SENDIRI terhadap target,
+    # tanpa memeriksa apakah ia sudah diwakili fitur yang terpilih sebelumnya.
+    # Pada data ini akibatnya terukur: rata-rata |korelasi| ANTAR 25 fitur
+    # terpilih adalah 0,667, dan analisis komponen utama menunjukkan ke-25
+    # fitur itu hanya membawa informasi setara 8,8 fitur bebas.
+    #
+    # Wujud konkretnya, fitur yang terpilih di >=15 dari 18 leaf mencakup
+    # rolling_mean_7/14/30/60/90, ewm_7, ewm_30, dan bb_middle_20 - delapan
+    # varian dari benda yang sama, karena garis tengah Bollinger secara
+    # definisi juga rata-rata bergerak.
+    #
+    # mRMR memilih secara serakah dengan skor:
+    #     relevansi(f) - beta * rata-rata |korelasi(f, yang sudah terpilih)|
+    #
+    # beta=0 mengembalikan perilaku lama persis. Berbeda dari kuota
+    # volatilitas yang sudah diuji dan GAGAL (ia memaksa masuk fitur yang
+    # datanya bilang tidak berguna), di sini relevansi tetap jadi kriteria -
+    # redundansi hanya memutus seri antar fitur yang sama-sama relevan.
+    #
+    # ------------------------------------------------------------------
+    # HASIL PENGUKURAN: TIDAK BERPENGARUH PADA AKURASI. DEFAULT TETAP 0.
+    #
+    # Diuji pada 18 leaf x 3 jendela x 3 model (810 unit), horizon 60 hari:
+    #
+    #   arm                       LightGBM   RandomForest   XGBoost   Wilcoxon
+    #   mRMR beta=0,5               +0,43%        -0,06%     +0,68%    p=0,782
+    #   mRMR beta=1,0               -1,74%        +0,90%     +0,73%    p=0,595
+    #   top-10 (korelasi murni)     -3,12%        +1,01%     +1,92%    p=0,068
+    #   mRMR beta=1,0, k=12         +2,20%        +0,55%     +6,00%    p=0,859
+    #
+    # Tidak ada arm yang signifikan; arah antar model saling bertentangan.
+    #
+    # Jadi: redundansinya NYATA dan mekanisme penawarnya BEKERJA (redundansi
+    # 0,578 -> 0,380, fitur efektif 9 -> 12), tapi akurasinya tidak berubah.
+    # Penjelasan yang paling masuk akal: ensemble pohon memang sudah tahan
+    # terhadap fitur redundan - pada tiap split ia memilih salah satu dari
+    # sekelompok fitur berkorelasi, sehingga menghapus duplikat tidak memberi
+    # informasi yang belum ia punya.
+    #
+    # Redundansi di sini properti nyata dari himpunan fitur, tapi bukan
+    # masalah nyata bagi model-model ini.
+    # ------------------------------------------------------------------
+    if mrmr_beta and mrmr_beta > 0:
+        cand = [f for f, _ in sorted_features]
+        # Batasi kandidat agar matriks korelasinya murah dihitung
+        cand = cand[:min(len(cand), max(top_k * 3, 40))]
+        if len(cand) > 1:
+            Xc = X[cand]
+            R = Xc.corr(method='spearman').abs().fillna(0.0)
+
+            picked = [cand[0]]
+            while len(picked) < min(top_k, len(cand)):
+                best_f, best_v = None, -np.inf
+                for f in cand:
+                    if f in picked:
+                        continue
+                    red = float(R.loc[f, picked].mean())
+                    val = corr_scores[f] - mrmr_beta * red
+                    if val > best_v:
+                        best_v, best_f = val, f
+                if best_f is None:
+                    break
+                picked.append(best_f)
+
+            return picked, {f: corr_scores[f] for f in picked}
 
     # Select top K features by correlation only
     top_features = []

@@ -12,6 +12,16 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.parent
 HOLIDAYS_FILE = BASE_DIR / "config" / "holidays.json"
 
+# Tanggal mulai data yang dipakai model ML (RandomForest/XGBoost/LightGBM/Prophet/
+# ARIMA/VAR/Stacking di pages/4,5,6). Sebelumnya dipatok "2019-01-01" karena
+# data/external_features.xlsx baru tersedia dari situ - sekarang external
+# features dimatikan sementara (lihat utils/external_loader.py:ENABLE_EXTERNAL_FEATURES),
+# jadi alasan pembatasan itu sudah tidak berlaku. None berarti ML pakai seluruh
+# histori yang sama dengan yang dipakai APUVA/ETL (tidak ada cutoff terpisah lagi).
+# Set balik ke string 'YYYY-MM-DD' di sini kalau external features diaktifkan lagi
+# dan butuh titik mulai yang selaras dengannya.
+ML_START_DATE = None
+
 
 def load_holidays():
     """

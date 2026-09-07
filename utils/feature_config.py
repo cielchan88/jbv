@@ -12,6 +12,152 @@ Key optimization principles:
 """
 
 # ============================================================================
+# SAKLAR FITUR HARI LIBUR
+# ============================================================================
+# Dimatikan sementara. Alasannya: config/holidays.json hanya memuat tanggal
+# untuk sebagian kecil tahun yang ada di data (saat ini praktis hanya tahun
+# forecast), sehingga untuk mayoritas periode training:
+#   - is_holiday        -> selalu 0 (konstan, tanpa informasi)
+#   - days_from_holiday -> konstan
+#   - days_to_holiday   -> hitung mundur ribuan hari ke libur terdekat di masa
+#                          depan, yaitu indeks waktu yang menyamar sebagai
+#                          fitur kalender dan bisa ikut terpilih oleh feature
+#                          selection berbasis korelasi
+# Prophet juga tidak mendapat efek libur yang bermakna dari daftar sependek itu
+# (terbukti: menambahkan holidays tidak mengubah metrik Prophet sama sekali).
+#
+# CATATAN: saklar ini TIDAK memengaruhi generate_business_dates() di
+# utils/date_utils.py. Fungsi itu tetap memakai daftar libur untuk melewati
+# hari non-trading saat membuat tanggal forecast - itu pemakaian yang benar
+# dan harus tetap hidup.
+#
+# Untuk menghidupkan kembali: lengkapi hari libur lewat halaman "Hari Libur"
+# sampai mencakup seluruh tahun data, lalu set True.
+ENABLE_HOLIDAY_FEATURES = False
+
+# ============================================================================
+# SAKLAR FITUR CROSS-SERIES UNTUK PERAMAL REKURSIF
+# ============================================================================
+# Yang dimaksud "peramal rekursif" di sini: RandomForest, XGBoost, LightGBM,
+# dan Stacking. Model-model itu meramal satu langkah, memasukkan hasilnya
+# kembali ke riwayat, lalu membangun ULANG seluruh fitur untuk langkah
+# berikutnya - sampai 60 langkah ke depan.
+#
+# MASALAHNYA. fit() menerima external_series (30 leaf lain + fitur eksternal
+# pengguna) dan membangun kolom ext_*. Kolom itu ikut bersaing di
+# select_top_features_optimized dan sering menang: untuk A.2.c, 12 dari 25 slot
+# fitur terpakai oleh ext_*; di 6 leaf yang diuji, 17 dari 150 slot. Tapi
+# predict() TIDAK punya nilai seri lain untuk tanggal masa depan - secara
+# konstruksi memang tidak ada, karena masa depan seri saudara sama tidak
+# diketahuinya dengan masa depan seri yang sedang diramal. Akibatnya kolom
+# ext_* tidak terbentuk saat prediksi, lalu diisi 0 diam-diam oleh:
+#       for feat in self.feature_cols:
+#           if feat not in X_next.columns:
+#               X_next[feat] = 0
+# Model dilatih dengan asumsi kolom-kolom itu bernilai puluhan miliar, tapi
+# diberi 0 saat dipakai. Semakin banyak slot yang dimenangkan ext_*, semakin
+# sedikit fitur nyata yang tersisa - jadi kerugiannya dua kali.
+#
+# BUKTINYA. Dengan cross-series dinyalakan, MAE LightGBM naik dari 38,73 ke
+# 45,01 (+16,2%) pada protokol rekursif 18 leaf x 3 jendela. Bukan selisih
+# yang bisa diabaikan.
+#
+# KENAPA TIDAK DIPERBAIKI SAJA DENGAN MERAMAL SERI LAIN DULU? Bisa, tapi itu
+# berarti melatih dan menjalankan 30 model tambahan per leaf per langkah, dan
+# galat ramalan seri saudara akan merambat masuk. Sampai ada bukti bahwa itu
+# menang, jalur yang benar adalah tidak memakai fitur yang nilainya tidak
+# tersedia saat prediksi.
+#
+# YANG TIDAK TERPENGARUH: VAR. Model itu memang sistem persamaan multivariat -
+# ia meramal SEMUA seri sekaligus, jadi nilai seri lain di masa depan datang
+# dari model itu sendiri, bukan dari nol. VAR tetap menerima cross-series.
+# Halaman Prediksi juga tetap boleh memakai ext_* untuk evaluasi in-sample
+# (teacher-forced), di mana nilai aktual seri lain memang tersedia.
+#
+# CAKUPANNYA JUGA FITUR EKSTERNAL PENGGUNA. Unggahan dari halaman "Fitur
+# Eksternal" (Oil Price, USD/IDR, sentimen, dll) masuk lewat dict yang SAMA
+# (load_and_merge_external_features menggabungkannya dengan cross-series), jadi
+# ikut disaring di sini. Alasannya sama persis: predict() tidak punya nilai
+# harga minyak untuk tanggal masa depan, jadi kolomnya akan dinolkan juga.
+# Bedanya, untuk seri seperti USD/IDR nilainya BISA disediakan (dari futures,
+# konsensus, atau asumsi kebijakan) - jadi jalur perbaikan yang benar untuk
+# fitur eksternal adalah meminta pengguna mengunggah nilai sampai akhir horizon
+# prediksi, bukan sekadar menyalakan saklar ini.
+# (Catatan terpisah: ENABLE_EXTERNAL_FEATURES di utils/external_loader.py saat
+# ini juga False, jadi unggahan Excel memang belum sampai ke model sama sekali.)
+#
+# Untuk menghidupkan kembali: sediakan dulu ramalan seri eksternal untuk
+# horizon prediksi dan teruskan ke predict(), baru set True.
+ENABLE_CROSS_SERIES_FOR_RECURSIVE = False
+
+
+def cross_series_for_recursive(external_series, model_name='model'):
+    """
+    Saring external_series untuk peramal rekursif sesuai saklar di atas.
+
+    Dipanggil di fit() RandomForest/XGBoost/LightGBM/Stacking. Mengembalikan
+    None (dan memperingatkan sekali per lokasi panggilan) kalau pemanggil
+    menyodorkan cross-series padahal saklar mati, sehingga perilakunya
+    terbaca - bukan fitur yang dibangun lalu diam-diam dinolkan.
+
+    Parameters
+    ----------
+    external_series : dict or None
+        Seri eksternal dari pemanggil.
+    model_name : str
+        Nama model, untuk pesan peringatan.
+
+    Returns
+    -------
+    dict or None
+    """
+    if not external_series:
+        return external_series
+    if ENABLE_CROSS_SERIES_FOR_RECURSIVE:
+        return external_series
+    import warnings
+    warnings.warn(
+        f"{model_name}: {len(external_series)} seri cross-series diabaikan. "
+        "Peramal rekursif tidak punya nilai seri lain untuk tanggal masa depan, "
+        "jadi fitur ext_* akan dinolkan saat predict() dan justru merusak akurasi "
+        "(lihat ENABLE_CROSS_SERIES_FOR_RECURSIVE di utils/feature_config.py).",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return None
+
+
+def warn_missing_at_predict(missing, model_name='model'):
+    """
+    Peringatkan kalau fitur yang dipakai saat training tidak ada saat prediksi.
+
+    Peramal rekursif menambal fitur yang hilang dengan nol:
+        for feat in self.feature_cols:
+            if feat not in X_next.columns:
+                X_next[feat] = 0
+    Penambalan itu diam-diam, dan justru itulah yang menyembunyikan bug
+    cross-series selama ini: model dilatih memakai fitur ext_* bernilai puluhan
+    miliar, lalu diberi nol saat meramal, tanpa satu pun tanda di log.
+
+    Perilakunya sengaja TIDAK diubah (menaikkan exception berisiko mematikan
+    prediksi produksi untuk kasus yang selama ini lolos). Yang ditambahkan
+    hanya suara: kalau ada fitur yang hilang, sekarang kelihatan.
+    """
+    if not missing:
+        return
+    import warnings
+    contoh = ', '.join(sorted(missing)[:5])
+    lainnya = f" (+{len(missing) - 5} lagi)" if len(missing) > 5 else ""
+    warnings.warn(
+        f"{model_name}: {len(missing)} fitur training tidak terbentuk saat "
+        f"prediksi dan diisi 0 - {contoh}{lainnya}. Model dilatih mengharapkan "
+        "nilai nyata untuk fitur ini, jadi ramalannya bias.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+# ============================================================================
 # FEATURE CONFIGURATION FOR HIGH VOLATILITY DATA
 # ============================================================================
 
@@ -30,7 +176,7 @@ FEATURE_CONFIG = {
     # HOLIDAY FEATURES (Keep: 3 features)
     # ========================================================================
     "holiday_features": {
-        "enabled": True,
+        "enabled": ENABLE_HOLIDAY_FEATURES,  # lihat saklar di atas
         "features": ["is_holiday", "days_to_holiday", "days_from_holiday"]  # 3 features
     },
 
@@ -192,6 +338,33 @@ FEATURE_CONFIG = {
         ]  # 4 features - REMOVED: lag1_x_holiday (1 removed)
     }
 }
+
+# ============================================================================
+# MINIMUM HISTORY FOR RECURSIVE (MULTI-STEP) PREDICTION
+# ============================================================================
+# create_features_optimized() only computes a rolling/lag feature when
+# len(df) >= window*3 (see the "Conservative check" comments there). Models
+# that forecast iteratively (RandomForest/XGBoost/LightGBM/Stacking) rebuild
+# features at every step from whatever history they carry forward - if that's
+# fewer rows than this, the largest-window features (e.g. rolling_mean_90)
+# silently can't be computed and get zero-filled instead of a real value,
+# even though the model was trained expecting their actual magnitude.
+def _max_configured_window():
+    windows = (
+        FEATURE_CONFIG["lag_features"]["lags"]
+        + FEATURE_CONFIG["rolling_statistics"]["windows"]
+        + FEATURE_CONFIG["volatility_features"]["windows"]
+        + FEATURE_CONFIG["volatility_features"]["asymmetric_windows"]
+        + FEATURE_CONFIG["volatility_features"]["price_position_windows"]
+        + FEATURE_CONFIG["technical_indicators"]["rsi"]["windows"]
+        + FEATURE_CONFIG["technical_indicators"]["bollinger_bands"]["windows"]
+        + FEATURE_CONFIG["extreme_detection"]["z_score_windows"]
+        + FEATURE_CONFIG["extreme_detection"]["change_limits"]["windows"]
+    )
+    return max(windows)
+
+
+MIN_HISTORY_FOR_RECURSIVE_PREDICT = _max_configured_window() * 3
 
 # ============================================================================
 # FEATURE COUNT SUMMARY (for high volatility config)

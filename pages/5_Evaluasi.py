@@ -20,6 +20,8 @@ import xgboost as xgb
 from prophet import Prophet
 import json
 import os
+import pickle
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -27,12 +29,25 @@ warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Evaluasi - JBV Dashboard", layout="wide")
 
 # Import utils
-from utils import load_holidays, generate_business_dates
+from utils import load_holidays, generate_business_dates, ML_START_DATE
+from utils.feature_config import ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE
 from utils.data_loader import load_etl_output, parse_children
+
+# Daftar model didefinisikan DI SINI, sebelum judul, supaya jumlah pada subjudul
+# bisa dihitung dari daftarnya sendiri. Sebelumnya subjudul menulis "8 model"
+# sementara daftarnya sudah berisi 11 - angka yang ditulis tangan pasti basi
+# begitu ada model baru ditambahkan, dan tidak ada yang mengingatkan.
+all_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM",
+              "XGBoost", "AutoARIMA", "VAR", "LSTM", "Stacking"]
+
+# Jendela yang menyisakan data training di bawah ambang ini dilewati. Konstanta
+# modul, bukan variabel lokal di dalam loop, supaya pratinjau periode dan loop
+# evaluasi memakai ambang yang sama persis.
+MIN_TRAIN = 300
 
 # Title
 st.title("📊 Evaluasi Model")
-st.markdown("Bandingkan performa 8 model untuk semua leaf nodes.")
+st.markdown(f"Bandingkan performa {len(all_models)} model untuk semua leaf nodes.")
 
 st.divider()
 
@@ -75,43 +90,203 @@ st.info(f"📊 Total **{len(leaf_nodes)}** leaf nodes tersedia untuk evaluasi")
 # Sidebar configuration
 st.sidebar.header("⚙️ Pengaturan Evaluasi")
 
-# Test size
-test_size = st.sidebar.slider(
-    "Ukuran Data Test (%)",
-    min_value=10,
-    max_value=40,
-    value=20,
-    step=5
+# Di mana periode test berakhir.
+#
+# Dulu satu-satunya perilaku adalah "titik potong test_size": acuan diletakkan
+# di titik (100 - test_size)% dari panjang data, lalu jendela mundur dari situ.
+# Akibatnya seluruh ekor data setelah jendela 0 TIDAK PERNAH dipakai - tidak
+# untuk training, tidak untuk test. Pada data ini dengan pengaturan bawaan itu
+# berarti 947 hari terakhir (2022-09 s/d 2026-08, hampir 4 tahun) menganggur:
+# model dinilai pada perilaku 2022 lalu dipilih untuk meramal 2026.
+#
+# Bawaannya sekarang mengakhiri jendela 0 tepat di observasi TERAKHIR, sehingga
+# yang dinilai adalah kemampuan model pada data termutakhir - yang justru paling
+# mirip dengan kondisi saat ia dipakai. Mode lama tetap disediakan supaya hasil
+# evaluasi terdahulu masih bisa direproduksi.
+anchor_mode = st.sidebar.radio(
+    "Periode test berakhir di",
+    ["Data terakhir (disarankan)", "Titik potong % (perilaku lama)"],
+    index=0,
+    help="Data terakhir: jendela 0 menguji N hari terakhir dari sampel, jendela "
+         "berikutnya mundur satu horizon. Titik potong %: acuan di "
+         "(100 - ukuran test)%, seperti perilaku sebelumnya - ekor data setelah "
+         "jendela 0 tidak dipakai sama sekali."
 )
+anchor_di_akhir = anchor_mode.startswith("Data terakhir")
+
+# Slider ini HANYA berpengaruh pada mode lama. Disembunyikan di mode baru supaya
+# tidak tampak seolah mengatur sesuatu padahal tidak - nilainya tetap disimpan ke
+# metadata konfigurasi agar berkas lama tetap terbaca.
+if anchor_di_akhir:
+    test_size = 20
+    st.sidebar.caption(
+        "ℹ️ Periode test berakhir di observasi terakhir. Panjang total periode "
+        "yang diuji ditentukan oleh **horizon × jumlah jendela** di bawah, bukan "
+        "oleh persentase."
+    )
+else:
+    test_size = st.sidebar.slider(
+        "Ukuran Data Test (%)",
+        min_value=10,
+        max_value=40,
+        value=20,
+        step=5,
+        help="Acuan jendela diletakkan di (100 - nilai ini)% dari panjang data."
+    )
+
+# Batas horizon evaluasi.
+# Dengan histori penuh (~5000 hari), test 20% = ~1000 hari. Mengevaluasi forecast
+# 1000 hari ke depan itu (a) sangat lambat, dan (b) tidak mencerminkan cara model
+# dipakai - Lembar Kerja defaultnya forecast 30 hari. Membatasi horizon membuat
+# metrik evaluasi selaras dengan horizon pemakaian nyata sekaligus jauh lebih cepat.
+limit_horizon = st.sidebar.checkbox(
+    "Batasi horizon evaluasi", value=True,
+    help="Evaluasi hanya N hari pertama dari periode test, bukan seluruhnya"
+)
+eval_horizon = None
+if limit_horizon:
+    eval_horizon = st.sidebar.number_input(
+        "Horizon evaluasi (hari)", min_value=7, max_value=365, value=60, step=7,
+        help="Samakan dengan horizon forecast yang biasa dipakai di Lembar Kerja"
+    )
+
+# Jumlah jendela walk-forward.
+# Memilih model terbaik dari SATU jendela test tidak reprodusibel: diuji pada
+# data nyata (18 leaf x 5 model x 4 jendela), hanya 2 dari 18 leaf yang model
+# terbaiknya konsisten - 89% berubah tergantung jendela mana yang kebetulan
+# dipakai, padahal selisih MAE antar model mencapai ~37%. Dengan beberapa
+# jendela, model dipilih berdasarkan performa MEDIAN lintas periode, bukan satu
+# periode yang bisa saja kebetulan menguntungkan satu model.
+n_windows = st.sidebar.number_input(
+    "Jumlah jendela walk-forward", min_value=1, max_value=10, value=3, step=1,
+    help="Jendela 1 = periode terakhir, jendela 2 = satu horizon sebelumnya, dst. "
+         "Makin banyak makin andal tapi makin lama (waktu proses ~ jumlah jendela)."
+)
+if n_windows == 1:
+    st.sidebar.warning("⚠️ Dengan 1 jendela, pemilihan model terbaik rawan kebetulan "
+                       "(terbukti hanya ~11% konsisten). Disarankan minimal 3.")
+
+# Cara model ML membuat prediksi saat dinilai.
+#
+# Ini menentukan apakah angka di halaman ini mewakili model yang benar-benar
+# dijalankan Lembar Kerja atau tidak:
+#
+#   recursive - persis jalur produksi (forecast_single_series). Model hanya
+#               tahu data sampai akhir periode training, lalu memakai
+#               prediksinya sendiri sebagai lag untuk langkah berikutnya,
+#               sehingga error menumpuk sepanjang horizon - sama seperti saat
+#               benar-benar meramal masa depan.
+#   direct    - model diberi nilai lag DARI DATA AKTUAL periode test di setiap
+#               titik. Jauh lebih cepat, tapi optimistis: informasi seperti itu
+#               tidak pernah tersedia saat meramal sungguhan.
+#
+# Default recursive karena tujuan halaman ini adalah MEMILIH model untuk
+# dipakai di produksi - peringkat yang diukur dengan cara yang berbeda dari
+# produksi tidak bisa dipercaya untuk keperluan itu.
+eval_mode = st.sidebar.selectbox(
+    "Mode prediksi model ML",
+    ["Setia produksi (recursive)", "Cepat (direct)"],
+    index=0,
+    help="Recursive = sama persis dengan Lembar Kerja, tapi ~14 detik per model "
+         "per jendela. Direct = jauh lebih cepat, tapi metriknya optimistis "
+         "karena model diberi lag dari data aktual periode test."
+)
+recursive_eval = eval_mode.startswith("Setia")
+if not recursive_eval:
+    st.sidebar.warning(
+        "⚠️ Mode direct memberi model nilai lag dari data aktual periode test. "
+        "Metriknya lebih bagus daripada yang bisa dicapai produksi, dan peringkat "
+        "model bisa berbeda. Pakai untuk eksplorasi cepat, jangan untuk memilih "
+        "model yang akan dipakai."
+    )
 
 # Model selection
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Pilih Model")
 
-# Available models with checkboxes in sidebar
-all_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "Stacking"]
+# all_models didefinisikan di dekat judul (dipakai untuk menghitung jumlah model
+# pada subjudul); tidak diulang di sini supaya tidak ada dua sumber kebenaran.
+
+# Model dikelompokkan berdasarkan CARA KERJANYA, bukan sekadar rapi di layar:
+#   - Classic  : model statistik time-series yang memodelkan struktur deret
+#                (autokorelasi, tren, musiman) secara langsung.
+#   - ML       : supervised learning di atas fitur hasil rekayasa (lag, rolling,
+#                volatilitas dst.) - kualitasnya bergantung pada feature engineering.
+#   - Baseline & Ensemble : APUVA adalah rumus hardcoded (proporsi historis x
+#                konstanta sentimen) - TIDAK belajar dari data, jadi menyebutnya
+#                "ML" akan menyesatkan; Stacking adalah meta-model yang menggabung
+#                keluaran model lain, sehingga bergantung pada model di atasnya.
+# 'key' tiap checkbox sengaja dipertahankan supaya pilihan lama di session state
+# tidak ter-reset saat pengelompokan ini diterapkan.
+MODEL_GROUPS = [
+    ("📐 Classic (Statistik)", [
+        ("AutoARIMA", "model_arima", "Autoregressive Integrated Moving Average dengan pencarian order otomatis"),
+        ("VAR", "model_var", "Vector Autoregression - memanfaatkan hubungan antar series"),
+        ("Prophet", "model_prophet", "Model aditif: tren + musiman + hari libur"),
+    ]),
+    ("🤖 Machine Learning (ML)", [
+        ("RandomForest", "model_rf", "Ensemble pohon keputusan (bagging)"),
+        ("XGBoost", "model_xgb", "Gradient boosting"),
+        ("LightGBM", "model_lgbm", "Gradient boosting, lebih cepat pada data besar"),
+    ]),
+    ("🧠 Deep Learning (DL)", [
+        ("LSTM", "model_lstm", "Jaringan rekuren atas jendela 60 hari nilai historis. "
+                               "Distandardisasi otomatis (jaringan saraf peka skala, tidak seperti "
+                               "model pohon), Huber loss agar tidak didominasi hari ekstrem, "
+                               "early stopping pada validasi kronologis"),
+    ]),
+    ("📊 Baseline & Ensemble", [
+        ("Naive", "model_naive", "Ulangi nilai terakhir - GARIS ACUAN. Model yang tidak bisa mengalahkan ini tidak layak dipakai"),
+        ("NaiveMean", "model_naive_mean", "Rata-rata 90 hari terakhir - garis acuan untuk deret yang mean-reverting"),
+        ("APUVA", "model_apuva", "Rumus baseline warisan (proporsi historis x konstanta sentimen) - bukan model ML"),
+        ("Stacking", "model_stack", "Meta-model yang menggabungkan prediksi model-model di atas"),
+    ]),
+]
 
 selected_models = []
-if st.sidebar.checkbox("APUVA", value=True, key="model_apuva"):
-    selected_models.append("APUVA")
-if st.sidebar.checkbox("Prophet", value=True, key="model_prophet"):
-    selected_models.append("Prophet")
-if st.sidebar.checkbox("RandomForest", value=True, key="model_rf"):
-    selected_models.append("RandomForest")
-if st.sidebar.checkbox("LightGBM", value=True, key="model_lgbm"):
-    selected_models.append("LightGBM")
-if st.sidebar.checkbox("XGBoost", value=True, key="model_xgb"):
-    selected_models.append("XGBoost")
-if st.sidebar.checkbox("AutoARIMA", value=True, key="model_arima"):
-    selected_models.append("AutoARIMA")
-if st.sidebar.checkbox("VAR", value=True, key="model_var"):
-    selected_models.append("VAR")
-if st.sidebar.checkbox("Stacking", value=True, key="model_stack"):
-    selected_models.append("Stacking")
+for group_name, models_in_group in MODEL_GROUPS:
+    with st.sidebar.expander(group_name, expanded=True):
+        # Tombol pintas per grup - berguna untuk mematikan grup Classic yang
+        # jauh lebih lambat (AutoARIMA ~11 detik per leaf node).
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Pilih semua", key=f"all_{group_name}", width='stretch'):
+                for _, key, _ in models_in_group:
+                    st.session_state[key] = True
+                st.rerun()
+        with c2:
+            if st.button("Kosongkan", key=f"none_{group_name}", width='stretch'):
+                for _, key, _ in models_in_group:
+                    st.session_state[key] = False
+                st.rerun()
+
+        for model_name, key, help_text in models_in_group:
+            if st.checkbox(model_name, value=True, key=key, help=help_text):
+                selected_models.append(model_name)
 
 # Warning if no model selected
 if len(selected_models) == 0:
     st.sidebar.warning("⚠️ Pilih minimal 1 model")
+else:
+    st.sidebar.caption(f"✔️ {len(selected_models)} dari {len(all_models)} model dipilih")
+
+# Pilihan subset leaf node - supaya evaluasi bisa dijalankan bertahap
+# (sekali jalan untuk semua leaf node bisa makan puluhan menit dan berisiko
+# putus koneksi sebelum selesai).
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Cakupan Leaf Node")
+evaluate_all = st.sidebar.checkbox("Evaluasi semua leaf node", value=True)
+if evaluate_all:
+    leaf_nodes_to_run = leaf_nodes
+else:
+    leaf_nodes_to_run = st.sidebar.multiselect(
+        "Pilih leaf node:",
+        options=leaf_nodes,
+        default=leaf_nodes[:5],
+        help="Jalankan sebagian dulu supaya prosesnya lebih pendek, lalu lanjutkan sisanya"
+    )
+    if len(leaf_nodes_to_run) == 0:
+        st.sidebar.warning("⚠️ Pilih minimal 1 leaf node")
 
 # Metric selection for best model
 st.sidebar.markdown("---")
@@ -133,6 +308,342 @@ metric_info = {
 }
 st.sidebar.caption(f"ℹ️ {metric_info[selection_metric]}")
 
+
+# ============================================================================
+# PRATINJAU: PERIODE SAMPEL, TRAINING, DAN TEST
+# ============================================================================
+# Ditampilkan SEBELUM tombol Jalankan ditekan, bukan sesudahnya. Evaluasi penuh
+# bisa memakan puluhan menit; kalau ternyata test_size atau horizonnya salah,
+# user baru tahu setelah menunggu. Di sini periodenya bisa diperiksa dulu.
+#
+# Semua leaf node memakai kolom waktu yang sama (format wide dari ETL), jadi
+# batas jendelanya identik untuk semua leaf - bisa dihitung sekali di sini dan
+# berlaku untuk seluruh evaluasi.
+def hitung_horizon(n_titik, test_size, eval_horizon):
+    """Panjang satu jendela test."""
+    return int(eval_horizon) if eval_horizon is not None else max(
+        5, n_titik - int(n_titik * (1 - test_size / 100)))
+
+
+def hitung_anchor(n_titik, H, test_size, anchor_di_akhir):
+    """
+    Indeks awal periode test jendela 0.
+
+    anchor_di_akhir=True menaruhnya di n - H, sehingga jendela 0 menguji tepat
+    H hari TERAKHIR dari sampel dan tidak ada ekor data yang terbuang.
+    False mempertahankan perilaku lama: titik (100 - test_size)% dari panjang data.
+    """
+    return (n_titik - H) if anchor_di_akhir else int(n_titik * (1 - test_size / 100))
+
+
+def hitung_jendela(n_titik, tanggal, test_size, eval_horizon, n_windows,
+                   anchor_di_akhir):
+    """
+    Batas train/test tiap jendela walk-forward.
+
+    Memakai hitung_horizon/hitung_anchor yang SAMA dengan blok split di bawah,
+    bukan salinan rumus - supaya pratinjau tidak pernah menjanjikan sesuatu yang
+    berbeda dari yang benar-benar dijalankan.
+    """
+    H = hitung_horizon(n_titik, test_size, eval_horizon)
+    anchor = hitung_anchor(n_titik, H, test_size, anchor_di_akhir)
+    hasil = []
+    for w in range(int(n_windows)):
+        ts = anchor - w * H
+        te = min(ts + H, n_titik)
+        hasil.append({
+            'w': w, 'train_n': max(ts, 0), 'test_n': max(te - ts, 0),
+            'train_awal': tanggal[0] if ts > 0 else None,
+            'train_akhir': tanggal[ts - 1] if ts > 0 else None,
+            'test_awal': tanggal[ts] if 0 <= ts < n_titik else None,
+            'test_akhir': tanggal[te - 1] if 0 < te <= n_titik else None,
+            'cukup': ts >= MIN_TRAIN and (te - ts) >= 5,
+        })
+    return hasil
+
+
+def _tgl(x):
+    return '-' if x is None else pd.Timestamp(x).strftime('%Y-%m-%d')
+
+
+_tc_ml = (time_cols if ML_START_DATE is None
+          else [c for c in time_cols if pd.to_datetime(c) >= pd.Timestamp(ML_START_DATE)])
+_d_ml = pd.to_datetime(_tc_ml)
+_d_full = pd.to_datetime(time_cols)
+
+with st.expander("📅 Periode sampel, training, dan test", expanded=True):
+    st.markdown(
+        f"**Sampel data**: `{_tgl(_d_full[0])}` s/d `{_tgl(_d_full[-1])}` "
+        f"— **{len(time_cols)} hari kerja**, {len(leaf_nodes)} leaf node."
+        + ("" if ML_START_DATE is None else
+           f" Model selain APUVA dipotong dari `ML_START_DATE` "
+           f"({_tgl(_d_ml[0])}, {len(_tc_ml)} hari).")
+    )
+
+    _jd = hitung_jendela(len(_tc_ml), _d_ml, test_size, eval_horizon, n_windows,
+                         anchor_di_akhir)
+    _baris = []
+    for j in _jd:
+        _baris.append({
+            'Jendela': j['w'],
+            'Training': f"{_tgl(j['train_awal'])} s/d {_tgl(j['train_akhir'])}",
+            'Hari training': j['train_n'],
+            'Test (dievaluasi)': f"{_tgl(j['test_awal'])} s/d {_tgl(j['test_akhir'])}",
+            'Hari test': j['test_n'],
+            'Status': '✅ dievaluasi' if j['cukup'] else f'⏭️ dilewati (training < {MIN_TRAIN} hari)',
+        })
+    st.dataframe(pd.DataFrame(_baris), width='stretch', hide_index=True)
+
+    _n_pakai = sum(1 for j in _jd if j['cukup'])
+    _n_unit = _n_pakai * len(leaf_nodes_to_run)
+    st.caption(
+        f"Jendela 0 adalah periode paling akhir; tiap jendela berikutnya mundur "
+        f"satu horizon. **Training selalu berhenti tepat sebelum periode test-nya** — "
+        f"tidak ada jendela yang dilatih memakai data setelah periode yang dinilainya. "
+        f"Total unit kerja: **{_n_pakai} jendela × {len(leaf_nodes_to_run)} leaf = "
+        f"{_n_unit} unit**, masing-masing dikalikan {len(selected_models)} model."
+    )
+    if _n_pakai < int(n_windows):
+        st.warning(
+            f"⚠️ {int(n_windows) - _n_pakai} dari {int(n_windows)} jendela akan dilewati "
+            f"karena data training tersisa di bawah {MIN_TRAIN} hari. Kurangi jumlah "
+            f"jendela, perkecil horizon, atau perkecil ukuran test."
+        )
+
+    # Ekor data yang tidak tersentuh sama sekali.
+    #
+    # Di mode lama, jendela mundur dari titik (100 - test_size)%, jadi apa pun
+    # SETELAH periode test jendela 0 tidak pernah masuk training maupun test -
+    # pada data ini hampir 4 tahun terakhir. Di mode bawaan yang baru ekor ini
+    # nol, tapi pemeriksaannya tetap dijalankan supaya kalau suatu saat
+    # rumusnya berubah lagi, akibatnya langsung terlihat.
+    _n_ekor = 0
+    if _jd[0]['test_akhir'] is not None:
+        _n_ekor = len(_d_ml) - int(np.searchsorted(_d_ml, _jd[0]['test_akhir'], side='right'))
+    if _n_ekor > 0:
+        _mulai_ekor = _d_ml[len(_d_ml) - _n_ekor]
+        st.warning(
+            f"⚠️ **{_n_ekor} hari terakhir tidak dipakai sama sekali** — tidak untuk "
+            f"training, tidak untuk test: `{_tgl(_mulai_ekor)}` s/d `{_tgl(_d_ml[-1])}` "
+            f"(≈{_n_ekor/252:.1f} tahun). Artinya model dinilai pada perilaku "
+            f"{_tgl(_jd[0]['test_awal'])[:4]} lalu dipakai meramal "
+            f"{_tgl(_d_ml[-1])[:4]}. Ganti **Periode test berakhir di** menjadi "
+            f"*Data terakhir* agar evaluasi mencakup data termutakhir."
+        )
+
+    # Cakupan periode uji terhadap data termutakhir.
+    _cakupan = sum(j['test_n'] for j in _jd if j['cukup'])
+    if _n_ekor == 0 and _jd[0]['test_awal'] is not None:
+        _awal_uji = min(j['test_awal'] for j in _jd if j['cukup'] and j['test_awal'] is not None)
+        st.success(
+            f"✅ Periode test berakhir tepat di observasi terakhir "
+            f"(`{_tgl(_d_ml[-1])}`). Total **{_cakupan} hari terakhir** diuji, "
+            f"membentang `{_tgl(_awal_uji)}` s/d `{_tgl(_d_ml[-1])}` — tidak ada "
+            f"data yang terbuang di ujung."
+        )
+        if _cakupan < 60:
+            st.warning(
+                f"⚠️ Cakupan uji baru {_cakupan} hari, di bawah 60 hari terakhir. "
+                f"Naikkan **Horizon evaluasi** atau **Jumlah jendela** — cakupan = "
+                f"horizon × jendela."
+            )
+    if ML_START_DATE is not None:
+        st.caption(
+            f"APUVA memakai histori penuh ({len(time_cols)} hari), jadi tanggal "
+            f"potong train/test-nya bergeser dari tabel di atas — proporsinya sama, "
+            f"titik acuannya berbeda karena panjang serinya berbeda."
+        )
+
+
+# ============================================================================
+# PRATINJAU: KANDIDAT FITUR UNTUK FEATURE SELECTION
+# ============================================================================
+@st.cache_data(show_spinner=False)
+def daftar_fitur_kandidat(_df, time_cols, leaf_id, pakai_cross):
+    """
+    Bangun fitur pada satu leaf yang mewakili, lalu kembalikan nama kolomnya.
+
+    Dihitung dari create_features_optimized() yang SAMA dengan yang dipakai saat
+    evaluasi - bukan daftar yang ditulis tangan - supaya tidak bisa basi ketika
+    FEATURE_CONFIG berubah. Cukup satu leaf: keluarga fitur yang dibangun sama
+    untuk semua leaf, yang berbeda hanya nilainya (dan karena itu, 25 mana yang
+    akhirnya terpilih).
+    """
+    from utils.feature_engineering_optimized import create_features_optimized
+    # time_cols datang sebagai tuple supaya bisa di-hash oleh st.cache_data;
+    # pandas memperlakukan tuple sebagai SATU nama kolom, jadi harus jadi list.
+    kolom = list(time_cols)
+    v = np.nan_to_num(_df[_df['Row_ID'] == leaf_id][kolom].to_numpy(dtype=float).ravel())
+    ts = pd.DataFrame({'ds': pd.to_datetime(kolom), 'y': v})
+    f = create_features_optimized(ts, lag_steps=90, holidays_list=load_holidays())
+    return [c for c in f.columns if c not in ('ds', 'date', 'value')]
+
+
+# Pengelompokan mengikuti seksi di FEATURE_CONFIG. Urutan pemeriksaan penting:
+# interaksi diperiksa DULUAN karena namanya menggabungkan dua fitur lain
+# (rolling_mean_30_x_is_weekend) dan akan salah masuk kalau diperiksa belakangan.
+_KELOMPOK = [
+    ("Interaksi", lambda c: '_x_' in c),
+    ("Cross-series", lambda c: c.startswith('ext_')),
+    ("Lag", lambda c: c.startswith('lag_')),
+    ("Rolling (mean/min/max/std)", lambda c: c.startswith('rolling_')),
+    ("Volatilitas", lambda c: any(k in c for k in (
+        'volatility', 'ewm_std', 'z_score', 'downside', 'upside'))),
+    ("EWM & tren", lambda c: c.startswith('ewm_') or c.startswith('value_diff')
+                             or c.startswith('value_pct_change')),
+    ("Indikator teknikal", lambda c: c.startswith(('bb_', 'macd', 'rsi', 'price_position'))),
+    ("Deteksi ekstrem & lonjakan", lambda c: any(k in c for k in (
+        'is_extreme', 'jump', 'max_change', 'min_change', 'change_range'))),
+    ("Kalender & Fourier", lambda c: any(k in c for k in (
+        'day', 'week', 'month', 'quarter', 'year', 'fourier', 'holiday'))),
+]
+
+with st.expander("🧬 Kandidat fitur untuk feature selection", expanded=False):
+    try:
+        _fitur = daftar_fitur_kandidat(df, tuple(time_cols), leaf_nodes[0], False)
+    except Exception as _e:
+        _fitur = None
+        st.warning(f"⚠️ Daftar fitur tidak bisa dibangun: {_e}")
+
+    if _fitur:
+        st.markdown(
+            f"**{len(_fitur)} fitur dibangun** untuk setiap leaf node pada setiap "
+            f"jendela. Dari jumlah itu, **25 teratas** dipilih berdasarkan "
+            f"|korelasi Spearman| terhadap target — **per leaf, per jendela**, jadi "
+            f"25 yang terpilih berbeda-beda antar leaf. Yang di bawah ini adalah "
+            f"kandidatnya, bukan hasil akhirnya."
+        )
+
+        _sisa = list(_fitur)
+        _grup = []
+        for nama, cocok in _KELOMPOK:
+            anggota = sorted(c for c in _sisa if cocok(c))
+            _sisa = [c for c in _sisa if c not in anggota]
+            if anggota:
+                _grup.append((nama, anggota))
+        if _sisa:
+            _grup.append(('Lainnya', sorted(_sisa)))
+
+        # Nama fitur ditulis sebagai teks, bukan satu sel tabel. Di dalam sel,
+        # daftar sepanjang ini terpotong dan justru daftar itulah isinya.
+        st.dataframe(
+            pd.DataFrame([{'Kelompok': n, 'Jumlah': len(a)} for n, a in _grup]),
+            width='stretch', hide_index=True)
+        for nama, anggota in _grup:
+            st.markdown(f"**{nama}** ({len(anggota)}) — "
+                        + ", ".join(f"`{c}`" for c in anggota))
+
+        if not ENABLE_HOLIDAY_FEATURES:
+            st.caption(
+                "Fitur hari libur (`is_holiday`, `days_to_holiday`, `days_from_holiday`) "
+                "TIDAK ada dalam daftar karena `ENABLE_HOLIDAY_FEATURES = False`."
+            )
+        st.caption(
+            "Cross-series (`ext_*`) tidak muncul di daftar ini karena mode recursive "
+            "menyaringnya — model tidak punya nilai deret lain untuk tanggal masa "
+            "depan. Di mode direct, `ext_*` ikut menjadi kandidat. Lihat "
+            "`ENABLE_CROSS_SERIES_FOR_RECURSIVE` di `utils/feature_config.py`."
+            if recursive_eval else
+            "Mode direct: fitur `ext_*` dari deret lain ikut menjadi kandidat "
+            "(sekitar 3 fitur per deret eksternal), di atas jumlah di tabel ini."
+        )
+
+
+# ============================================================================
+# CHECKPOINT - supaya evaluasi tahan putus koneksi
+# ============================================================================
+# Streamlit menjalankan ULANG script dari atas setiap kali WebSocket-nya
+# reconnect (timeout nginx, browser HP menidurkan tab, ganti jaringan). Untuk
+# proses yang makan menit-menit seperti evaluasi, itu berarti semua kemajuan
+# hilang - dan inilah yang terlihat sebagai "halaman refresh sendiri".
+#
+# Hasil per leaf node disimpan ke disk (bukan hanya session_state, karena
+# session_state ikut hilang kalau Streamlit membuat sesi baru saat reconnect),
+# sehingga run yang terputus bisa dilanjutkan, bukan diulang dari nol.
+CHECKPOINT_FILE = 'data/eval_checkpoint.pkl'
+
+
+def load_checkpoint():
+    try:
+        if os.path.exists(CHECKPOINT_FILE):
+            with open(CHECKPOINT_FILE, 'rb') as f:
+                return pickle.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def save_checkpoint(payload):
+    try:
+        os.makedirs(os.path.dirname(CHECKPOINT_FILE), exist_ok=True)
+        with open(CHECKPOINT_FILE, 'wb') as f:
+            pickle.dump(payload, f)
+    except Exception:
+        pass  # checkpoint gagal tidak boleh menggagalkan evaluasi
+
+
+def clear_checkpoint():
+    try:
+        if os.path.exists(CHECKPOINT_FILE):
+            os.remove(CHECKPOINT_FILE)
+    except Exception:
+        pass
+
+
+def settings_fingerprint():
+    """
+    Sidik jari pengaturan yang MEMPENGARUHI hasil metrik. Dipakai untuk menolak
+    melanjutkan checkpoint yang dibuat dengan pengaturan berbeda - kalau tidak,
+    hasil dari test_size/horizon/model yang berbeda akan tercampur dalam satu
+    tabel dan perbandingan antar model jadi tidak sahih.
+    """
+    return {
+        'test_size': test_size,
+        'eval_horizon': eval_horizon,
+        'n_windows': int(n_windows),
+        'models': sorted(selected_models),
+        # Wajib ikut: metrik recursive dan direct tidak sebanding, jadi
+        # checkpoint dari mode lain tidak boleh dilanjutkan begitu saja.
+        'recursive_eval': bool(recursive_eval),
+        # Sama wajibnya: dua mode acuan menguji PERIODE YANG BERBEDA (2026 vs
+        # 2022 pada data ini). Melanjutkan checkpoint lintas mode akan mencampur
+        # metrik dari periode berbeda dalam satu tabel perbandingan.
+        'anchor_di_akhir': bool(anchor_di_akhir),
+    }
+
+
+checkpoint = load_checkpoint()
+
+st.sidebar.markdown("---")
+resume_mode = False
+if checkpoint and checkpoint.get('done_leaves'):
+    done_n = len(checkpoint['done_leaves'])
+    saved_fp = checkpoint.get('settings')
+    current_fp = settings_fingerprint()
+
+    st.sidebar.info(f"💾 Ada hasil tersimpan: **{done_n} leaf node** sudah selesai "
+                    f"({checkpoint.get('timestamp', 'waktu tidak diketahui')})")
+
+    if saved_fp is not None and saved_fp != current_fp:
+        # Pengaturan berubah - melanjutkan akan mencampur hasil dari konfigurasi
+        # berbeda, jadi opsi lanjut sengaja tidak ditawarkan.
+        st.sidebar.warning("⚠️ Pengaturan sekarang berbeda dari hasil tersimpan "
+                           "(test size / horizon / pilihan model). Hasil lama tidak bisa "
+                           "dilanjutkan karena akan tercampur - jalankan ulang atau "
+                           "kembalikan pengaturannya seperti semula.")
+        with st.sidebar.expander("Bandingkan pengaturan"):
+            st.write("**Tersimpan:**", saved_fp)
+            st.write("**Sekarang:**", current_fp)
+    else:
+        resume_mode = st.sidebar.checkbox(
+            "Lanjutkan dari hasil tersimpan", value=True,
+            help="Leaf node yang sudah selesai akan dilewati, jadi tidak perlu mengulang dari awal"
+        )
+
+    if st.sidebar.button("🗑️ Hapus hasil tersimpan"):
+        clear_checkpoint()
+        st.rerun()
+
 # Run evaluation button
 st.sidebar.markdown("---")
 run_comparison = st.sidebar.button("🚀 Jalankan Evaluasi", type="primary")
@@ -144,67 +655,196 @@ has_results = 'evaluation_results' in st.session_state and st.session_state['eva
 # SHAP: model apa saja yang bisa dijelaskan
 #
 # SHAP di sini memakai TreeExplainer, yang hanya berlaku untuk model berbasis
-# pohon dengan satu matriks fitur. Prophet, APUVA, AutoARIMA, dan VAR tidak
-# punya matriks fitur seperti itu, dan Stacking adalah gabungan beberapa model
-# sehingga tidak ada satu pohon yang bisa dijelaskan. Keempatnya sengaja tidak
-# masuk daftar - lebih baik tidak menampilkan apa pun daripada menampilkan
-# grafik yang tidak berarti.
+# pohon dengan satu matriks fitur. Naive/NaiveMean, Prophet, APUVA, AutoARIMA,
+# dan VAR tidak punya matriks seperti itu; Stacking gabungan beberapa model dan
+# LSTM bukan pohon. Semuanya sengaja tidak masuk daftar - lebih baik tidak
+# menampilkan apa pun daripada grafik yang tidak berarti.
 # ============================================================================
 SHAP_MODELS = ['RandomForest', 'LightGBM', 'XGBoost']
 
 # Main evaluation logic
-if run_comparison and len(selected_models) > 0:
+if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
     # Load holidays
     holidays_list = load_holidays()
 
+    # Peringatkan kalau config/holidays.json tidak mencakup periode data.
+    # Ini penting karena kegagalannya SENYAP: fitur is_holiday jadi selalu 0,
+    # days_from_holiday selalu konstan, dan days_to_holiday berubah jadi hitung
+    # mundur ribuan hari ke libur terdekat di masa depan - praktis hanya indeks
+    # waktu yang menyamar sebagai fitur, dan bisa ikut terpilih oleh feature
+    # selection berbasis korelasi. Prophet juga tidak mendapat efek libur sama
+    # sekali. Semua itu terjadi tanpa error apa pun.
+    if not ENABLE_HOLIDAY_FEATURES:
+        st.info(
+            "ℹ️ **Fitur hari libur dimatikan.** `is_holiday`, `days_to_holiday`, dan "
+            "`days_from_holiday` tidak dibuat, dan Prophet dijalankan tanpa komponen "
+            "libur. Hari libur tetap dipakai untuk melewati hari non-trading saat "
+            "membuat tanggal forecast. Hidupkan kembali lewat `ENABLE_HOLIDAY_FEATURES` "
+            "di `utils/feature_config.py` setelah data libur lengkap untuk semua tahun."
+        )
+    elif len(holidays_list) > 0:
+        _hol = pd.to_datetime(pd.Series(holidays_list))
+        _data_years = set(pd.to_datetime(pd.Series(time_cols)).dt.year)
+        _hol_years = set(_hol.dt.year) & _data_years
+        # Yang menentukan bukan sekadar "ada libur dalam rentang data", tapi
+        # berapa banyak TAHUN yang punya data libur. Libur yang cuma ada untuk
+        # satu tahun terakhir tidak menolong model yang dilatih pada 20 tahun.
+        _missing_years = sorted(_data_years - _hol_years)
+        if len(_hol_years) == 0:
+            st.warning(
+                f"⚠️ **Hari libur tidak mencakup periode data sama sekali.** `config/holidays.json` "
+                f"berisi {len(_hol)} tanggal ({_hol.min().date()} s/d {_hol.max().date()}), "
+                f"sementara data membentang {min(_data_years)}-{max(_data_years)}."
+            )
+        elif len(_missing_years) > 0:
+            st.warning(
+                f"⚠️ **Hari libur hanya tersedia untuk {len(_hol_years)} dari {len(_data_years)} tahun** "
+                f"data (tahun tanpa data libur: {_missing_years[0]}-{_missing_years[-1]}). "
+                f"Untuk periode tanpa data libur, `is_holiday` selalu 0, `days_from_holiday` konstan, "
+                f"dan `days_to_holiday` berubah jadi hitung mundur ribuan hari - praktis hanya indeks "
+                f"waktu, bukan informasi libur. Prophet juga tidak memodelkan efek libur di periode itu. "
+                f"Lengkapi lewat halaman **Hari Libur** agar fitur ini benar-benar berguna."
+            )
+    else:
+        st.info("ℹ️ Belum ada data hari libur (`config/holidays.json` kosong) - "
+                "fitur hari libur tidak aktif untuk semua model.")
+
     # ========================================================================
     # PREPARE CROSS-SERIES DATA FOR ALL LEAF NODES (SAME AS Lembar_Kerja.py)
     # ========================================================================
+    # Dihitung HANYA kalau ada model terpilih yang benar-benar memakainya.
+    # Sebelumnya selalu dihitung - ~40 detik untuk 18 leaf node - bahkan ketika
+    # yang dipilih cuma Naive dan NaiveMean, yang tidak tahu-menahu soal deret
+    # lain. Setelah ENABLE_CROSS_SERIES_FOR_RECURSIVE dimatikan, pemakainya
+    # tinggal sedikit, jadi pemborosannya jadi kasus yang lazim, bukan langka.
+    #
+    # Yang benar-benar memakai cross-series:
+    #   - VAR, selalu. Ia sistem persamaan multivariat; tanpa deret lain ia
+    #     jatuh jadi random walk (MAE identik Naive di 54/54 unit).
+    #   - Model pohon + Stacking, TAPI hanya lewat dua jalur:
+    #       * mode direct - fitur dibangun blok bersama di bawah (teacher-forced,
+    #         nilai aktual deret lain memang tersedia di periode uji), atau
+    #       * mode recursive DAN ENABLE_CROSS_SERIES_FOR_RECURSIVE dinyalakan.
+    #     Di mode recursive dengan saklar mati (default), forecaster menyaringnya
+    #     sendiri - jadi menghitungnya di sini murni sia-sia.
+    # Naive/NaiveMean/APUVA/Prophet/AutoARIMA/LSTM tidak pernah memakainya.
+    _CROSS_SERIES_CONSUMERS = ['RandomForest', 'XGBoost', 'LightGBM', 'Stacking']
+    _tree_pakai_cross = (
+        any(m in selected_models for m in _CROSS_SERIES_CONSUMERS)
+        and (not recursive_eval or ENABLE_CROSS_SERIES_FOR_RECURSIVE)
+    )
+    _perlu_cross = ('VAR' in selected_models) or _tree_pakai_cross
 
-    with st.spinner("🔍 Calculating cross-series correlations for all leaf nodes..."):
-        from utils.feature_engineering_optimized import (
-            calculate_series_correlations,
-            select_top_correlated_series,
-            prepare_external_series_data
+    if not _perlu_cross:
+        # Dilewati - tiap leaf nanti menerima {} lewat cross_series_map.get(...).
+        cross_series_map = {}
+        _alasan = []
+        if 'VAR' not in selected_models:
+            _alasan.append("VAR tidak dipilih")
+        if any(m in selected_models for m in _CROSS_SERIES_CONSUMERS):
+            _alasan.append("model pohon berjalan di mode recursive, yang menyaring "
+                           "fitur `ext_*` (lihat `ENABLE_CROSS_SERIES_FOR_RECURSIVE` "
+                           "di `utils/feature_config.py`)")
+        st.info(
+            "⏭️ **Korelasi cross-series dilewati** - tidak ada model terpilih yang "
+            f"memakainya ({'; '.join(_alasan)})."
         )
 
-        @st.cache_data
-        def prepare_cross_series_data(df, leaf_nodes, time_cols):
-            """Prepare cross-series correlation data for all leaf nodes - SAME AS Lembar_Kerja.py"""
-            cross_series_map = {}
+    from utils.feature_engineering_optimized import (
+        calculate_series_correlations,
+        select_top_correlated_series,
+        prepare_external_series_data
+    )
 
-            # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
-            time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
+    @st.cache_data
+    def prepare_cross_series_data(df, leaf_nodes, time_cols, target_leaves=None):
+        """
+        Prepare cross-series correlation data - SAME AS Lembar_Kerja.py
 
-            for leaf_id in leaf_nodes:
-                # 1. Get all other leaf nodes (exclude current series)
-                candidate_series = [lid for lid in leaf_nodes if lid != leaf_id]
+        target_leaves: leaf node yang benar-benar akan dievaluasi. Kandidat
+        korelasinya tetap SELURUH leaf_nodes (supaya fiturnya identik dengan
+        evaluasi penuh), tapi peta hanya dihitung untuk leaf yang dipakai -
+        menghindari komputasi sia-sia saat user hanya menjalankan sebagian.
+        """
+        cross_series_map = {}
+        if target_leaves is None:
+            target_leaves = leaf_nodes
 
-                # 2. Calculate correlations with ALL other leaf nodes (using 2019+ data)
-                correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
+        # Filter to 2019+ for ML models with external features (SAME AS Prediksi.py & Lembar_Kerja.py)
+        if ML_START_DATE is not None:
+            time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+        else:
+            time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
 
-                # 3. Select top 30 correlated series
-                top_30_series = select_top_correlated_series(correlations, top_k=30)
+        for leaf_id in target_leaves:
+            # 1. Get all other leaf nodes (exclude current series)
+            candidate_series = [lid for lid in leaf_nodes if lid != leaf_id]
 
-                # 4. Prepare external series data (cross-series only) - using 2019+ data
-                cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
+            # 2. Calculate correlations with ALL other leaf nodes (using 2019+ data)
+            correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
 
-                # 5. Merge with external features from Excel
-                from utils.external_loader import load_and_merge_external_features
-                external_series_data = load_and_merge_external_features(cross_series_only)
+            # 3. Select top 30 correlated series
+            top_30_series = select_top_correlated_series(correlations, top_k=30)
 
-                cross_series_map[leaf_id] = external_series_data
+            # 4. Prepare external series data (cross-series only) - using 2019+ data
+            cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
 
-            return cross_series_map
+            # 5. Merge with external features from Excel
+            from utils.external_loader import load_and_merge_external_features
+            external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
-        cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols)
-        st.success(f"✅ Cross-series correlations calculated for {len(cross_series_map)} leaf nodes")
+            cross_series_map[leaf_id] = external_series_data
 
-    # Display data range information (SAME AS Prediksi.py)
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
-    st.info(f"📊 **ML Models (XGBoost, RF, LightGBM, Prophet)**: {time_cols_ml[0]} to {time_cols_ml[-1]} ({len(time_cols_ml)} days)")
-    st.info(f"📊 **APUVA**: {time_cols[0]} to {time_cols[-1]} ({len(time_cols)} days) - Full historical data for year-over-year calculations")
+        return cross_series_map
+
+    # Spinner hanya dipasang kalau perhitungannya benar-benar dijalankan.
+    # Sebelumnya spinner "Calculating cross-series correlations..." tetap
+    # berkedip walau perhitungannya dilewati - persis membantah pesan
+    # "dilewati" yang baru saja dicetak di atasnya.
+    if _perlu_cross:
+        with st.spinner("🔍 Menghitung korelasi cross-series untuk tiap leaf node..."):
+            cross_series_map = prepare_cross_series_data(df, leaf_nodes, time_cols,
+                                                         tuple(leaf_nodes_to_run))
+        _pemakai = (['VAR'] if 'VAR' in selected_models else []) + \
+                   ([m for m in _CROSS_SERIES_CONSUMERS if m in selected_models]
+                    if _tree_pakai_cross else [])
+        st.success(f"✅ Korelasi cross-series dihitung untuk {len(cross_series_map)} "
+                   f"leaf node (dipakai oleh: {', '.join(_pemakai)})")
+
+    # ========================================================================
+    # PERIODE DATA
+    # ========================================================================
+    # Dulu selalu dicetak dua baris - satu untuk "ML Models", satu untuk APUVA -
+    # seolah periodenya berbeda. Padahal bedanya hanya ada kalau ML_START_DATE
+    # diset; dengan ML_START_DATE = None keduanya menampilkan rentang yang PERSIS
+    # SAMA, dan baris APUVA menyebut "Full historical data" sehingga menyiratkan
+    # baris ML bukan histori penuh. Menyesatkan di halaman yang justru tugasnya
+    # menjelaskan metode dengan jujur.
+    #
+    # Daftar model pada baris itu juga sudah basi ("XGBoost, RF, LightGBM,
+    # Prophet") - AutoARIMA, VAR, LSTM, Naive, dan NaiveMean semuanya juga
+    # memakai periode ML. Yang membedakan cuma APUVA, jadi itu yang disebut.
+    if ML_START_DATE is not None:
+        time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    else:
+        time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
+
+    if len(time_cols_ml) == len(time_cols):
+        st.info(
+            f"📊 **Periode data**: {time_cols[0]} s/d {time_cols[-1]} "
+            f"({len(time_cols)} hari). Semua model memakai histori yang sama - "
+            f"`ML_START_DATE` tidak diset, jadi tidak ada pemotongan periode."
+        )
+    else:
+        st.info(
+            f"📊 **Semua model kecuali APUVA**: {time_cols_ml[0]} s/d {time_cols_ml[-1]} "
+            f"({len(time_cols_ml)} hari) - dipotong dari `ML_START_DATE`."
+        )
+        st.info(
+            f"📊 **APUVA**: {time_cols[0]} s/d {time_cols[-1]} ({len(time_cols)} hari) - "
+            f"histori penuh, dibutuhkan untuk perhitungan year-over-year."
+        )
 
     # Progress tracking
     st.subheader("⚙️ Running Model Evaluation...")
@@ -214,16 +854,67 @@ if run_comparison and len(selected_models) > 0:
     # Evaluate all leaf nodes for SELECTED models
     # IMPORTANT: Evaluate base models first, then Stacking uses their predictions
     all_results = []
-    base_models = ["APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR"]
+    failed_evaluations = []  # kombinasi leaf x model yang gagal, ditampilkan di akhir
+    done_leaves = []
+
+    # Kalau melanjutkan run yang terputus, pulihkan hasil yang sudah ada dan
+    # lewati unit yang sudah selesai.
+    if resume_mode and checkpoint:
+        all_results = list(checkpoint.get('all_results', []))
+        failed_evaluations = list(checkpoint.get('failed_evaluations', []))
+        done_leaves = list(checkpoint.get('done_leaves', []))
+
+    # Unit kerja = (leaf node, jendela). Dibuat datar seperti ini supaya
+    # checkpoint bisa melanjutkan pada granularitas per-jendela, bukan harus
+    # mengulang seluruh jendela sebuah leaf kalau koneksi putus di tengah.
+    eval_units = [(lid, w) for lid in leaf_nodes_to_run for w in range(int(n_windows))]
+    pending_units = [u for u in eval_units if list(u) not in [list(d) for d in done_leaves]]
+
+    if len(done_leaves) > 0:
+        st.info(f"⏭️ Melewati {len(done_leaves)} unit (leaf x jendela) yang sudah selesai, "
+                f"melanjutkan {len(pending_units)} sisanya.")
+
+    base_models = ["Naive", "NaiveMean", "APUVA", "Prophet", "RandomForest", "LightGBM", "XGBoost", "AutoARIMA", "VAR", "LSTM"]
     # Filter base models to only selected ones
     active_base_models = [m for m in base_models if m in selected_models]
-    total_steps = len(leaf_nodes) * len(selected_models)
+    total_steps = max(1, len(pending_units) * len(selected_models))
     current_step = 0
 
-    # Matriks rancangan periode training per leaf, dipakai bagian SHAP di bawah.
+    # Perkiraan durasi. Mode recursive jauh lebih lambat karena fitur dibangun
+    # ulang di SETIAP langkah horizon (diukur ~14 detik per model ML per unit
+    # untuk horizon 60 hari), jadi angkanya perlu disampaikan di depan - bukan
+    # dibiarkan user menunggu tanpa tahu. Hasil disimpan ke checkpoint per unit,
+    # jadi run yang panjang tetap aman kalau koneksi terputus.
+    # LSTM dihitung terpisah karena SELALU recursive - biayanya tidak hilang
+    # saat user memilih mode direct, sehingga estimasi yang hanya menghitung
+    # model pohon akan diam saja padahal run-nya tetap memakan belasan menit.
+    _n_tree_sel = len([m for m in ['RandomForest', 'LightGBM', 'XGBoost'] if m in selected_models])
+    _n_lstm_sel = 1 if 'LSTM' in selected_models else 0
+    _sec_per_unit = (_n_tree_sel * 14 if recursive_eval else 0) + _n_lstm_sel * 11
+    if _sec_per_unit > 0:
+        _est_min = len(pending_units) * _sec_per_unit / 60
+        _rincian = []
+        if recursive_eval and _n_tree_sel:
+            _rincian.append(f"{_n_tree_sel} model pohon recursive")
+        if _n_lstm_sel:
+            _rincian.append("LSTM (selalu recursive)")
+        st.warning(
+            f"⏱️ Perkiraan **~{_est_min:.0f} menit** untuk {len(pending_units)} unit "
+            f"({' + '.join(_rincian)}; belum termasuk AutoARIMA/VAR/Prophet). "
+            f"Hasil disimpan otomatis per unit - kalau terputus, jalankan lagi dan "
+            f"pilih 'lanjutkan'."
+            + ("" if recursive_eval else
+               " Catatan: mode direct hanya mempercepat model pohon; LSTM tetap "
+               "recursive karena mode direct tidak punya makna untuk model urutan.")
+        )
+
+    # Matriks rancangan periode training per (leaf, jendela), dipakai bagian
+    # SHAP di bawah. Kalau evaluasi dilanjutkan dari checkpoint, isinya hanya
+    # unit yang diproses pada run ini - unit lama tidak ikut karena X-nya
+    # memang tidak pernah dihitung ulang.
     shap_train_data = {}
 
-    for leaf_id in leaf_nodes:
+    for leaf_id, eval_window in pending_units:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
         if len(leaf_row) == 0:
@@ -268,18 +959,36 @@ if run_comparison and len(selected_models) > 0:
         # Create time series dataframe for APUVA (SAME AS Prediksi.py line 152-156)
         ts_df_apuva = pd.DataFrame({'date': dates_full, 'value': values_full})
 
-        # Train/test split for ML models (SAME AS Prediksi.py line 158-161)
-        split_idx_ml = int(len(ts_df_ml) * (1 - test_size/100))
-        train_ml = ts_df_ml.iloc[:split_idx_ml]
-        test_ml = ts_df_ml.iloc[split_idx_ml:]
+        # ====================================================================
+        # SPLIT TRAIN/TEST - dengan dukungan jendela walk-forward
+        # ====================================================================
+        # eval_window = 0 -> jendela paling akhir. eval_window = 1, 2, ... ->
+        # mundur satu horizon tiap kali. Training SELALU hanya data sebelum
+        # jendela test-nya, jadi tidak ada jendela yang dilatih memakai data
+        # setelah periode yang dinilainya.
+        #
+        # Anchor dihitung lewat hitung_horizon/hitung_anchor - fungsi yang sama
+        # dengan yang dipakai pratinjau di atas halaman, supaya keduanya tidak
+        # bisa berbeda.
+        H_ml = hitung_horizon(len(ts_df_ml), test_size, eval_horizon)
+        H_ap = hitung_horizon(len(ts_df_apuva), test_size, eval_horizon)
 
-        # Train/test split for APUVA (SAME AS Prediksi.py line 163-166)
-        split_idx_apuva = int(len(ts_df_apuva) * (1 - test_size/100))
-        train_apuva = ts_df_apuva.iloc[:split_idx_apuva]
-        test_apuva = ts_df_apuva.iloc[split_idx_apuva:]
+        anchor_ml = hitung_anchor(len(ts_df_ml), H_ml, test_size, anchor_di_akhir)
+        test_start_ml = anchor_ml - eval_window * H_ml
+        train_ml = ts_df_ml.iloc[:test_start_ml]
+        test_ml = ts_df_ml.iloc[test_start_ml:test_start_ml + H_ml]
 
-        # Skip if test data too small
-        if len(test_ml) < 5 or len(test_apuva) < 5:
+        anchor_ap = hitung_anchor(len(ts_df_apuva), H_ap, test_size, anchor_di_akhir)
+        test_start_ap = anchor_ap - eval_window * H_ap
+        train_apuva = ts_df_apuva.iloc[:test_start_ap]
+        test_apuva = ts_df_apuva.iloc[test_start_ap:test_start_ap + H_ap]
+
+        # Skip kalau jendela mundur terlalu jauh sampai data training tidak cukup.
+        # MIN_TRAIN kini konstanta modul supaya pratinjau periode di atas halaman
+        # memakai ambang yang PERSIS SAMA - kalau dua angka ini pernah berbeda,
+        # pratinjau akan menjanjikan jendela yang diam-diam dilewati saat run.
+        if (test_start_ml < MIN_TRAIN or test_start_ap < MIN_TRAIN
+                or len(test_ml) < 5 or len(test_apuva) < 5):
             current_step += len(selected_models)
             progress_bar.progress(min(current_step / total_steps, 1.0))
             continue
@@ -291,48 +1000,71 @@ if run_comparison and len(selected_models) > 0:
 
         from utils.feature_engineering_optimized import create_features_optimized, select_top_features_optimized
 
-        # Prepare data for feature engineering (SAME AS Prediksi.py line 211-213)
-        train_fe = train_ml.rename(columns={'date': 'ds', 'value': 'y'})
-        test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
-
-        # Create optimized features ONCE (SAME AS Prediksi.py line 216-217)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
-
-        # Get common features (SAME AS Prediksi.py line 220-222)
-        train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]
-        test_available = [col for col in test_features.columns if col not in ['ds', 'date', 'value']]
-        common_features = list(set(train_available) & set(test_available))
-
-        # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
-        if len(common_features) > 0:
-            top_features, _ = select_top_features_optimized(train_features, top_k=25)
-            feature_cols = [f for f in top_features if f in common_features]
-            if len(feature_cols) == 0:
-                feature_cols = common_features[:25]
-
-            # Prepare X, y ONCE (SAME AS Prediksi.py line 235-238)
-            X_train = train_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-            y_train = train_features['value']
-            X_test = test_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-            y_test = test_features['value']
-
-            # Simpan matriks rancangan PERIODE TRAINING untuk analisis SHAP di
-            # bawah. Yang disimpan hanya X dan y, bukan modelnya: menyimpan 18
-            # RandomForest sekaligus boros memori, sedangkan melatih ulang satu
-            # model dari X yang sudah jadi hanya butuh beberapa detik. Bagian
-            # yang mahal adalah rekayasa fiturnya, dan itulah yang di-cache.
-            if any(m in selected_models for m in SHAP_MODELS):
-                shap_train_data[leaf_id] = {
-                    'X': X_train.copy(),
-                    'y': np.asarray(y_train, dtype=float),
-                    'features': list(feature_cols),
-                    'label': row_label,
-                    'n_train': int(len(X_train)),
-                }
-        else:
+        # Hitung fitur SEKALI pada deret utuh (train + test menyambung), baru
+        # di-split berdasarkan tanggal.
+        #
+        # Sebelumnya fitur dihitung terpisah untuk train dan test. Itu salah
+        # karena create_features_optimized() membangun lag/rolling DARI DALAM
+        # dataframe yang diberikan: potongan test tidak punya histori sebelum
+        # titik awalnya, sehingga fitur window panjang (rolling_mean_90 dst.)
+        # tidak bisa dihitung sama sekali (butuh window*3 baris) atau dihitung
+        # dari sampel yang "restart" - tidak sama dengan yang dilihat model saat
+        # training. Makin pendek horizon evaluasi, makin parah efeknya.
+        # Di mode recursive, fitur dibangun sendiri oleh forecaster di dalam
+        # forecast_single_series(), jadi blok ini murni pemborosan - dilewati.
+        if recursive_eval:
+            # Fitur dibangun sendiri oleh forecaster di dalam
+            # forecast_single_series(), jadi blok ini murni pemborosan.
             feature_cols = []
             X_train = X_test = y_train = y_test = None
+            test_features = None
+        else:
+            full_fe = pd.concat([train_ml, test_ml], ignore_index=True).rename(
+                columns={'date': 'ds', 'value': 'y'}
+            )
+            full_features = create_features_optimized(
+                full_fe, lag_steps=90, holidays_list=holidays_list,
+                external_series=external_series_data, external_series_dates=dates_ml
+            )
+
+            split_date = test_ml['date'].iloc[0]
+            train_features = full_features[full_features['date'] < split_date].copy()
+            test_features = full_features[full_features['date'] >= split_date].copy()
+
+            # Get common features (SAME AS Prediksi.py line 220-222)
+            train_available = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]
+            test_available = [col for col in test_features.columns if col not in ['ds', 'date', 'value']]
+            common_features = list(set(train_available) & set(test_available))
+
+            # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
+            if len(common_features) > 0:
+                top_features, _ = select_top_features_optimized(train_features, top_k=25)
+                feature_cols = [f for f in top_features if f in common_features]
+                if len(feature_cols) == 0:
+                    feature_cols = common_features[:25]
+
+                # Prepare X, y ONCE (SAME AS Prediksi.py line 235-238)
+                X_train = train_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_train = train_features['value']
+                X_test = test_features[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_test = test_features['value']
+
+                # Yang disimpan hanya X dan y, bukan model yang sudah dilatih:
+                # menahan puluhan RandomForest sekaligus boros memori, sedangkan
+                # melatih ulang satu model dari matriks yang sudah jadi hanya
+                # hitungan detik. Bagian mahalnya adalah rekayasa fitur, dan
+                # itulah yang di-cache.
+                if any(m in selected_models for m in SHAP_MODELS):
+                    shap_train_data[(leaf_id, int(eval_window))] = {
+                        'X': X_train.copy(),
+                        'y': np.asarray(y_train, dtype=float),
+                        'features': list(feature_cols),
+                        'label': row_label,
+                        'n_train': int(len(X_train)),
+                    }
+            else:
+                feature_cols = []
+                X_train = X_test = y_train = y_test = None
 
         # ========================================================================
         # EVALUATE ALL MODELS - Using prepared data
@@ -345,6 +1077,31 @@ if run_comparison and len(selected_models) > 0:
 
         # Dictionary to store results like Prediksi.py
         results = {}
+
+        # --- BASELINE: Naive (garis acuan) ---
+        # Dievaluasi lebih dulu supaya selalu ada pembanding trivial di tabel
+        # hasil. Tanpa ini, angka seperti "R2 = -0.18" tidak bisa dinilai layak
+        # atau tidak - ternyata banyak model tidak mengalahkan baseline ini.
+        for naive_name, naive_kwargs in [("Naive", {'method': 'last'}),
+                                         ("NaiveMean", {'method': 'mean', 'window': 90})]:
+            if naive_name in selected_models:
+                status_text.text(f"Evaluating {leaf_id} with {naive_name}... ({current_step+1}/{total_steps})")
+                try:
+                    from utils.forecasting import NaiveForecaster
+                    nm = NaiveForecaster(holidays=holidays_list, **naive_kwargs)
+                    nm.fit(train_ml['date'].dt.strftime('%Y-%m-%d').tolist(), train_ml['value'].values)
+                    preds_naive, _ = nm.predict(
+                        train_ml['date'].dt.strftime('%Y-%m-%d').tolist(),
+                        train_ml['value'].values,
+                        len(test_ml)
+                    )
+                    preds_naive = np.array(preds_naive)
+                    results[naive_name] = {'success': True, 'predictions_test': preds_naive}
+                    leaf_predictions[naive_name] = preds_naive
+                except Exception:
+                    results[naive_name] = {'success': False}
+                current_step += 1
+                progress_bar.progress(min(current_step / total_steps, 1.0))
 
         # --- MODEL 1: APUVA (uses full data) ---
         if "APUVA" in selected_models:
@@ -372,7 +1129,21 @@ if run_comparison and len(selected_models) > 0:
             try:
                 train_prophet = train_ml.rename(columns={'date': 'ds', 'value': 'y'})
                 test_prophet = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
-                model_prophet = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False, changepoint_prior_scale=0.05)
+                # Hari libur ikut disertakan supaya Prophet yang DINILAI di sini
+                # sama dengan yang benar-benar dijalankan di produksi lewat
+                # utils/forecasting/prophet_model.py (yang selalu menambahkan
+                # holidays). Sebelumnya halaman ini membuat Prophet polos, jadi
+                # metriknya tidak mewakili model yang sesungguhnya dipakai.
+                _prophet_kwargs = dict(yearly_seasonality=True, weekly_seasonality=True,
+                                       daily_seasonality=False, changepoint_prior_scale=0.05)
+                if ENABLE_HOLIDAY_FEATURES and len(holidays_list) > 0:
+                    _prophet_kwargs['holidays'] = pd.DataFrame({
+                        'holiday': 'holiday',
+                        'ds': pd.to_datetime(holidays_list),
+                        'lower_window': 0,
+                        'upper_window': 0,
+                    })
+                model_prophet = Prophet(**_prophet_kwargs)
                 model_prophet.fit(train_prophet)
                 test_forecast = model_prophet.predict(test_prophet[['ds']])
                 predictions_prophet = test_forecast['yhat'].values
@@ -383,47 +1154,87 @@ if run_comparison and len(selected_models) > 0:
             current_step += 1
             progress_bar.progress(min(current_step / total_steps, 1.0))
 
-        # --- MODEL 3-5: ML Models (use shared features) ---
-        if X_train is not None and len(feature_cols) > 0:
-            # RandomForest
-            if "RandomForest" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with RandomForest... ({current_step+1}/{total_steps})")
+        # --- MODEL 3-5: ML Models ---
+        #
+        # Dua jalur, lihat penjelasan `eval_mode` di sidebar:
+        #   recursive - lewat forecast_single_series(), yaitu fungsi yang SAMA
+        #               dengan yang dipanggil Lembar Kerja. Yang dinilai di sini
+        #               benar-benar model yang akan dijalankan.
+        #   direct    - model inline yang diberi fitur dari periode test.
+        _ml_specs = [
+            ("RandomForest", lambda: RandomForestRegressor(
+                n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)),
+            ("LightGBM", lambda: LGBMRegressor(
+                n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)),
+            ("XGBoost", lambda: xgb.XGBRegressor(
+                n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)),
+        ]
+
+        if recursive_eval:
+            from utils.forecasting import forecast_single_series
+
+            _train_dates_str = train_ml['date'].dt.strftime('%Y-%m-%d').tolist()
+            _train_vals = train_ml['value'].values
+
+            for _name, _ in _ml_specs:
+                if _name not in selected_models:
+                    continue
+                status_text.text(f"Evaluating {leaf_id} with {_name} (recursive)... "
+                                 f"({current_step+1}/{total_steps})")
                 try:
-                    rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
-                    rf_model.fit(X_train, y_train)
-                    predictions_rf = rf_model.predict(X_test)
-                    results['RandomForest'] = {'success': True, 'predictions_test': predictions_rf, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['RandomForest'] = predictions_rf
-                except:
-                    results['RandomForest'] = {'success': False}
+                    _fv, _ = forecast_single_series(
+                        dates=_train_dates_str,
+                        values=_train_vals,
+                        model_name=_name,
+                        n_days=len(test_ml),
+                        holidays=holidays_list,
+                        external_series=external_series_data,
+                        row_id=leaf_id,
+                    )
+                    _fv = np.asarray(_fv, dtype=float)
+
+                    # generate_business_dates bisa menghasilkan jumlah tanggal
+                    # yang sedikit berbeda dari panjang periode test (akhir
+                    # pekan/libur). Disamakan supaya metrik tetap dihitung atas
+                    # pasangan aktual-prediksi yang sejajar.
+                    _n = len(leaf_actual_ml)
+                    if len(_fv) > _n:
+                        _fv = _fv[:_n]
+                    elif len(_fv) < _n:
+                        _fv = np.pad(_fv, (0, _n - len(_fv)), mode='edge')
+
+                    if not np.all(np.isfinite(_fv)):
+                        raise ValueError("forecast mengandung NaN/inf")
+
+                    results[_name] = {'success': True, 'predictions_test': _fv,
+                                      'test_dates': test_ml['date'].values}
+                    leaf_predictions[_name] = _fv
+                except Exception as _e:
+                    results[_name] = {'success': False}
+                    failed_evaluations.append(
+                        {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': _name,
+                         'Alasan': str(_e)[:200]})
                 current_step += 1
                 progress_bar.progress(min(current_step / total_steps, 1.0))
 
-            # LightGBM
-            if "LightGBM" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with LightGBM... ({current_step+1}/{total_steps})")
+        elif X_train is not None and len(feature_cols) > 0:
+            for _name, _make in _ml_specs:
+                if _name not in selected_models:
+                    continue
+                status_text.text(f"Evaluating {leaf_id} with {_name}... "
+                                 f"({current_step+1}/{total_steps})")
                 try:
-                    lgb_model = LGBMRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbose=-1)
-                    lgb_model.fit(X_train, y_train)
-                    predictions_lgb = lgb_model.predict(X_test)
-                    results['LightGBM'] = {'success': True, 'predictions_test': predictions_lgb, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['LightGBM'] = predictions_lgb
-                except:
-                    results['LightGBM'] = {'success': False}
-                current_step += 1
-                progress_bar.progress(min(current_step / total_steps, 1.0))
-
-            # XGBoost
-            if "XGBoost" in selected_models:
-                status_text.text(f"Evaluating {leaf_id} with XGBoost... ({current_step+1}/{total_steps})")
-                try:
-                    xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=5, random_state=42, verbosity=0)
-                    xgb_model.fit(X_train, y_train, verbose=False)
-                    predictions_xgb = xgb_model.predict(X_test)
-                    results['XGBoost'] = {'success': True, 'predictions_test': predictions_xgb, 'test_dates': test_features['ds'].values}
-                    leaf_predictions['XGBoost'] = predictions_xgb
-                except:
-                    results['XGBoost'] = {'success': False}
+                    _m = _make()
+                    _m.fit(X_train, y_train)
+                    _preds = _m.predict(X_test)
+                    results[_name] = {'success': True, 'predictions_test': _preds,
+                                      'test_dates': test_features['ds'].values}
+                    leaf_predictions[_name] = _preds
+                except Exception as _e:
+                    results[_name] = {'success': False}
+                    failed_evaluations.append(
+                        {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': _name,
+                         'Alasan': str(_e)[:200]})
                 current_step += 1
                 progress_bar.progress(min(current_step / total_steps, 1.0))
 
@@ -472,15 +1283,68 @@ if run_comparison and len(selected_models) > 0:
             current_step += 1
             progress_bar.progress(min(current_step / total_steps, 1.0))
 
+        # --- MODEL: LSTM (deep learning) ---
+        #
+        # LSTM SELALU dinilai secara recursive, tanpa memandang pilihan mode di
+        # sidebar. Mode direct tidak punya makna untuk model ini: ia belajar dari
+        # jendela nilai berurutan, bukan dari matriks fitur yang bisa dihitung
+        # sekali di muka untuk seluruh periode test. Jadi angkanya selalu setara
+        # dengan yang akan dihasilkan produksi.
+        if "LSTM" in selected_models:
+            status_text.text(f"Evaluating {leaf_id} with LSTM (recursive)... "
+                             f"({current_step+1}/{total_steps})")
+            try:
+                from utils.forecasting import forecast_single_series
+                _fv, _ = forecast_single_series(
+                    dates=train_ml['date'].dt.strftime('%Y-%m-%d').tolist(),
+                    values=train_ml['value'].values,
+                    model_name='LSTM',
+                    n_days=len(test_ml),
+                    holidays=holidays_list,
+                    row_id=leaf_id,
+                )
+                _fv = np.asarray(_fv, dtype=float)
+                _n = len(leaf_actual_ml)
+                if len(_fv) > _n:
+                    _fv = _fv[:_n]
+                elif len(_fv) < _n:
+                    _fv = np.pad(_fv, (0, _n - len(_fv)), mode='edge')
+                if not np.all(np.isfinite(_fv)):
+                    raise ValueError("forecast mengandung NaN/inf")
+                results['LSTM'] = {'success': True, 'predictions_test': _fv}
+                leaf_predictions['LSTM'] = _fv
+            except Exception as _e:
+                results['LSTM'] = {'success': False}
+                failed_evaluations.append(
+                    {'Row_ID': leaf_id, 'Jendela': eval_window, 'Model': 'LSTM',
+                     'Alasan': str(_e)[:200]})
+            current_step += 1
+            progress_bar.progress(min(current_step / total_steps, 1.0))
+
         # ========================================================================
         # CALCULATE METRICS - EXACTLY SAME AS Prediksi.py lines 711-779
         # ========================================================================
 
-        def calculate_metrics(actual, predictions):
-            """Calculate all metrics - same formula as Prediksi.py"""
+        def calculate_metrics(actual, predictions, train_values=None):
+            """
+            Calculate all metrics - same formula as Prediksi.py
+
+            Return None kalau prediksi tidak layak dinilai (kosong atau mengandung
+            NaN/inf). Sengaja TIDAK diisi 0 atau di-drop diam-diam: model yang
+            gagal akan terlihat seperti memprediksi 0 dan bisa ikut terpilih
+            sebagai "model terbaik". Lebih baik ditandai gagal secara eksplisit.
+
+            train_values dipakai untuk MASE (lihat di bawah).
+            """
             min_len = min(len(actual), len(predictions))
-            actual = np.array(actual[:min_len])
-            predictions = np.array(predictions[:min_len])
+            if min_len == 0:
+                return None
+
+            actual = np.array(actual[:min_len], dtype=float)
+            predictions = np.array(predictions[:min_len], dtype=float)
+
+            if not np.all(np.isfinite(predictions)) or not np.all(np.isfinite(actual)):
+                return None
 
             mae = mean_absolute_error(actual, predictions)
             rmse = np.sqrt(mean_squared_error(actual, predictions))
@@ -504,7 +1368,27 @@ if run_comparison and len(selected_models) > 0:
 
             bias = np.mean(predictions - actual)
 
-            return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'SMAPE': smape, 'R²': r2, 'DA': da, 'Bias': bias}
+            # MASE (Mean Absolute Scaled Error) - MAE model dibagi MAE dari
+            # forecast naif satu-langkah pada data TRAINING.
+            #
+            # Ditambahkan karena metrik lain tidak bisa langsung menjawab
+            # pertanyaan yang paling penting: "apakah model ini lebih baik dari
+            # tebakan sepele?" R2 menyesatkan di sini (pembandingnya rata-rata
+            # periode test, yang butuh informasi masa depan), dan MAE/RMSE tidak
+            # punya skala acuan sehingga harus dibandingkan manual antar baris.
+            #
+            # Cara baca:  < 1 = lebih baik dari naif  |  = 1 setara  |  > 1 lebih buruk
+            mase = np.nan
+            if train_values is not None and len(train_values) > 1:
+                tv = np.asarray(train_values, dtype=float)
+                tv = tv[np.isfinite(tv)]
+                if len(tv) > 1:
+                    scale = np.mean(np.abs(np.diff(tv)))  # MAE naif satu-langkah di train
+                    if scale > 1e-9:
+                        mase = mae / scale
+
+            return {'MAE': mae, 'RMSE': rmse, 'MAPE': mape, 'SMAPE': smape, 'R²': r2,
+                    'DA': da, 'MASE': mase, 'Bias': bias}
 
         # Calculate metrics for each model (SAME AS Prediksi.py lines 711-779)
         for model_name, result in results.items():
@@ -521,14 +1405,36 @@ if run_comparison and len(selected_models) > 0:
                 if model_name in ['XGBoost', 'LightGBM', 'RandomForest'] and 'test_dates' in result:
                     actual = actual[-len(predictions):]
 
-                metrics = calculate_metrics(actual, predictions)
+                # MASE diskalakan dengan data training model bersangkutan:
+                # APUVA memakai histori penuh, model lain memakai data ML.
+                train_for_scale = (train_apuva['value'].values if model_name == 'APUVA'
+                                   else train_ml['value'].values)
+                metrics = calculate_metrics(actual, predictions, train_values=train_for_scale)
+                if metrics is None:
+                    # Model gagal menghasilkan prediksi yang bisa dinilai.
+                    # Dicatat lalu dilewati - JANGAN sampai membatalkan seluruh
+                    # evaluasi (yang bisa memakan menit-menit) hanya karena satu
+                    # model bermasalah di satu leaf node.
+                    failed_evaluations.append({'Row_ID': leaf_id, 'Jendela': eval_window,
+                                               'Model': model_name,
+                                               'Alasan': 'Prediksi mengandung NaN/inf'})
+                    continue
+
                 metrics['Row_ID'] = leaf_id
+                metrics['Window'] = eval_window
                 metrics['Row_Label'] = row_label
                 metrics['Category'] = category
                 metrics['Sub_Category'] = sub_category
                 metrics['Model'] = model_name
                 metrics['predictions'] = predictions
                 metrics['actual'] = actual
+                # Tanggal disimpan agar grafik prediksi bisa diplot pada sumbu
+                # waktu yang benar. APUVA memakai histori penuh sehingga periode
+                # ujinya berbeda dari model lain - tanggalnya harus ikut model,
+                # bukan diasumsikan sama.
+                _dsrc = test_apuva if model_name == 'APUVA' else test_ml
+                _dts = pd.to_datetime(_dsrc['date']).to_numpy()
+                metrics['dates'] = _dts[-len(actual):] if len(_dts) >= len(actual) else _dts
                 all_results.append(metrics)
 
         # ========================================================================
@@ -538,13 +1444,17 @@ if run_comparison and len(selected_models) > 0:
             status_text.text(f"Evaluating {leaf_id} with Stacking... ({current_step+1}/{total_steps})")
 
             # Stacking requires at least 2 successful base models (excluding Prophet)
-            stacking_base_models = ['APUVA', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR']
+            # LSTM ikut sebagai kandidat: ia satu-satunya base model yang tidak
+            # mengalami drift recursive (R2 -0,36 vs -4,13 milik LightGBM), jadi
+            # justru berguna sebagai penyeimbang di meta-model.
+            stacking_base_models = ['APUVA', 'RandomForest', 'LightGBM', 'XGBoost',
+                                    'AutoARIMA', 'VAR', 'LSTM']
             successful_models_stack = [m for m in stacking_base_models if results.get(m, {}).get('success')]
 
             if len(successful_models_stack) >= 2:
                 try:
                     from sklearn.ensemble import GradientBoostingRegressor
-                    from sklearn.model_selection import KFold
+                    from sklearn.model_selection import TimeSeriesSplit
 
                     # Find shortest prediction length (align like Prediksi.py line 598-603)
                     ml_models_stack = [m for m in successful_models_stack if m != 'APUVA']
@@ -568,11 +1478,25 @@ if run_comparison and len(selected_models) > 0:
                     # Stack predictions as features (SAME AS Prediksi.py line 619)
                     X_stack = np.column_stack([aligned_preds[m] for m in successful_models_stack])
 
-                    # KFold cross-validation for OOF predictions (same as Prediksi.py)
+                    # Cross-validation untuk out-of-fold predictions.
+                    #
+                    # TimeSeriesSplit, BUKAN KFold. KFold(shuffle=False) tetap
+                    # melatih tiap fold memakai SEMUA fold lain - termasuk yang
+                    # berada setelahnya dalam waktu. Pada 20 titik / 5 fold,
+                    # fold pertama dilatih memakai 16 titik MASA DEPAN untuk
+                    # memprediksi 4 titik paling awal. Akibatnya metrik Stacking
+                    # tampak lebih baik dari yang sebenarnya bisa dicapai.
                     n_splits = min(5, len(y_actual_stack) // 2)  # Ensure enough samples per fold
                     if n_splits >= 2:
-                        kf = KFold(n_splits=n_splits, shuffle=False)
+                        kf = TimeSeriesSplit(n_splits=n_splits)
                         oof_predictions = np.zeros(len(y_actual_stack))
+                        # TimeSeriesSplit tidak pernah memvalidasi blok paling
+                        # awal (dipakai sebagai training awal), jadi sebagian
+                        # indeks tidak terisi. Kalau dibiarkan, nilai 0 sisa
+                        # inisialisasi akan ikut dinilai sebagai "prediksi" dan
+                        # merusak metrik - jadi hanya indeks yang benar-benar
+                        # terisi yang dievaluasi.
+                        oof_filled = np.zeros(len(y_actual_stack), dtype=bool)
 
                         for train_idx, val_idx in kf.split(X_stack):
                             X_fold_train, X_fold_val = X_stack[train_idx], X_stack[val_idx]
@@ -583,10 +1507,11 @@ if run_comparison and len(selected_models) > 0:
                             )
                             fold_meta.fit(X_fold_train, y_fold_train)
                             oof_predictions[val_idx] = fold_meta.predict(X_fold_val)
+                            oof_filled[val_idx] = True
 
                         # Use OOF predictions as test predictions (same as Prediksi.py line 654)
-                        predictions_stack = oof_predictions
-                        actual_stack = y_actual_stack
+                        predictions_stack = oof_predictions[oof_filled]
+                        actual_stack = y_actual_stack[oof_filled]
 
                         # Calculate metrics for Stacking
                         mae = mean_absolute_error(actual_stack, predictions_stack)
@@ -611,8 +1536,18 @@ if run_comparison and len(selected_models) > 0:
 
                         bias = np.mean(predictions_stack - actual_stack)
 
+                        # MASE untuk Stacking (skala dari data training ML)
+                        mase = np.nan
+                        _tv = np.asarray(train_ml['value'].values, dtype=float)
+                        _tv = _tv[np.isfinite(_tv)]
+                        if len(_tv) > 1:
+                            _scale = np.mean(np.abs(np.diff(_tv)))
+                            if _scale > 1e-9:
+                                mase = mae / _scale
+
                         stacking_result = {
                             'Row_ID': leaf_id,
+                            'Window': eval_window,
                             'Row_Label': row_label,
                             'Category': category,
                             'Sub_Category': sub_category,
@@ -623,9 +1558,16 @@ if run_comparison and len(selected_models) > 0:
                             'SMAPE': smape,
                             'R²': r2,
                             'DA': da,
+                            'MASE': mase,
                             'Bias': bias,
                             'predictions': predictions_stack,
-                            'actual': actual_stack
+                            'actual': actual_stack,
+                            # Stacking hanya dinilai pada indeks yang benar-benar
+                            # terisi TimeSeriesSplit (blok paling awal dipakai
+                            # sebagai training awal dan tidak pernah divalidasi),
+                            # jadi tanggalnya juga harus disaring dengan mask yang
+                            # sama - kalau tidak, grafiknya akan bergeser.
+                            'dates': pd.to_datetime(test_ml['date']).to_numpy()[-min_len:][oof_filled],
                         }
                         all_results.append(stacking_result)
 
@@ -635,6 +1577,19 @@ if run_comparison and len(selected_models) > 0:
             current_step += 1
             progress_bar.progress(current_step / total_steps)
 
+        # Leaf node ini selesai - simpan progres ke disk SEBELUM lanjut.
+        # Kalau koneksi putus setelah titik ini, hasilnya tidak hilang.
+        done_leaves.append((leaf_id, eval_window))
+        save_checkpoint({
+            'all_results': all_results,
+            'failed_evaluations': failed_evaluations,
+            'done_leaves': done_leaves,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'settings': settings_fingerprint(),
+            'test_size': test_size,
+            'selection_metric': selection_metric,
+        })
+
     progress_bar.progress(1.0)
     status_text.text("✅ Evaluation completed!")
 
@@ -643,15 +1598,62 @@ if run_comparison and len(selected_models) > 0:
         st.stop()
 
     # Convert to DataFrame
-    results_df = pd.DataFrame(all_results)
+    results_raw = pd.DataFrame(all_results)
+    if 'Window' not in results_raw.columns:
+        results_raw['Window'] = 0
+
+    n_win_actual = results_raw['Window'].nunique()
+
+    # ====================================================================
+    # AGREGASI LINTAS JENDELA
+    # ====================================================================
+    # Satu baris per (leaf, model), memakai MEDIAN metrik dari semua jendela.
+    # Median dipilih, bukan mean, karena satu jendela buruk (mis. periode dengan
+    # lonjakan ekstrem) tidak boleh menentukan pemenang sendirian.
+    # Semua langkah setelah ini - tabel performa, pemilihan best model per leaf,
+    # dan penyimpanan model_configs - memakai hasil agregat ini.
+    if n_win_actual > 1:
+        metric_cols = [c for c in ['MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'MASE', 'Bias']
+                       if c in results_raw.columns]
+        meta_cols = ['Row_ID', 'Row_Label', 'Category', 'Sub_Category', 'Model']
+        results_df = (results_raw.groupby(meta_cols, as_index=False)[metric_cols]
+                      .median())
+        # Jumlah jendela yang benar-benar berhasil untuk tiap kombinasi -
+        # kombinasi yang hanya berhasil di sebagian jendela kurang bisa dipercaya.
+        counts = (results_raw.groupby(meta_cols, as_index=False)
+                  .size().rename(columns={'size': 'N_Window'}))
+        results_df = results_df.merge(counts, on=meta_cols, how='left')
+        # Grafik di bagian bawah halaman butuh kolom ini; ambil dari jendela
+        # terakhir (jendela 0) sebagai representasi visual.
+        rep = (results_raw[results_raw['Window'] == results_raw['Window'].min()]
+               .drop_duplicates(subset=meta_cols)[meta_cols + ['predictions', 'actual']])
+        results_df = results_df.merge(rep, on=meta_cols, how='left')
+    else:
+        results_df = results_raw
 
     # Store results in session state
     st.session_state['evaluation_results'] = results_df
+    st.session_state['evaluation_results_raw'] = results_raw
     st.session_state['evaluation_test_size'] = test_size
     st.session_state['evaluation_metric'] = selection_metric
     st.session_state['shap_train_data'] = shap_train_data
 
-    st.success(f"✅ Successfully evaluated {len(selected_models)} models on {len(leaf_nodes)} leaf nodes!")
+    st.success(f"✅ Successfully evaluated {len(selected_models)} models on "
+               f"{results_raw['Row_ID'].nunique()} leaf nodes x {n_win_actual} jendela!")
+
+    if n_win_actual > 1:
+        st.info(f"📐 Metrik di bawah adalah **median dari {n_win_actual} jendela walk-forward**. "
+                f"Pemilihan model terbaik memakai nilai median ini, bukan satu periode saja - "
+                f"pada pengujian, model terbaik dari satu jendela hanya konsisten di ~11% leaf node.")
+
+    # Laporkan kombinasi yang gagal supaya tidak hilang diam-diam - kalau sebuah
+    # model absen dari hasil, user perlu tahu itu karena gagal, bukan karena
+    # kebetulan tidak terpilih.
+    if failed_evaluations:
+        st.warning(f"⚠️ {len(failed_evaluations)} kombinasi leaf x model gagal dan tidak masuk hasil "
+                   f"(evaluasi tetap dilanjutkan untuk sisanya).")
+        with st.expander("📋 Detail kegagalan"):
+            st.dataframe(pd.DataFrame(failed_evaluations), width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 1: OVERALL MODEL PERFORMANCE (same format as Prediksi.py)
@@ -666,12 +1668,13 @@ if run_comparison and len(selected_models) > 0:
         'SMAPE': 'mean',
         'R²': 'mean',
         'DA': 'mean',
+        'MASE': 'mean',
         'Bias': 'mean',
         'Row_ID': 'count'
     }).rename(columns={'Row_ID': 'Count'})
 
     # Sort by model order (filter to only selected models)
-    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR'] if m in selected_models]
+    model_order = [m for m in ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'LSTM', 'AutoARIMA', 'VAR', 'Naive', 'NaiveMean'] if m in selected_models]
     model_summary = model_summary.reindex([m for m in model_order if m in model_summary.index]).reset_index()
     model_summary = model_summary.round(2)
 
@@ -689,6 +1692,7 @@ if run_comparison and len(selected_models) > 0:
         'SMAPE': best_per_leaf['SMAPE'].mean(),
         'R²': best_per_leaf['R²'].mean(),
         'DA': best_per_leaf['DA'].mean(),
+        'MASE': best_per_leaf['MASE'].mean() if 'MASE' in best_per_leaf.columns else np.nan,
         'Bias': best_per_leaf['Bias'].mean(),
         'Count': len(best_per_leaf)
     }
@@ -701,7 +1705,7 @@ if run_comparison and len(selected_models) > 0:
     # Display as simple table (same as Prediksi.py)
     st.markdown("### 📋 Metrics Comparison (Average across all leaf nodes)")
     st.markdown(f"*⭐ Best Combination = setiap leaf node menggunakan model terbaik (by {selection_metric})*")
-    st.dataframe(model_summary, use_container_width=True, hide_index=True)
+    st.dataframe(model_summary, width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 2: BEST MODEL PER LEAF NODE
@@ -737,6 +1741,118 @@ if run_comparison and len(selected_models) > 0:
     # Store best_models in session state for later use
     if len(best_models) > 0:
         st.session_state['best_models_df'] = best_models
+
+    # ========================================================================
+    # SECTION 2b: GRAFIK PREDIKSI PER LEAF
+    # ========================================================================
+    #
+    # Tabel metrik memberi tahu model mana yang lebih baik, tapi tidak
+    # menjelaskan MENGAPA. Grafik ini yang menjelaskannya: drift recursive
+    # model pohon terlihat sebagai garis yang meluncur menjauh, forecast
+    # datar terlihat mendatar, dan lonjakan yang tak tertangkap terlihat
+    # sebagai jarak vertikal di satu titik.
+    #
+    # Yang diplot adalah prediksi OUT-OF-SAMPLE pada periode uji, bukan
+    # fitted value in-sample. Penyebutannya dijaga supaya tidak tertukar:
+    # fitted value in-sample selalu terlihat jauh lebih rapat dan akan
+    # memberi kesan akurasi yang tidak pernah terjadi di produksi.
+    st.subheader("📈 Grafik Prediksi per Leaf Node")
+
+    _plot_src = results_raw if 'predictions' in results_raw.columns else None
+    if _plot_src is None or len(_plot_src) == 0:
+        st.info("Tidak ada data prediksi tersimpan untuk diplot.")
+    else:
+        _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
+        with _pc1:
+            _leaf_opts = sorted(_plot_src['Row_ID'].unique().tolist())
+            _lbl_map = {r['Row_ID']: f"{r['Row_ID']} - {r['Row_Label']}"
+                        for _, r in _plot_src.drop_duplicates('Row_ID').iterrows()}
+            _sel_leaf = st.selectbox("Leaf node:", _leaf_opts,
+                                     format_func=lambda x: _lbl_map.get(x, x),
+                                     key="plot_leaf")
+        with _pc2:
+            _wins = sorted(_plot_src[_plot_src['Row_ID'] == _sel_leaf]['Window'].dropna().unique().tolist()) \
+                if 'Window' in _plot_src.columns else [0]
+            _sel_win = st.selectbox("Jendela:", _wins, key="plot_win",
+                                    help="Jendela 0 = periode paling akhir, 1 = satu horizon sebelumnya, dst.")
+        with _pc3:
+            _ctx = st.number_input("Histori sebelum uji (hari):", min_value=0, max_value=250,
+                                   value=60, step=10, key="plot_ctx",
+                                   help="Menampilkan aktual sebelum periode uji supaya "
+                                        "level dan arah forecast bisa dinilai dalam konteks")
+
+        _sub = _plot_src[(_plot_src['Row_ID'] == _sel_leaf)]
+        if 'Window' in _sub.columns:
+            _sub = _sub[_sub['Window'] == _sel_win]
+
+        _sub = _sub[_sub['predictions'].apply(lambda x: x is not None and len(np.asarray(x)) > 0)]
+
+        if len(_sub) == 0:
+            st.info("Tidak ada prediksi untuk kombinasi ini.")
+        else:
+            _plot_models = st.multiselect(
+                "Model yang ditampilkan:",
+                options=sorted(_sub['Model'].unique().tolist()),
+                default=sorted(_sub['Model'].unique().tolist()),
+                key="plot_models")
+
+            fig_pred = go.Figure()
+
+            # Histori sebelum periode uji, untuk konteks level
+            _first_row = _sub.iloc[0]
+            _test_dates = pd.to_datetime(pd.Series(_first_row.get('dates', [])))
+            if _ctx > 0 and len(_test_dates) > 0:
+                _hist_cols = [c for c in time_cols if pd.to_datetime(c) < _test_dates.iloc[0]][-int(_ctx):]
+                if _hist_cols:
+                    _hv = pd.to_numeric(
+                        df[df['Row_ID'] == _sel_leaf][_hist_cols].values.flatten(),
+                        errors='coerce')
+                    fig_pred.add_trace(go.Scatter(
+                        x=pd.to_datetime(_hist_cols), y=_hv, mode='lines',
+                        name='Histori (sebelum uji)',
+                        line=dict(color='#9aa5ad', width=1.5)))
+
+            # Aktual pada periode uji - digambar tebal sebagai acuan
+            if len(_test_dates) > 0:
+                fig_pred.add_trace(go.Scatter(
+                    x=_test_dates, y=np.asarray(_first_row['actual'], dtype=float),
+                    mode='lines+markers', name='AKTUAL',
+                    line=dict(color='#111418', width=3), marker=dict(size=4)))
+
+            for _, _r in _sub.iterrows():
+                if _r['Model'] not in _plot_models:
+                    continue
+                _d = pd.to_datetime(pd.Series(_r.get('dates', [])))
+                _p = np.asarray(_r['predictions'], dtype=float)
+                if len(_d) != len(_p):
+                    _n = min(len(_d), len(_p))
+                    if _n == 0:
+                        continue
+                    _d, _p = _d.iloc[-_n:], _p[-_n:]
+                _mae = _r.get('MAE', np.nan)
+                fig_pred.add_trace(go.Scatter(
+                    x=_d, y=_p, mode='lines',
+                    name=f"{_r['Model']} (MAE {_mae:.1f})" if pd.notna(_mae) else str(_r['Model']),
+                    line=dict(width=1.8)))
+
+            fig_pred.update_layout(
+                title=f"{_lbl_map.get(_sel_leaf, _sel_leaf)} - jendela {_sel_win}",
+                xaxis_title="Tanggal", yaxis_title="Nilai (USD Juta)",
+                height=520, hovermode='x unified',
+                legend=dict(orientation='h', y=-0.18, yanchor='top'))
+            st.plotly_chart(fig_pred, width='stretch')
+
+            st.caption(
+                "Garis hitam tebal adalah nilai aktual. Prediksi di sini **out-of-sample** "
+                "pada periode uji, bukan fitted value in-sample - fitted value akan terlihat "
+                "jauh lebih rapat dan memberi kesan akurasi yang tidak pernah terjadi di produksi. "
+                "Model pohon yang melayang menjauh dari aktual adalah drift recursive; "
+                "garis yang mendatar berarti model kehilangan sinyal dan jatuh ke rata-rata."
+            )
+
+            _tbl = _sub[['Model'] + [c for c in ['MAE', 'RMSE', 'R²', 'DA', 'MASE', 'Bias']
+                                     if c in _sub.columns]].sort_values('MAE')
+            st.dataframe(_tbl.round(2), width='stretch', hide_index=True)
 
     # ========================================================================
     # SECTION 3: DETAILED COMPARISON TABLE
@@ -775,7 +1891,7 @@ if run_comparison and len(selected_models) > 0:
     display_cols = ['Row_ID', 'Row_Label', 'Category', 'Sub_Category', 'Model', 'MAE', 'RMSE', 'MAPE', 'SMAPE', 'R²', 'DA', 'Bias']
     st.dataframe(
         filtered_results[display_cols].round(2),
-        use_container_width=True,
+        width='stretch',
         height=600
     )
 
@@ -883,7 +1999,7 @@ if run_comparison and len(selected_models) > 0:
         data=buffer,
         file_name=f"model_evaluation_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        use_container_width=True
+        width='stretch'
     )
 
 else:
@@ -892,11 +2008,11 @@ else:
 # ========================================================================
 # SECTION: INTERPRETASI FITUR (SHAP) - PERIODE TRAINING
 #
-# Ditaruh di luar blok `if run_comparison` dan dijaga oleh session_state,
-# sama seperti bagian Simpan Konfigurasi di bawah. Alasannya: setiap kali
-# pengguna mengubah selectbox di bagian ini Streamlit menjalankan ulang
-# skrip dengan run_comparison = False, jadi kalau bagian ini berada di dalam
-# blok evaluasi ia akan hilang begitu selectbox disentuh.
+# Ditaruh di luar blok `if run_comparison` dan dijaga session_state, sama
+# seperti bagian Simpan Konfigurasi di bawah. Alasannya: tiap kali pengguna
+# mengubah selectbox di sini Streamlit menjalankan ulang skrip dengan
+# run_comparison bernilai False, jadi kalau bagian ini berada di dalam blok
+# evaluasi ia akan hilang begitu selectbox disentuh.
 # ========================================================================
 st.markdown("---")
 
@@ -915,29 +2031,30 @@ if _shap_store and _shap_results is not None:
             "Pilih setidaknya salah satunya di sidebar lalu jalankan evaluasi ulang."
         )
     else:
-        # Model terbaik = rata-rata metric terendah (atau tertinggi untuk DA)
-        # di antara model berbasis pohon saja.
         _sub = _shap_results[_shap_results['Model'].isin(_avail_models)].dropna(subset=[_metric])
         if len(_sub) == 0:
             st.warning(f"Tidak ada nilai {_metric} yang valid untuk model berbasis pohon.")
         else:
+            # Model terbaik di antara model pohon saja. DA makin tinggi makin
+            # baik; metric lain sebaliknya.
             _rank = _sub.groupby('Model')[_metric].mean().sort_values(ascending=(_metric != 'DA'))
             _best_model = _rank.index[0]
 
             st.caption(
-                f"Model berbasis pohon terbaik menurut **{_metric}** rata-rata lintas leaf node: "
+                f"Model berbasis pohon terbaik menurut **{_metric}** rata-rata lintas unit: "
                 f"**{_best_model}** ({_rank.iloc[0]:.3f}). "
                 f"Urutan lengkap: " + ", ".join(f"{m} {v:.3f}" for m, v in _rank.items()) + "."
             )
 
             _c1, _c2, _c3 = st.columns([2, 1, 1])
             with _c1:
-                _leaf_opts = list(_shap_store.keys())
-                _leaf_pick = st.selectbox(
-                    "Leaf node",
-                    options=_leaf_opts,
-                    format_func=lambda k: f"{k} — {_shap_store[k]['label']}",
-                    key="shap_leaf",
+                _unit_opts = sorted(_shap_store.keys())
+                _unit_pick = st.selectbox(
+                    "Leaf node dan jendela",
+                    options=_unit_opts,
+                    format_func=lambda k: (f"{k[0]} — {_shap_store[k]['label']} "
+                                           f"(jendela {k[1]})"),
+                    key="shap_unit",
                 )
             with _c2:
                 _model_pick = st.selectbox(
@@ -956,22 +2073,20 @@ if _shap_store and _shap_results is not None:
                     help="SHAP dihitung pada subsampel acak periode training agar tetap responsif.",
                 )
 
-            _run_shap = st.button("🔍 Hitung SHAP", key="shap_run")
-
-            if _run_shap:
+            if st.button("🔍 Hitung SHAP", key="shap_run"):
                 try:
                     import shap
                     import matplotlib.pyplot as plt
                 except ImportError:
                     st.error(
-                        "Paket `shap` belum terpasang. Jalankan `pip install shap` "
-                        "(sudah ditambahkan ke requirements.txt)."
+                        "Paket `shap` belum terpasang. Jalankan "
+                        "`pip install -r requirements.txt` di environment aplikasi."
                     )
                 else:
-                    _d = _shap_store[_leaf_pick]
+                    _d = _shap_store[_unit_pick]
                     _X_full, _y_full = _d['X'], _d['y']
 
-                    # Subsampel acak dengan benih tetap supaya hasilnya bisa diulang.
+                    # Subsampel acak dengan benih tetap supaya bisa diulang.
                     if len(_X_full) > _n_cap:
                         _idx = np.random.RandomState(42).choice(len(_X_full), _n_cap, replace=False)
                         _idx.sort()
@@ -1079,7 +2194,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
     if len(saved_configs) > 0:
         with st.expander("📁 Konfigurasi Tersimpan", expanded=False):
             configs_df = pd.DataFrame(saved_configs)
-            st.dataframe(configs_df[['name', 'date', 'test_size', 'metric']], use_container_width=True)
+            st.dataframe(configs_df[['name', 'date', 'test_size', 'metric']], width='stretch')
             st.caption(f"Total: {len(saved_configs)} konfigurasi tersimpan")
 
     # Initialize with best models
@@ -1147,7 +2262,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
                         with col4:
                             # Use Best_Model from current row (from best_models dataframe)
                             best_model = row['Best_Model']
-                            model_options = ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'AutoARIMA', 'VAR']
+                            model_options = ['Stacking', 'APUVA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost', 'LSTM', 'AutoARIMA', 'VAR']
 
                             # Get index of best model, default to 0 if not found
                             try:
@@ -1177,7 +2292,7 @@ if 'best_models_df' in st.session_state and st.session_state['best_models_df'] i
             )
 
             # Submit button inside form
-            submitted_save = st.form_submit_button("💾 Simpan Konfigurasi", type="primary", use_container_width=True)
+            submitted_save = st.form_submit_button("💾 Simpan Konfigurasi", type="primary", width='stretch')
 
         # Handle form submission OUTSIDE the form
         if submitted_save:
@@ -1245,5 +2360,5 @@ else:
         if len(saved_configs) > 0:
             st.subheader("📁 Konfigurasi Model Tersimpan")
             configs_df = pd.DataFrame(saved_configs)
-            st.dataframe(configs_df, use_container_width=True)
+            st.dataframe(configs_df, width='stretch')
             st.caption(f"Total: {len(saved_configs)} konfigurasi tersimpan")

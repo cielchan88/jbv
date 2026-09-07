@@ -4,6 +4,7 @@ import pandas as pd
 from prophet import Prophet
 from .base import BaseForecaster
 from .. import generate_business_dates
+from ..feature_config import ENABLE_HOLIDAY_FEATURES
 
 
 class ProphetForecaster(BaseForecaster):
@@ -20,29 +21,24 @@ class ProphetForecaster(BaseForecaster):
             'y': values
         })
 
-        self.model = Prophet(
+        kwargs = dict(
             yearly_seasonality=True,
             weekly_seasonality=True,
             daily_seasonality=False,
             changepoint_prior_scale=0.05
         )
 
-        # Add holidays if available
-        if len(self.holidays) > 0:
-            holidays_df = pd.DataFrame({
+        # Efek hari libur hanya dimodelkan kalau saklarnya hidup. Lihat
+        # ENABLE_HOLIDAY_FEATURES di utils/feature_config.py untuk alasannya.
+        if ENABLE_HOLIDAY_FEATURES and len(self.holidays) > 0:
+            kwargs['holidays'] = pd.DataFrame({
                 'holiday': 'holiday',
                 'ds': pd.to_datetime(self.holidays),
                 'lower_window': 0,
                 'upper_window': 0
             })
-            self.model = Prophet(
-                holidays=holidays_df,
-                yearly_seasonality=True,
-                weekly_seasonality=True,
-                daily_seasonality=False,
-                changepoint_prior_scale=0.05
-            )
 
+        self.model = Prophet(**kwargs)
         self.model.fit(prophet_df)
         self.last_date = pd.to_datetime(dates[-1])
 

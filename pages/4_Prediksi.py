@@ -28,7 +28,7 @@ warnings.filterwarnings('ignore')
 st.set_page_config(page_title="Prediksi - JBV Dashboard", layout="wide")
 
 # Import utils
-from utils import load_holidays, generate_business_dates
+from utils import load_holidays, generate_business_dates, ML_START_DATE
 from utils.data_loader import load_etl_output, parse_children
 from utils.forecasting import forecast_single_series
 
@@ -136,7 +136,10 @@ if run_test and selected_series:
     dates_full = pd.to_datetime(time_cols)
 
     # Get FILTERED time series data (for ML models - 2019+ with external features)
-    time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp('2019-01-01')]
+    if ML_START_DATE is not None:
+        time_cols_ml = [col for col in time_cols if pd.to_datetime(col) >= pd.Timestamp(ML_START_DATE)]
+    else:
+        time_cols_ml = time_cols  # ML pakai histori penuh yang sama dengan ETL/APUVA
     values_ml = series_data[time_cols_ml].values.flatten()
     # Clean None/NaN values
     values_ml = np.array(values_ml, dtype=float)
@@ -166,9 +169,12 @@ if run_test and selected_series:
     test_apuva = ts_df_apuva.iloc[split_idx_apuva:]
 
     # Display data info
-    st.write(f"📊 **ML Models (2019+)**: Training {len(train_ml)} hari | Testing {len(test_ml)} hari")
-    st.write(f"📊 **APUVA (2006+)**: Training {len(train_apuva)} hari | Testing {len(test_apuva)} hari | **Forecast**: {forecast_days} hari")
-    st.info("ℹ️ ML models use 2019+ data with external features. APUVA uses full historical data (2006-2025) for accurate year-over-year calculations.")
+    ml_start_label = dates_ml[0].strftime('%Y') + "+" if len(dates_ml) > 0 else "N/A"
+    apuva_start_label = dates_full[0].strftime('%Y') + "+" if len(dates_full) > 0 else "N/A"
+    st.write(f"📊 **ML Models ({ml_start_label})**: Training {len(train_ml)} hari | Testing {len(test_ml)} hari")
+    st.write(f"📊 **APUVA ({apuva_start_label})**: Training {len(train_apuva)} hari | Testing {len(test_apuva)} hari | **Forecast**: {forecast_days} hari")
+    st.info("ℹ️ External features (Oil Price, USD/IDR, Sentiment, dll) sedang dimatikan sementara - "
+            "ML models dan APUVA sekarang sama-sama pakai seluruh histori data yang tersedia.")
 
     # Load holidays
     holidays_list = load_holidays()
@@ -199,7 +205,7 @@ if run_test and selected_series:
 
         # 5. Merge with external features from Excel
         from utils.external_loader import load_and_merge_external_features
-        external_series_data = load_and_merge_external_features(cross_series_only)
+        external_series_data = load_and_merge_external_features(cross_series_only, time_cols_ml)
 
     # ========================================================================
     # FEATURE ENGINEERING (SHARED ACROSS ALL ML MODELS)
@@ -213,8 +219,17 @@ if run_test and selected_series:
         test_fe = test_ml.rename(columns={'date': 'ds', 'value': 'y'})
 
         # Create optimized features (60-70% fewer features, preserves volatility capture)
-        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
-        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series=external_series_data)
+        #
+        # TANPA cross-series, sengaja. Fitur di sini dipakai untuk metrik uji
+        # dan tabel "fitur terpilih" yang DITAMPILKAN sebagai penjelas forecast
+        # di bawah. Peramal rekursif (RandomForest/XGBoost/LightGBM) tidak lagi
+        # memakai ext_* - lihat ENABLE_CROSS_SERIES_FOR_RECURSIVE di
+        # utils/feature_config.py - jadi kalau di sini masih dipakai, angka dan
+        # daftar fitur yang ditampilkan menggambarkan model yang berbeda dari
+        # model yang menghasilkan forecast. VAR di bawah tetap memakai
+        # external_series_data lewat jalurnya sendiri.
+        train_features = create_features_optimized(train_fe, lag_steps=90, holidays_list=holidays_list, external_series_dates=dates_ml)
+        test_features = create_features_optimized(test_fe, lag_steps=90, holidays_list=holidays_list, external_series_dates=dates_ml)
 
         # Check if test_features is empty or too small
         if len(test_features) == 0:
@@ -438,7 +453,7 @@ if run_test and selected_series:
 
         st.dataframe(
             styled_df,
-            use_container_width=True,
+            width='stretch',
             height=min(500, len(feature_df_all) * 35 + 38),
             hide_index=True
         )
@@ -1007,7 +1022,7 @@ if run_test and selected_series:
 
     # Display summary table only
     st.markdown("### 📋 Metrics Comparison")
-    st.dataframe(metrics_df.round(2), use_container_width=True)
+    st.dataframe(metrics_df.round(2), width='stretch')
 
     # ========================================================================
     # SECTION 2: VISUAL COMPARISON (3 PLOTS SIDE BY SIDE)
@@ -1146,7 +1161,7 @@ if run_test and selected_series:
                     )
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.error(f"❌ Model {model_name} gagal: {result.get('error', 'Unknown error')}")
 
@@ -1180,7 +1195,7 @@ if run_test and selected_series:
                     'Lower Bound': result['forecast_lower'][:forecast_len].round(0),
                     'Upper Bound': result['forecast_upper'][:forecast_len].round(0)
                 })
-                st.dataframe(forecast_df, use_container_width=True, height=400)
+                st.dataframe(forecast_df, width='stretch', height=400)
             else:
                 st.error(f"❌ Model {model_name} gagal: {result.get('error', 'Unknown error')}")
 
@@ -1287,7 +1302,7 @@ if run_test and selected_series:
                     showlegend=False
                 )
 
-                st.plotly_chart(fig_residuals, use_container_width=True)
+                st.plotly_chart(fig_residuals, width='stretch')
 
                 # Statistics for this model
                 st.markdown("### 📊 Residual Statistics")
@@ -1303,7 +1318,7 @@ if run_test and selected_series:
                     ]
                 }
                 residual_stats_df = pd.DataFrame(residual_stats)
-                st.dataframe(residual_stats_df.round(4), use_container_width=True, hide_index=True)
+                st.dataframe(residual_stats_df.round(4), width='stretch', hide_index=True)
             else:
                 st.warning(f"No residual data available for {model_name}")
 
@@ -1370,7 +1385,7 @@ if run_test and selected_series:
                             yaxis_title="Feature",
                             height=500
                         )
-                        st.plotly_chart(fig_importance, use_container_width=True)
+                        st.plotly_chart(fig_importance, width='stretch')
 
                         # ========== 2. SHAP Beeswarm/Summary Plot ==========
                         st.markdown(f"#### 🐝 SHAP Summary (Beeswarm)")
@@ -1439,7 +1454,7 @@ if run_test and selected_series:
                             showlegend=False
                         )
                         fig_beeswarm.add_vline(x=0, line_dash="dash", line_color="gray")
-                        st.plotly_chart(fig_beeswarm, use_container_width=True)
+                        st.plotly_chart(fig_beeswarm, width='stretch')
 
                     except Exception as e:
                         st.error(f"Error computing SHAP for {model_name}: {str(e)}")

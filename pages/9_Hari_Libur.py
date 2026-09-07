@@ -54,7 +54,7 @@ with col3:
         key='new_category'
     )
 
-if st.button("➕ Tambah Hari Libur", use_container_width=True):
+if st.button("➕ Tambah Hari Libur", width='stretch'):
     if new_name.strip():
         # Check if date already exists
         date_str = new_date.strftime('%Y-%m-%d')
@@ -120,7 +120,7 @@ if st.session_state.holidays:
         'kategori': 'Kategori'
     })
 
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    st.dataframe(df_display, width='stretch', hide_index=True)
 
     st.markdown(f"**Total: {len(df_filtered)} hari libur**")
 
@@ -159,7 +159,7 @@ if st.session_state.holidays:
                 key='edit_category'
             )
 
-            if st.button("💾 Simpan Perubahan", use_container_width=True):
+            if st.button("💾 Simpan Perubahan", width='stretch'):
                 if edit_name.strip():
                     st.session_state.holidays[selected_index] = {
                         'tanggal': edit_date.strftime('%Y-%m-%d'),
@@ -178,7 +178,7 @@ if st.session_state.holidays:
             st.markdown("### Hapus Hari Libur")
             st.warning(f"Anda akan menghapus: **{selected_data['nama']}** ({selected_data['tanggal']})")
 
-            if st.button("🗑️ Hapus Hari Libur", type="primary", use_container_width=True):
+            if st.button("🗑️ Hapus Hari Libur", type="primary", width='stretch'):
                 st.session_state.holidays.pop(selected_index)
                 save_holidays(st.session_state.holidays)
                 st.success("✅ Hari libur berhasil dihapus!")
@@ -190,7 +190,7 @@ if st.session_state.holidays:
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("🗑️ Hapus Semua Hari Libur", use_container_width=True):
+        if st.button("🗑️ Hapus Semua Hari Libur", width='stretch'):
             st.session_state.holidays = []
             save_holidays(st.session_state.holidays)
             st.success("✅ Semua hari libur berhasil dihapus!")
@@ -209,7 +209,7 @@ if st.session_state.holidays:
             data=buffer,
             file_name=f"hari_libur_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            use_container_width=True
+            width='stretch'
         )
 
 else:

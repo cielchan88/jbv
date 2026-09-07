@@ -289,12 +289,13 @@ def align_external_features_to_dates(
     """
     # Create DataFrame for easier alignment
     external_df = pd.DataFrame(external_dict, index=external_dates)
+    external_df = external_df[~external_df.index.duplicated(keep='last')].sort_index()
 
     # Reindex to target dates with forward fill
     aligned_df = external_df.reindex(target_dates, method='ffill')
 
     # Backward fill for leading NaNs
-    aligned_df = aligned_df.fillna(method='bfill')
+    aligned_df = aligned_df.bfill()
 
     # Convert back to dict
     aligned_dict = {col: aligned_df[col].values for col in aligned_df.columns}
