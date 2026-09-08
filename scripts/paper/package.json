@@ -1,0 +1,12 @@
+{
+  "name": "jbv-paper-builder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Penyusun ulang naskah evaluasi peramalan ke kerangka bagian standar",
+  "scripts": {
+    "build": "node build_paper.js"
+  },
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}

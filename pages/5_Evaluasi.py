@@ -651,6 +651,17 @@ run_comparison = st.sidebar.button("🚀 Jalankan Evaluasi", type="primary")
 # Check if we have previous results in session state
 has_results = 'evaluation_results' in st.session_state and st.session_state['evaluation_results'] is not None
 
+# ============================================================================
+# SHAP: model apa saja yang bisa dijelaskan
+#
+# SHAP di sini memakai TreeExplainer, yang hanya berlaku untuk model berbasis
+# pohon dengan satu matriks fitur. Naive/NaiveMean, Prophet, APUVA, AutoARIMA,
+# dan VAR tidak punya matriks seperti itu; Stacking gabungan beberapa model dan
+# LSTM bukan pohon. Semuanya sengaja tidak masuk daftar - lebih baik tidak
+# menampilkan apa pun daripada grafik yang tidak berarti.
+# ============================================================================
+SHAP_MODELS = ['RandomForest', 'LightGBM', 'XGBoost']
+
 # Main evaluation logic
 if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
@@ -897,6 +908,12 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
                "recursive karena mode direct tidak punya makna untuk model urutan.")
         )
 
+    # Matriks rancangan periode training per (leaf, jendela), dipakai bagian
+    # SHAP di bawah. Kalau evaluasi dilanjutkan dari checkpoint, isinya hanya
+    # unit yang diproses pada run ini - unit lama tidak ikut karena X-nya
+    # memang tidak pernah dihitung ulang.
+    shap_train_data = {}
+
     for leaf_id, eval_window in pending_units:
         # Get historical values
         leaf_row = df[df['Row_ID'] == leaf_id]
@@ -1034,6 +1051,20 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             else:
                 feature_cols = []
                 X_train = X_test = y_train = y_test = None
+
+        # Catatan untuk bagian SHAP di bawah: yang disimpan hanya POTONGAN DERET
+        # training, bukan matriks fitur. Di mode recursive blok fitur di atas
+        # sengaja dilewati (forecaster membangun fiturnya sendiri), jadi X_train
+        # memang tidak ada - menempelkan cache ke sana membuat panel SHAP diam-
+        # diam kosong. Fiturnya dibangun ulang saat tombol Hitung SHAP ditekan,
+        # sehingga tidak ada biaya sama sekali kalau panelnya tidak dibuka.
+        if any(m in selected_models for m in SHAP_MODELS):
+            shap_train_data[(leaf_id, int(eval_window))] = {
+                'ds': pd.to_datetime(train_ml['date']).to_numpy(),
+                'y': np.asarray(train_ml['value'], dtype=float),
+                'label': row_label,
+                'n_train': int(len(train_ml)),
+            }
 
         # ========================================================================
         # EVALUATE ALL MODELS - Using prepared data
@@ -1605,6 +1636,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
     st.session_state['evaluation_results_raw'] = results_raw
     st.session_state['evaluation_test_size'] = test_size
     st.session_state['evaluation_metric'] = selection_metric
+    st.session_state['shap_train_data'] = shap_train_data
 
     st.success(f"✅ Successfully evaluated {len(selected_models)} models on "
                f"{results_raw['Row_ID'].nunique()} leaf nodes x {n_win_actual} jendela!")
@@ -1972,6 +2004,189 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
 else:
     st.info("👈 Atur ukuran test set di sidebar dan klik **Jalankan Evaluasi** untuk memulai")
+
+# ========================================================================
+# SECTION: INTERPRETASI FITUR (SHAP) - PERIODE TRAINING
+#
+# Ditaruh di luar blok `if run_comparison` dan dijaga session_state, sama
+# seperti bagian Simpan Konfigurasi di bawah. Alasannya: tiap kali pengguna
+# mengubah selectbox di sini Streamlit menjalankan ulang skrip dengan
+# run_comparison bernilai False, jadi kalau bagian ini berada di dalam blok
+# evaluasi ia akan hilang begitu selectbox disentuh.
+# ========================================================================
+st.markdown("---")
+
+_shap_store = st.session_state.get('shap_train_data') or {}
+_shap_results = st.session_state.get('evaluation_results')
+
+if _shap_results is not None:
+    st.subheader("🧠 Interpretasi Fitur (SHAP) — Periode Training")
+
+if _shap_results is not None and not _shap_store:
+    # Terjadi kalau evaluasi dilanjutkan dari checkpoint: unit yang sudah
+    # selesai tidak diproses ulang, jadi potongan deret trainingnya tidak
+    # pernah tersimpan. Sebelumnya bagian ini hilang tanpa penjelasan.
+    st.info(
+        "Tidak ada data periode training yang tersimpan untuk sesi ini. "
+        "Ini terjadi kalau evaluasi dilanjutkan dari checkpoint — unit yang "
+        "sudah selesai tidak diproses ulang. Hapus checkpoint lalu jalankan "
+        "evaluasi dari awal dengan minimal satu model berbasis pohon "
+        "(RandomForest, LightGBM, atau XGBoost) untuk mengaktifkan panel ini."
+    )
+elif _shap_store and _shap_results is not None:
+
+    _metric = st.session_state.get('evaluation_metric', 'SMAPE')
+    _avail_models = [m for m in SHAP_MODELS if m in _shap_results['Model'].unique()]
+
+    if not _avail_models:
+        st.info(
+            "SHAP hanya tersedia untuk RandomForest, LightGBM, dan XGBoost. "
+            "Pilih setidaknya salah satunya di sidebar lalu jalankan evaluasi ulang."
+        )
+    else:
+        _sub = _shap_results[_shap_results['Model'].isin(_avail_models)].dropna(subset=[_metric])
+        if len(_sub) == 0:
+            st.warning(f"Tidak ada nilai {_metric} yang valid untuk model berbasis pohon.")
+        else:
+            # Model terbaik di antara model pohon saja. DA makin tinggi makin
+            # baik; metric lain sebaliknya.
+            _rank = _sub.groupby('Model')[_metric].mean().sort_values(ascending=(_metric != 'DA'))
+            _best_model = _rank.index[0]
+
+            st.caption(
+                f"Model berbasis pohon terbaik menurut **{_metric}** rata-rata lintas unit: "
+                f"**{_best_model}** ({_rank.iloc[0]:.3f}). "
+                f"Urutan lengkap: " + ", ".join(f"{m} {v:.3f}" for m, v in _rank.items()) + "."
+            )
+
+            _c1, _c2, _c3 = st.columns([2, 1, 1])
+            with _c1:
+                _unit_opts = sorted(_shap_store.keys())
+                _unit_pick = st.selectbox(
+                    "Leaf node dan jendela",
+                    options=_unit_opts,
+                    format_func=lambda k: (f"{k[0]} — {_shap_store[k]['label']} "
+                                           f"(jendela {k[1]})"),
+                    key="shap_unit",
+                )
+            with _c2:
+                _model_pick = st.selectbox(
+                    "Model",
+                    options=_avail_models,
+                    index=_avail_models.index(_best_model),
+                    key="shap_model",
+                    help="Default-nya model pohon terbaik menurut metric acuan.",
+                )
+            with _c3:
+                _n_cap = st.select_slider(
+                    "Sampel baris",
+                    options=[250, 500, 1000, 2000, 5000],
+                    value=1000,
+                    key="shap_n",
+                    help="SHAP dihitung pada subsampel acak periode training agar tetap responsif.",
+                )
+
+            if st.button("🔍 Hitung SHAP", key="shap_run"):
+                try:
+                    import shap
+                    import matplotlib.pyplot as plt
+                except ImportError:
+                    st.error(
+                        "Paket `shap` belum terpasang. Jalankan "
+                        "`pip install -r requirements.txt` di environment aplikasi."
+                    )
+                else:
+                    _d = _shap_store[_unit_pick]
+
+                    # Fitur dibangun ULANG di sini, bukan diambil dari cache.
+                    # Di mode recursive halaman ini sengaja tidak membangun
+                    # matriks fitur saat evaluasi (forecaster melakukannya
+                    # sendiri), jadi satu-satunya cara mendapatkannya adalah
+                    # menghitungnya saat dibutuhkan. Konsekuensinya nol biaya
+                    # kalau panel ini tidak dibuka. external_series sengaja
+                    # tidak diberikan, mengikuti ENABLE_CROSS_SERIES_FOR_RECURSIVE
+                    # yang mati - jadi fiturnya sama dengan yang benar-benar
+                    # dilihat model.
+                    with st.spinner("Membangun fitur periode training ..."):
+                        from utils.feature_engineering_optimized import (
+                            create_features_optimized, select_top_features_optimized)
+                        _fe = pd.DataFrame({'ds': pd.to_datetime(_d['ds']), 'y': _d['y']})
+                        _feats = create_features_optimized(
+                            _fe, lag_steps=90, holidays_list=load_holidays())
+                        _allc = [c for c in _feats.columns
+                                 if c not in ('ds', 'date', 'value')]
+                        _top, _ = select_top_features_optimized(_feats, top_k=25)
+                        _cols = [c for c in _top if c in _allc] or _allc[:25]
+                        _X_full = _feats[_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                        _y_full = _feats['value'].to_numpy(dtype=float)
+
+                    if len(_X_full) == 0:
+                        st.warning("Periode training terlalu pendek untuk membentuk fitur.")
+                        st.stop()
+
+                    # Subsampel acak dengan benih tetap supaya bisa diulang.
+                    if len(_X_full) > _n_cap:
+                        _idx = np.random.RandomState(42).choice(len(_X_full), _n_cap, replace=False)
+                        _idx.sort()
+                        _Xs = _X_full.iloc[_idx]
+                    else:
+                        _Xs = _X_full
+
+                    with st.spinner(f"Melatih ulang {_model_pick} dan menghitung SHAP ..."):
+                        if _model_pick == 'RandomForest':
+                            _m = RandomForestRegressor(n_estimators=100, max_depth=10,
+                                                       random_state=42, n_jobs=-1)
+                        elif _model_pick == 'LightGBM':
+                            _m = LGBMRegressor(n_estimators=100, learning_rate=0.05,
+                                               max_depth=5, random_state=42, verbose=-1)
+                        else:
+                            _m = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05,
+                                                  max_depth=5, random_state=42, verbosity=0)
+                        _m.fit(_X_full, _y_full)
+
+                        _explainer = shap.TreeExplainer(_m)
+                        try:
+                            _expl = _explainer(_Xs, check_additivity=False)
+                        except TypeError:
+                            # Sebagian versi TreeExplainer tidak menerima argumen itu.
+                            _expl = _explainer(_Xs)
+
+                    st.success(
+                        f"SHAP dihitung pada {len(_Xs):,} dari {_d['n_train']:,} baris periode "
+                        f"training, {len(_cols)} fitur terpilih."
+                    )
+
+                    _g1, _g2 = st.columns(2)
+                    with _g1:
+                        st.markdown("**Bar — rata-rata |SHAP| per fitur**")
+                        _fig1 = plt.figure(figsize=(6, 7))
+                        shap.plots.bar(_expl, max_display=20, show=False)
+                        plt.tight_layout()
+                        st.pyplot(_fig1, clear_figure=True)
+                        st.caption(
+                            "Besar rata-rata kontribusi tiap fitur terhadap ramalan, tanpa arah. "
+                            "Menjawab: fitur mana yang paling banyak dipakai model."
+                        )
+                    with _g2:
+                        st.markdown("**Beeswarm — sebaran SHAP per observasi**")
+                        _fig2 = plt.figure(figsize=(6, 7))
+                        shap.plots.beeswarm(_expl, max_display=20, show=False)
+                        plt.tight_layout()
+                        st.pyplot(_fig2, clear_figure=True)
+                        st.caption(
+                            "Satu titik = satu hari. Posisi horizontal menunjukkan arah dan besar "
+                            "pengaruhnya; warna menunjukkan nilai fiturnya (merah tinggi, biru rendah). "
+                            "Menjawab: naiknya fitur mendorong ramalan ke arah mana."
+                        )
+
+                    st.info(
+                        "**Cara membaca yang benar.** Kedua grafik ini menjelaskan apa yang model "
+                        "*pelajari dari periode training*, bukan apa yang benar-benar berdaya prediksi. "
+                        "Evaluasi menunjukkan kecocokan pada periode training bisa berbanding terbalik "
+                        "dengan akurasi di luar sampel, sehingga fitur yang tampak dominan di sini belum "
+                        "tentu membantu ramalan. Pakai ini untuk memahami perilaku model, bukan sebagai "
+                        "bukti tentang penggerak arus valas."
+                    )
 
 # ========================================================================
 # SECTION: SAVE CONFIGURATION (Always available if has evaluation results)

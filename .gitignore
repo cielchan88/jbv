@@ -48,3 +48,11 @@ data/eval_checkpoint.pkl
 config.py
 .env
 .env.local
+
+# Node
+node_modules/
+
+# Naskah: keluaran scripts/paper (memuat statistik deskriptif data pengawasan)
+scripts/paper/doc_items.json
+scripts/paper/fig/
+*.docx
