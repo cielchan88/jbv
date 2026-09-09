@@ -6,7 +6,7 @@ from sklearn.ensemble import RandomForestRegressor
 from .base import BaseForecaster
 from ..feature_engineering_optimized import create_features_optimized as create_features_advanced, select_top_features_optimized as select_top_features, transform_target, inverse_transform_target
 from .. import generate_business_dates
-from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT, cross_series_for_recursive, warn_missing_at_predict
+from ..feature_config import MIN_HISTORY_FOR_RECURSIVE_PREDICT, TOP_K_FEATURES, cross_series_for_recursive, warn_missing_at_predict
 
 
 class RandomForestForecaster(BaseForecaster):
@@ -38,7 +38,7 @@ class RandomForestForecaster(BaseForecaster):
             raise ValueError("Not enough data for feature engineering")
 
         # Select top features
-        top_features, _ = select_top_features(train_features, top_k=25)
+        top_features, _ = select_top_features(train_features, top_k=TOP_K_FEATURES)
 
         # IMPORTANT: Only use features that actually exist in train_features
         available_features = [col for col in train_features.columns if col not in ['ds', 'date', 'value']]

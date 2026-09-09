@@ -158,6 +158,48 @@ def warn_missing_at_predict(missing, model_name='model'):
 
 
 # ============================================================================
+# JUMLAH FITUR YANG DIPILIH
+# ============================================================================
+# Berapa fitur teratas yang diteruskan select_top_features_optimized() ke model.
+#
+# Sebelumnya angka 25 ditulis keras di sembilan tempat terpisah - empat model,
+# tiga halaman, dan skrip naskah. Akibatnya mengubahnya berarti sembilan
+# suntingan, dan kalau satu terlewat model bisa dilatih dengan jumlah fitur
+# berbeda tanpa satu pun tanda di log. Sekarang semuanya menunjuk ke sini.
+#
+# 25 adalah nilai yang dipakai untuk seluruh hasil yang sudah tercatat, jadi
+# mengubahnya membuat angka baru tidak sebanding dengan angka lama.
+#
+# Yang perlu diketahui sebelum menaikkannya. Kolam fitur berisi 90 kandidat
+# internal (122 dengan fitur eksternal), dan seleksinya memakai korelasi
+# Spearman univariat terhadap LEVEL target. Kriteria itu punya kecenderungan
+# yang terukur: ia memilih salinan level. Dari 25 slot, rata-rata 12,3 jatuh ke
+# rolling mean/min/max dan 2,5 lagi ke ewm - lebih dari separuh anggaran fitur
+# habis untuk varian benda yang sama. Rata-rata |korelasi| antar 25 fitur
+# terpilih 0,638, setara hanya sekitar 2,4 fitur bebas.
+#
+# Memperbesar KOLAM tidak menolong, malah sebaliknya. Diuji pada 10 leaf dengan
+# kolam diperluas ke 149 (menambah lag 2/3/21/60, rolling 3/21, ewm 14/60,
+# z-score 7/60): kandidat baru langsung merebut 7,7 dari 25 slot - didominasi
+# rolling_mean_3, rolling_max_3, ewm_14 - dan seluruh ukuran informasi memburuk,
+# redundansi 0,638 -> 0,690 dan fitur efektif 2,4 -> 2,0. Jendela pendek nyaris
+# identik dengan level, jadi ia menang lalu menendang keluar fitur yang membawa
+# informasi lain.
+#
+# Menaikkan TOP_K sendiri BELUM PERNAH DIUJI. Satu-satunya arm yang pernah
+# dicoba justru ke bawah (top-10, p=0,068, lihat catatan di
+# select_top_features_optimized). Jadi angka lain di sini adalah hipotesis,
+# bukan perbaikan - ubah hanya dengan hasil ablation di tangan.
+TOP_K_FEATURES = 25
+
+# Berapa seri saudara (leaf lain) yang dipertimbangkan sebagai cross-series.
+# Dipakai select_top_correlated_series(). Perlu dicatat: hasilnya hanya sampai
+# ke VAR dan jalur teacher-forced, karena ENABLE_CROSS_SERIES_FOR_RECURSIVE
+# menyaringnya keluar dari peramal rekursif (lihat catatan saklar di atas).
+TOP_K_CROSS_SERIES = 30
+
+
+# ============================================================================
 # FEATURE CONFIGURATION FOR HIGH VOLATILITY DATA
 # ============================================================================
 
@@ -194,8 +236,13 @@ FEATURE_CONFIG = {
     "rolling_statistics": {
         "enabled": True,
         "windows": [7, 14, 30, 60, 90],  # REDUCED from [3, 7, 14, 21, 30, 60, 90, 120, 180]
+        # PERHATIAN: daftar ini hanya bisa DIKURANGI, tidak bisa ditambah.
+        # create_features_optimized() punya cabang eksplisit untuk empat nama
+        # ini saja (mean/std/min/max); nama lain diabaikan diam-diam. Sudah
+        # diukur - menambahkan "median" dan "skew" menghasilkan delta +0 fitur.
+        # Untuk menambah statistik baru, tambahkan dulu cabangnya di sana.
         "stats": ["mean", "std", "min", "max"],  # 4 stats per window = 20 features
-        # REMOVED: median, skew, kurt, range, q25, q75 (6 stats removed)
+        # DIHAPUS: median, skew, kurt, range, q25, q75
     },
 
     # ========================================================================
@@ -291,27 +338,37 @@ FEATURE_CONFIG = {
     },
 
     # ========================================================================
-    # MOMENTUM FEATURES (REMOVED - 9 features)
+    # TIGA BLOK BERIKUT BUKAN SAKLAR - TIDAK ADA IMPLEMENTASINYA
     # ========================================================================
+    # Ketiganya terbaca seperti fitur yang tinggal dinyalakan lewat
+    # enabled=True. Itu keliru: create_features_optimized() TIDAK PERNAH
+    # membaca ketiga kunci ini. Sudah diukur - menyetel ketiganya ke True
+    # menghasilkan tepat 90 fitur, sama persis dengan False (delta +0).
+    #
+    # Jadi untuk memakainya, kodenya harus ditulis lebih dulu di
+    # create_features_optimized(); mengubah False jadi True tidak melakukan
+    # apa pun. Kuncinya sengaja tidak dihapus supaya catatan alasan
+    # penghapusannya tidak ikut hilang.
+    # ========================================================================
+
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
     "momentum_features": {
-        "enabled": False,  # REMOVED ALL - redundant with value_diff and value_pct_change
-        # momentum_7, momentum_30, momentum_60, roc_7, roc_14, roc_30, roc_60, roc_90 (9 features removed)
+        "enabled": False,  # dihapus dulu: redundan dengan value_diff dan value_pct_change
+        # momentum_7, momentum_30, momentum_60, roc_7, roc_14, roc_30, roc_60, roc_90
     },
 
-    # ========================================================================
-    # AUTOCORRELATION FEATURES (REMOVED - 3 features)
-    # ========================================================================
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
     "autocorrelation_features": {
-        "enabled": False,  # REMOVED ALL - low correlation with target
-        # autocorr_7, autocorr_14, autocorr_30 (3 features removed)
+        "enabled": False,  # dihapus dulu: korelasi rendah dengan target
+        # autocorr_7, autocorr_14, autocorr_30
     },
 
-    # ========================================================================
-    # DISTANCE FROM MEAN (REMOVED - 3 features)
-    # ========================================================================
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
+    # Catatan: utils/feature_engineering.py (modul lama) memang membangun
+    # distance_from_mean_*, tapi ia tidak membaca kunci ini juga.
     "distance_from_mean": {
-        "enabled": False,  # REMOVED ALL - redundant with z_score
-        # distance_from_mean_7, distance_from_mean_30, distance_from_mean_60 (3 features removed)
+        "enabled": False,  # dihapus dulu: redundan dengan z_score
+        # distance_from_mean_7, distance_from_mean_30, distance_from_mean_60
     },
 
     # ========================================================================

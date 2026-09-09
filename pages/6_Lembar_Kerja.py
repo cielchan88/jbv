@@ -11,6 +11,7 @@ st.set_page_config(page_title="Lembar Kerja - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
+from utils.feature_config import TOP_K_FEATURES, TOP_K_CROSS_SERIES
 from utils.data_loader import load_etl_output, parse_children
 from utils.forecasting import forecast_single_series
 from utils.forecast_version import save_forecast_version, list_forecast_versions
@@ -196,7 +197,7 @@ def prepare_cross_series_data(df, leaf_nodes, time_cols):
         correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
 
         # 3. Select top 30 correlated series
-        top_30_series = select_top_correlated_series(correlations, top_k=30)
+        top_30_series = select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES)
 
         # 4. Prepare external series data (cross-series only) - using 2019+ data
         cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
@@ -453,7 +454,7 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                                 feature_scores_all[col] = 0
 
                         # Select top 25 features (with volatility priority)
-                        top_features, _ = select_top_features_optimized(train_features_temp, top_k=25)
+                        top_features, _ = select_top_features_optimized(train_features_temp, top_k=TOP_K_FEATURES)
                         selected_features = [f for f in top_features if f in available_features]
 
                         # Get scores for ALL selected features (all 25)
@@ -551,7 +552,7 @@ if st.button(f"🚀 Generate Forecast {forecast_days} Hari untuk Semua Leaf Node
                         )
 
                         available_features = [col for col in train_features_temp.columns if col not in ['ds', 'date', 'value']]
-                        top_features, _ = select_top_features_optimized(train_features_temp, top_k=25)
+                        top_features, _ = select_top_features_optimized(train_features_temp, top_k=TOP_K_FEATURES)
                         feature_cols = [f for f in top_features if f in available_features]
 
                         if len(feature_cols) > 0:

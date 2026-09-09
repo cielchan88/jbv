@@ -13,7 +13,8 @@ Key improvements:
 import pandas as pd
 import numpy as np
 import json
-from .feature_config import FEATURE_CONFIG, get_forced_features
+from .feature_config import (FEATURE_CONFIG, get_forced_features,
+                             TOP_K_FEATURES, TOP_K_CROSS_SERIES)
 
 
 def parse_children(children_value):
@@ -98,7 +99,7 @@ def calculate_series_correlations(df, target_row_id, candidate_series, time_cols
     return correlations
 
 
-def select_top_correlated_series(correlations, top_k=30):
+def select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES):
     """
     Select top K series with highest correlation
 
@@ -664,7 +665,7 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     return df
 
 
-def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_beta=0.0):
+def select_top_features_optimized(train_df, top_k=TOP_K_FEATURES, volatility_quota=0, mrmr_beta=0.0):
     """
     Select top K features using correlation (Spearman), with an optional
     reserved quota for volatility features.

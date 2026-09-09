@@ -30,7 +30,8 @@ st.set_page_config(page_title="Evaluasi - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
-from utils.feature_config import ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE
+from utils.feature_config import (ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE,
+                                  TOP_K_FEATURES, TOP_K_CROSS_SERIES)
 from utils.data_loader import load_etl_output, parse_children
 
 # Daftar model didefinisikan DI SINI, sebelum judul, supaya jumlah pada subjudul
@@ -799,7 +800,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
 
             # 3. Select top 30 correlated series
-            top_30_series = select_top_correlated_series(correlations, top_k=30)
+            top_30_series = select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES)
 
             # 4. Prepare external series data (cross-series only) - using 2019+ data
             cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
@@ -1052,7 +1053,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
             if len(common_features) > 0:
-                top_features, _ = select_top_features_optimized(train_features, top_k=25)
+                top_features, _ = select_top_features_optimized(train_features, top_k=TOP_K_FEATURES)
                 feature_cols = [f for f in top_features if f in common_features]
                 if len(feature_cols) == 0:
                     feature_cols = common_features[:25]
@@ -2129,7 +2130,7 @@ elif _shap_store and _shap_results is not None:
                             _fe, lag_steps=90, holidays_list=load_holidays())
                         _allc = [c for c in _feats.columns
                                  if c not in ('ds', 'date', 'value')]
-                        _top, _ = select_top_features_optimized(_feats, top_k=25)
+                        _top, _ = select_top_features_optimized(_feats, top_k=TOP_K_FEATURES)
                         _cols = [c for c in _top if c in _allc] or _allc[:25]
                         _X_full = _feats[_cols].fillna(0).replace([np.inf, -np.inf], 0)
                         _y_full = _feats['value'].to_numpy(dtype=float)
