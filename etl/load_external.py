@@ -99,9 +99,14 @@ def load_external_features(
         # Forward fill NaN values
         if np.isnan(values).any():
             warnings.warn(f"Feature '{col}' has {np.isnan(values).sum()} NaN values. Forward filling...")
-            df[col] = df[col].fillna(method='ffill')
-            # Backward fill for leading NaNs
-            df[col] = df[col].fillna(method='bfill')
+            df[col] = df[col].ffill()
+            # Backward fill for leading NaNs.
+            # PERHATIAN: ini satu-satunya jalur look-ahead yang tersisa di sini -
+            # tanggal SEBELUM fitur punya data pertama akan diisi nilai masa depan.
+            # Aman selama berkas eksternal mulai bersamaan dengan panel; kalau
+            # sebuah kolom baru mulai bertahun-tahun kemudian, periksa dulu
+            # berapa tanggal training yang terisi mundur sebelum memakainya.
+            df[col] = df[col].bfill()
             values = df[col].values
 
         external_dict[col] = values
@@ -206,9 +211,10 @@ def merge_with_training_data(
     for col in external_cols:
         if merged[col].isna().any():
             # Forward fill first
-            merged[col] = merged[col].fillna(method='ffill')
-            # Then backward fill for leading NaNs
-            merged[col] = merged[col].fillna(method='bfill')
+            merged[col] = merged[col].ffill()
+            # Then backward fill for leading NaNs (lihat catatan look-ahead di
+            # load_external_features)
+            merged[col] = merged[col].bfill()
             # If still NaN, fill with median
             if merged[col].isna().any():
                 merged[col] = merged[col].fillna(merged[col].median())
