@@ -170,27 +170,69 @@ def warn_missing_at_predict(missing, model_name='model'):
 # 25 adalah nilai yang dipakai untuk seluruh hasil yang sudah tercatat, jadi
 # mengubahnya membuat angka baru tidak sebanding dengan angka lama.
 #
-# Yang perlu diketahui sebelum menaikkannya. Kolam fitur berisi 90 kandidat
-# internal (122 dengan fitur eksternal), dan seleksinya memakai korelasi
-# Spearman univariat terhadap LEVEL target. Kriteria itu punya kecenderungan
-# yang terukur: ia memilih salinan level. Dari 25 slot, rata-rata 12,3 jatuh ke
-# rolling mean/min/max dan 2,5 lagi ke ewm - lebih dari separuh anggaran fitur
-# habis untuk varian benda yang sama. Rata-rata |korelasi| antar 25 fitur
-# terpilih 0,638, setara hanya sekitar 2,4 fitur bebas.
+# ----------------------------------------------------------------------------
+# HASIL ABLATION: 12 MENGALAHKAN 25. LEBIH BANYAK FITUR JUSTRU LEBIH BURUK.
 #
-# Memperbesar KOLAM tidak menolong, malah sebaliknya. Diuji pada 10 leaf dengan
-# kolam diperluas ke 149 (menambah lag 2/3/21/60, rolling 3/21, ewm 14/60,
-# z-score 7/60): kandidat baru langsung merebut 7,7 dari 25 slot - didominasi
-# rolling_mean_3, rolling_max_3, ewm_14 - dan seluruh ukuran informasi memburuk,
-# redundansi 0,638 -> 0,690 dan fitur efektif 2,4 -> 2,0. Jendela pendek nyaris
+# Diuji pada 18 leaf x 3 jendela rolling-origin x 3 model pohon (162 unit
+# berpasangan), horizon 60 hari, dibandingkan Wilcoxon signed-rank terhadap
+# nilai lama 25. Protokolnya sama dengan dua eksperimen seleksi fitur
+# sebelumnya supaya angkanya sebanding.
+#
+#   arm   MASE rata   vs k=25    menang     Wilcoxon p
+#    10       2,531    +19,71%   106/162        0,0000   <- lihat peringatan
+#    12       1,915     -9,39%   105/162        0,0000   <- dipakai
+#    15       1,979     -6,40%    98/162        0,0006
+#    18       2,002     -5,27%    91/162        0,0159
+#    20       2,037     -3,64%    87/162        0,1287
+#    25       2,114     (acuan)         -            -
+#    40       2,230     +5,49%    66/162        0,0005
+#    60       2,314     +9,45%    55/162        0,0000
+#
+# Monoton dan searah di ketiga model, tanpa perkecualian. Pada k=12 seluruhnya
+# membaik: RandomForest -16,57%, XGBoost -6,67%, LightGBM -3,11%.
+#
+# PENJELASANNYA menyatukan temuan yang sebelumnya terpisah. Rata-rata
+# |korelasi| antar 25 fitur terpilih 0,638 - setara hanya sekitar 2,4 fitur
+# bebas. Artinya fitur ke-13 sampai ke-25 hampir seluruhnya salinan dari yang
+# sudah ada: tidak menambah informasi, tapi tetap menambah dimensi yang harus
+# dipilih pohon di tiap split. Itu ragam tanpa sinyal.
+#
+# Sekaligus menjelaskan kenapa mRMR "bekerja tapi tidak berpengaruh": ia
+# menurunkan redundansi sambil MEMPERTAHANKAN 25 slot. Yang mengganggu ternyata
+# jumlah slotnya, bukan redundansinya.
+#
+# ----------------------------------------------------------------------------
+# PERINGATAN - ADA TEBING TAJAM DI BAWAH 12. JANGAN TURUNKAN LAGI.
+#
+# Pada k=10, A.1.b (PTMN - Repatriasi) meledak: MASE RandomForest 27-42
+# di ketiga jendela, padahal di k=12 dan k=25 nilainya 0,17-2,46. Satu leaf itu
+# sendirian menyeret rata-rata k=10 dari 1,89 ke 2,53. Perhatikan bahwa Wilcoxon
+# tetap menyatakan k=10 "menang" (106/162, p=0,0000) - uji berbasis peringkat
+# tidak melihat besarnya kegagalan. Rata-rata dan maksimum yang melihatnya.
+#
+# Penyebabnya: A.1.b 95,9 persen nol, jauh lebih jarang daripada leaf mana pun
+# (yang terdekat A.1.c di 49,0 persen). Deret sejarang itu tampaknya butuh
+# jumlah fitur minimum untuk bisa diwakili sama sekali.
+#
+# Pada k=12 SELURUH 18 leaf aman, termasuk A.1.b. Tapi marginnya cuma dua
+# langkah, dan letak tebing itu hanya teramati dari SATU deret. Kalau nanti ada
+# leaf baru yang lebih jarang dari 96 persen nol, ablation ini harus diulang
+# sebelum k=12 dipertahankan. Alternatif konservatifnya k=15: margin lebih lebar
+# dengan perbaikan 3 poin persen lebih kecil (-6,40% vs -9,39%).
+#
+# ----------------------------------------------------------------------------
+# CATATAN REPRODUKSI: seluruh angka pada naskah jurnal dihasilkan pada k=25.
+# Hasil yang dijalankan ulang dengan k=12 TIDAK sebanding dengan tabel-tabel di
+# sana; untuk mereproduksinya, setel konstanta ini kembali ke 25.
+#
+# Yang TIDAK menolong, sudah diuji, jangan diulang: memperbesar KOLAM fitur.
+# Pada 10 leaf dengan kolam diperluas ke 149 kandidat (menambah lag 2/3/21/60,
+# rolling 3/21, ewm 14/60, z-score 7/60), kandidat baru merebut 7,7 dari 25 slot
+# - didominasi rolling_mean_3 dan rolling_max_3 - sementara redundansi naik
+# 0,638 -> 0,690 dan fitur efektif turun 2,4 -> 2,0. Jendela pendek nyaris
 # identik dengan level, jadi ia menang lalu menendang keluar fitur yang membawa
 # informasi lain.
-#
-# Menaikkan TOP_K sendiri BELUM PERNAH DIUJI. Satu-satunya arm yang pernah
-# dicoba justru ke bawah (top-10, p=0,068, lihat catatan di
-# select_top_features_optimized). Jadi angka lain di sini adalah hipotesis,
-# bukan perbaikan - ubah hanya dengan hasil ablation di tangan.
-TOP_K_FEATURES = 25
+TOP_K_FEATURES = 12
 
 # Berapa seri saudara (leaf lain) yang dipertimbangkan sebagai cross-series.
 # Dipakai select_top_correlated_series(). Perlu dicatat: hasilnya hanya sampai
