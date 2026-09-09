@@ -18,6 +18,9 @@ data/processed/*.csv
 data/processed/step-*/
 data/forecast_versions/
 data/api_sample/
+# Salinan cadangan berkas data - selalu lokal, jangan pernah ikut ter-commit
+data/*.bak
+data/*.xlsx.bak
 arsip/
 
 # Temporary files
