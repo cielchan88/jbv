@@ -7,6 +7,7 @@ tombol berarti satu kegagalan di tengah membuang seluruh pekerjaan.
     python -m etl.news.run cek                      # validasi skema GDELT
     python -m etl.news.run tarik-gdelt 2006 2026    # nada agregat, sejarah panjang
     python -m etl.news.run tarik-situs detik 2019 2026
+    python -m etl.news.run tarik-te 2025 2026       # umpan terbaru, BUKAN arsip
     python -m etl.news.run nilai                    # FinBERT, bisa dilanjutkan
     python -m etl.news.run agregasi                 # -> data/news/sentiment_daily.parquet
     python -m etl.news.run cakupan                  # laporan, baca SEBELUM memakai
@@ -74,17 +75,34 @@ def cmd_cek():
     print('Skema cocok. Penarikan panjang aman dilanjutkan.')
 
 
-def cmd_tarik_gdelt(y0: int, y1: int):
+def cmd_tarik_gdelt(y0, y1):
+    # int() wajib: argumen dari baris perintah selalu berupa teks, dan
+    # date('2006', 1, 1) melempar TypeError.
     from .sources import fetch_gdelt
-    _drain(fetch_gdelt(date(y0, 1, 1), min(date(y1, 12, 31), date.today())),
+    _drain(fetch_gdelt(date(int(y0), 1, 1),
+                       min(date(int(y1), 12, 31), date.today())),
            DEFAULT_DB, 'gdelt')
 
 
-def cmd_tarik_situs(site: str, y0: int, y1: int):
+def cmd_tarik_situs(site, y0, y1):
     from .sources import fetch_site_archive
-    _drain(fetch_site_archive(site, date(y0, 1, 1),
-                              min(date(y1, 12, 31), date.today())),
+    _drain(fetch_site_archive(site, date(int(y0), 1, 1),
+                              min(date(int(y1), 12, 31), date.today())),
            DEFAULT_DB, site)
+
+
+def cmd_tarik_te(y0: int, y1: int, max_pages: int = None):
+    """Trading Economics - lapisan terbaru saja.
+
+    Endpoint ini berpaginasi dengan offset dari berita terbaru, jadi rentang
+    tahun yang jauh ke belakang TIDAK akan tercapai. Adapter akan mengadu
+    kalau mentok sebelum sampai; baca peringatannya, jangan dilewati.
+    """
+    from .sources import TE_MAX_PAGES, fetch_trading_economics
+    _drain(fetch_trading_economics(
+        date(int(y0), 1, 1), min(date(int(y1), 12, 31), date.today()),
+        max_pages=int(max_pages) if max_pages else TE_MAX_PAGES),
+        DEFAULT_DB, 'trading_economics')
 
 
 def cmd_nilai(limit=None):
@@ -119,12 +137,20 @@ def main(argv):
         return 1
     cmd, args = argv[0], argv[1:]
     fn = {'cek': cmd_cek, 'tarik-gdelt': cmd_tarik_gdelt,
-          'tarik-situs': cmd_tarik_situs, 'nilai': cmd_nilai,
+          'tarik-situs': cmd_tarik_situs, 'tarik-te': cmd_tarik_te,
+          'nilai': cmd_nilai,
           'agregasi': cmd_agregasi, 'cakupan': cmd_cakupan}.get(cmd)
     if fn is None:
         print(f'perintah tidak dikenal: {cmd}\n{__doc__}')
         return 1
-    fn(*args)
+    try:
+        fn(*args)
+    except TypeError as e:
+        # Jumlah argumen salah - tunjukkan cara pakainya, bukan jejak galat.
+        if 'positional argument' not in str(e):
+            raise
+        print(f'argumen kurang untuk "{cmd}": {e}\n{__doc__}')
+        return 1
     return 0
 
 

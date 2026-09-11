@@ -33,7 +33,7 @@ from typing import Iterator, Optional
 import pandas as pd
 import requests
 
-from .store import to_utc
+from .store import WIB, to_utc
 
 UA = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120 Safari/537.36')
@@ -204,6 +204,117 @@ def fetch_gdelt(start: date, end: date, rate_delay: float = 1.0,
                     .replace(hour=12, tzinfo=timezone.utc)),
                 'scorer': 'gdelt-tone', 'polarity': float(pol),
             }
+
+
+# ===========================================================================
+# Trading Economics - umpan JSON, LAPISAN TERBARU SAJA
+# ===========================================================================
+# Keunggulannya dibanding scraping situs media: keluarannya JSON terstruktur
+# dengan `country` dan `date` yang rapi, jadi tidak ada selector HTML yang bisa
+# patah ketika situs berganti tata letak.
+#
+# BATASNYA TEGAS, DAN BUKAN SOAL KODE. Endpoint ini berpaginasi dengan OFFSET,
+# bukan tanggal - tidak ada cara meminta "berita Maret 2008". Satu-satunya
+# jalan mundur adalah menelusuri semua yang ada di antaranya dari sekarang.
+# Namanya pun 'stream', bukan 'archive'. Jangan pakai ini untuk membangun
+# sejarah panjang; pakai GDELT untuk itu.
+#
+# Kalau memang butuh kedalaman, jalur yang benar adalah API resmi berbayar
+# Trading Economics: ada ketentuan penggunaan, kontrak data, dan sumbernya
+# bisa disitasi. Endpoint di bawah tidak terdokumentasi publik, bisa berubah
+# atau ditutup kapan saja, dan karena itu tidak bisa direproduksi pengulas.
+TE_STREAM_URL = 'https://tradingeconomics.com/ws/stream.ashx'
+TE_PAGE = 100
+
+# Langit-langit penelusuran. Versi lama memakai 200 batch dan BERHENTI DIAM-DIAM
+# ketika mentok, sehingga rentang yang diminta bisa tidak pernah tercapai tanpa
+# ada yang tahu. Di sini angka yang sama dipakai sebagai bawaan, tapi kalau
+# mentok sebelum mencapai tanggal awal, adapter MENGADU keras.
+TE_MAX_PAGES = 200
+
+TE_COUNTRIES = ('united states', 'indonesia')
+
+
+def fetch_trading_economics(start: date, end: date,
+                            rate_delay: float = 2.0,
+                            countries: tuple = TE_COUNTRIES,
+                            max_pages: int = TE_MAX_PAGES,
+                            assume_tz: timezone = timezone.utc) -> Iterator[dict]:
+    """Tarik umpan Trading Economics mundur sampai `start`.
+
+    assume_tz
+        Zona yang diasumsikan KALAU cap waktunya tidak membawa zona sendiri.
+        Bawaannya UTC. Ini TIDAK bisa diverifikasi dari lingkungan
+        pengembangan (situsnya diblokir proxy), jadi periksa sekali di VPS:
+        bandingkan `date` sebuah berita dengan waktu terbit sebenarnya. Salah
+        zona di sini berarti geser satu hari pada seluruh fitur - kesalahan
+        yang tidak akan terlihat di mana pun kecuali di akurasi akhir.
+    """
+    s = _session(rate_delay)
+    offset, page, terjauh = 1, 0, None
+    while page < max_pages:
+        try:
+            r = _get(s, TE_STREAM_URL, params={'start': offset, 'size': TE_PAGE})
+            data = r.json()
+        except Exception as e:
+            print(f'  [te] offset {offset}: GAGAL {type(e).__name__}')
+            break
+        if not isinstance(data, list) or not data:
+            print(f'  [te] umpan habis di offset {offset}')
+            return
+
+        for item in data:
+            try:
+                pub = to_utc(item.get('date'), assume_tz=assume_tz)
+            except Exception:
+                continue
+            hari = pub.astimezone(WIB).date()
+            terjauh = hari if terjauh is None or hari < terjauh else terjauh
+            if not (start <= hari <= end):
+                continue
+            if countries:
+                c = str(item.get('country') or '').strip().lower()
+                if c not in countries:
+                    continue
+
+            # Judul DAN ringkasan dipakai bersama. FinBERT pada judul saja
+            # adalah keterbatasan yang sudah dicatat di naskah; umpan ini
+            # membawa `description`, jadi tidak ada alasan membuangnya.
+            # Dipotong 300 karakter supaya tetap satu kalimat pembuka -
+            # ringkasan panjang menenggelamkan sinyal judulnya.
+            judul = str(item.get('title') or '').strip()
+            desc = str(item.get('description') or '').strip()
+            teks = f'{judul}. {desc[:300]}'.strip(' .') if desc else judul
+            if not teks:
+                continue
+
+            yield {
+                'source': 'trading_economics',
+                'url': item.get('url'),
+                'title': teks,
+                'body': desc or None,
+                'language': 'en',
+                'country': item.get('country'),
+                'published_utc': pub,
+            }
+
+        offset += TE_PAGE
+        page += 1
+        if terjauh is not None and terjauh < start:
+            return                      # sudah melewati tanggal awal, selesai
+
+    # Mentok di langit-langit TANPA mencapai tanggal awal. Ini bukan
+    # keberhasilan sebagian yang boleh didiamkan: rentang yang diminta tidak
+    # terpenuhi, dan kalau hasilnya tetap dipakai, tahun-tahun awal akan
+    # tampak "tidak ada berita" padahal sebenarnya tidak pernah ditarik.
+    import warnings
+    warnings.warn(
+        f'Trading Economics mentok di {max_pages} halaman '
+        f'({max_pages * TE_PAGE:,} item) dan baru sampai {terjauh}, belum '
+        f'{start}. Rentang yang diminta TIDAK terpenuhi. Endpoint ini umpan '
+        f'berjalan, bukan arsip - pakai GDELT untuk sejarah panjang.',
+        stacklevel=2)
+    print(f'  [te] PERINGATAN: mentok di {terjauh}, target {start}')
 
 
 # ===========================================================================
