@@ -38,6 +38,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from pathlib import Path
+import numpy as np
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -79,7 +80,10 @@ LABEL_INDEX = {
 # stamped with an older version are treated as "needs retry" even if their
 # score looks perfectly valid - so a future logic fix self-heals existing data
 # on the next run instead of requiring someone to manually delete the raw file.
-SENTIMENT_LOGIC_VERSION = 2
+# v3: polaritas bertanda P(pos)-P(neg) menggantikan peta {1, 0.5, 0} dan
+#     rata-rata tertimbang keyakinan; baris gagal ditandai NaN, bukan 0.0.
+#     Seluruh baris lama otomatis diproses ulang karena stempel versinya 2.
+SENTIMENT_LOGIC_VERSION = 3
 
 # Filter countries: US and Indonesia (case-insensitive)
 TARGET_COUNTRIES = ['united states', 'indonesia']
@@ -242,7 +246,44 @@ def load_sentiment_model():
     tokenizer = AutoTokenizer.from_pretrained(pretrained)
 
     logger.info("✓ FinBERT model loaded!")
-    return pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
+    # top_k=None mengembalikan SELURUH distribusi tiga kelas, bukan hanya kelas
+    # pemenang. Ini syarat untuk polaritas bertanda di add_sentiment(): argmax
+    # membuang informasi yang justru paling berguna. Judul yang 49% positif /
+    # 48% negatif dan judul yang 95% positif sama-sama keluar sebagai "positive"
+    # kalau hanya argmax yang dipakai, padahal keduanya jauh berbeda.
+    return pipeline("sentiment-analysis", model=model, tokenizer=tokenizer,
+                    top_k=None)
+
+
+def _polarity(result):
+    """Ubah keluaran pipeline tiga kelas jadi satu angka bertanda di [-1, 1].
+
+    polaritas = P(positif) - P(negatif)
+
+    Kenapa bukan peta {positive:1, neutral:0.5, negative:0} seperti versi lama:
+
+    1. Skala lama tidak bertanda. Titik netralnya 0,5, jadi "tidak ada berita"
+       tidak punya nilai yang wajar - 0,0 berarti SENEGATIF MUNGKIN, bukan
+       kosong. Itu sumber cacat akhir pekan di agregasi harian.
+    2. Skala lama membuang derajat. Seluruh berita positif dianggap sama
+       positifnya.
+    3. Rata-rata tertimbang lama memakai skor keyakinan model terhadap
+       kelasnya sendiri sebagai bobot. Karena mayoritas judul keuangan
+       diklasifikasikan netral dengan keyakinan tinggi, hasil hariannya
+       tertarik kuat ke 0,5 dan nyaris tidak punya ragam - persis gejala
+       "flat 0,5" yang sudah dicatat di komentar lama.
+
+    Dengan P(pos) - P(neg): 0 berarti seimbang ATAU netral, tanda berarti arah,
+    besaran berarti keyakinan. Netral tinggi otomatis mendekat ke 0 tanpa perlu
+    diperlakukan khusus.
+    """
+    if result and isinstance(result[0], list):
+        result = result[0]
+    p = {str(d['label']).strip().lower(): float(d['score']) for d in result}
+    pos = p.get('positive', p.get('label_0', 0.0))
+    neg = p.get('negative', p.get('label_2', 0.0))
+    neu = p.get('neutral', p.get('label_1', 0.0))
+    return pos - neg, pos, neg, neu
 
 
 def add_sentiment(df, sentiment_pipeline):
@@ -271,10 +312,15 @@ def add_sentiment(df, sentiment_pipeline):
     #   labeling/scoring bugfix, so the stored result may be wrong even though
     #   it looks like a normal, valid value (this is what makes old data
     #   self-heal after a logic fix, instead of needing manual file deletion)
+    # CATATAN: 'sentiment_score == 0.0' TIDAK lagi dipakai sebagai tanda gagal.
+    # Di skala lama 0.0 memang cuma muncul dari fallback, tapi sejak v3 baris
+    # gagal ditandai NaN dan 0.0 adalah nilai polaritas yang sah (positif dan
+    # negatif seimbang). Mempertahankan syarat itu akan membuat setiap berita
+    # berimbang diproses ulang selamanya di tiap run.
+    if 'sentiment_polarity' not in df.columns:
+        df['sentiment_polarity'] = np.nan
     needs_mask = (
-        df['sentiment_label'].isna()
-        | df['sentiment_score'].isna()
-        | (df['sentiment_score'] == 0.0)
+        df['sentiment_polarity'].isna()
         | (df['sentiment_model_version'].fillna(0) != SENTIMENT_LOGIC_VERSION)
     )
     needs_sentiment = df[needs_mask]
@@ -293,8 +339,7 @@ def add_sentiment(df, sentiment_pipeline):
     processed = 0
     for idx, row in df.iterrows():
         # Skip hanya kalau sudah diproses versi logika SEKARANG dengan hasil valid
-        if pd.notna(row.get('sentiment_label')) and pd.notna(row.get('sentiment_score')) \
-                and row.get('sentiment_score') != 0.0 \
+        if pd.notna(row.get('sentiment_polarity')) \
                 and row.get('sentiment_model_version') == SENTIMENT_LOGIC_VERSION:
             pbar.update(1)
             continue
@@ -303,20 +348,34 @@ def add_sentiment(df, sentiment_pipeline):
         text = str(row.get('title', '')).strip()
         if text:
             try:
-                result = sentiment_pipeline(text[:512])
-                raw_label = str(result[0]['label']).strip().lower()
-                df.at[idx, 'sentiment_label'] = LABEL_INDEX.get(raw_label, 'neutral')
-                df.at[idx, 'sentiment_score'] = result[0]['score']
+                pol, pos, neg, neu = _polarity(sentiment_pipeline(text[:512]))
+                df.at[idx, 'sentiment_polarity'] = pol
+                df.at[idx, 'p_positive'] = pos
+                df.at[idx, 'p_negative'] = neg
+                df.at[idx, 'p_neutral'] = neu
+                # label & score dipertahankan supaya berkas lama tetap terbaca
+                # dan distribusi label tetap bisa dilaporkan
+                df.at[idx, 'sentiment_label'] = max(
+                    (('positive', pos), ('negative', neg), ('neutral', neu)),
+                    key=lambda t: t[1])[0]
+                df.at[idx, 'sentiment_score'] = max(pos, neg, neu)
                 stats['success'] += 1
             except Exception as e:
-                df.at[idx, 'sentiment_label'] = 'neutral'
-                df.at[idx, 'sentiment_score'] = 0.0
+                # GAGAL bukan NETRAL. Baris gagal ditandai NaN supaya tidak ikut
+                # dirata-rata; menulis 0.0 di sini dulu membuat kegagalan model
+                # menyamar jadi sentimen negatif yang sah.
+                for c in ('sentiment_polarity', 'p_positive', 'p_negative', 'p_neutral'):
+                    df.at[idx, c] = np.nan
+                df.at[idx, 'sentiment_label'] = None
+                df.at[idx, 'sentiment_score'] = np.nan
                 stats['failed'] += 1
                 stats['last_error'] = f"{type(e).__name__}: {e}"
                 logger.error(f"  Sentiment inference failed for row {idx}: {stats['last_error']}")
         else:
-            df.at[idx, 'sentiment_label'] = 'neutral'
-            df.at[idx, 'sentiment_score'] = 0.0
+            for c in ('sentiment_polarity', 'p_positive', 'p_negative', 'p_neutral'):
+                df.at[idx, c] = np.nan
+            df.at[idx, 'sentiment_label'] = None
+            df.at[idx, 'sentiment_score'] = np.nan
             stats['empty_title'] += 1
 
         df.at[idx, 'sentiment_model_version'] = SENTIMENT_LOGIC_VERSION
@@ -457,22 +516,20 @@ def main(input_filename=None):
     logger.info(f"Generating external_features format...")
     logger.info(f"{'='*70}")
 
-    # Convert sentiment to numeric score
-    # positive = 1.0, neutral = 0.5, negative = 0.0
-    sentiment_map = {'positive': 1.0, 'neutral': 0.5, 'negative': 0.0}
-    df['sentiment_numeric'] = df['sentiment_label'].map(sentiment_map)
-
-    # Parse date to date only (remove time) - handle mixed datetime formats
+    # Polaritas bertanda sudah dihitung per baris oleh add_sentiment() (v3).
+    # Tidak ada lagi peta label->angka di sini: memetakan argmax berarti
+    # membuang derajat yang sudah kita bayar untuk menghitungnya.
     df['date_only'] = pd.to_datetime(df['date'], format='mixed', errors='coerce').dt.date
 
-    # Daily aggregation with multiple metrics
-    daily_agg = df.groupby('date_only').agg({
-        'ID': 'count',  # Count news items
-        'sentiment_numeric': lambda x: (x * df.loc[x.index, 'sentiment_score']).sum() / df.loc[x.index, 'sentiment_score'].sum()
-        if df.loc[x.index, 'sentiment_score'].sum() > 0 else 0.5  # Weighted average
-    }).reset_index()
-
-    daily_agg.columns = ['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']
+    # Rata-rata polos, bukan tertimbang keyakinan. Pembobotan lama memakai
+    # keyakinan model terhadap kelasnya sendiri, yang menaikkan bobot berita
+    # netral-yakin dan menekan hasil harian ke titik tengah. Polaritas sudah
+    # membawa keyakinannya sendiri di besarannya, jadi menimbang ulang dengan
+    # keyakinan berarti menghitungnya dua kali.
+    daily_agg = df.groupby('date_only').agg(
+        News_Count=('ID', 'count'),
+        Sentiment_TradingEconomics=('sentiment_polarity', 'mean'),
+    ).reset_index().rename(columns={'date_only': 'Tanggal'})
 
     # Convert Tanggal to datetime
     daily_agg['Tanggal'] = pd.to_datetime(daily_agg['Tanggal'])
@@ -491,9 +548,17 @@ def main(input_filename=None):
     df_complete = pd.DataFrame({'Tanggal': date_range_complete})
     daily_agg = df_complete.merge(daily_agg, on='Tanggal', how='left')
 
-    # Fill missing values with 0
+    # News_Count = 0 itu benar: nol berita memang nol berita.
+    #
+    # Sentimen TIDAK diisi. Versi lama menulis 0.0 di hari tanpa berita,
+    # padahal di skala lama 0.0 berarti SENEGATIF MUNGKIN - jadi setiap Sabtu,
+    # Minggu, dan hari libur masuk ke model sebagai hari krisis. Itu menyuntikkan
+    # gigi gergaji mingguan yang rapi ke dalam fitur, dan pohon keputusan akan
+    # dengan senang hati mempelajarinya sebagai pola nyata.
+    #
+    # Sekarang hari tanpa berita dibiarkan NaN, dan keputusan cara mengisinya
+    # diserahkan ke tahap penyusunan fitur - di mana konteksnya diketahui.
     daily_agg['News_Count'] = daily_agg['News_Count'].fillna(0).astype(int)
-    daily_agg['Sentiment_TradingEconomics'] = daily_agg['Sentiment_TradingEconomics'].fillna(0.0)
 
     missing_filled = len(date_range_complete) - len(daily_agg[daily_agg['News_Count'] > 0])
     logger.info(f"  ✓ Filled {missing_filled} missing dates with 0 (weekends/holidays)")
@@ -665,27 +730,23 @@ def run_scrape_and_update(
     df_to_save['no'] = range(1, len(df_to_save) + 1)
     df_to_save.to_excel(raw_stream_path, sheet_name='stream_data', index=False)
 
-    # Agregasi harian (sama seperti main(), lihat Step 7 di atas)
-    sentiment_map = {'positive': 1.0, 'neutral': 0.5, 'negative': 0.0}
-    df['sentiment_numeric'] = df['sentiment_label'].map(sentiment_map)
+    # Agregasi harian (sama seperti main(), lihat Step 7 di atas).
+    # Polaritas bertanda, rata-rata polos, hari tanpa berita dibiarkan NaN.
     df['date_only'] = pd.to_datetime(df['date'], format='mixed', errors='coerce').dt.date
 
-    daily_agg = df.groupby('date_only').agg({
-        'ID': 'count',
-        'sentiment_numeric': lambda x: (
-            (x * df.loc[x.index, 'sentiment_score']).sum() / df.loc[x.index, 'sentiment_score'].sum()
-            if df.loc[x.index, 'sentiment_score'].sum() > 0 else 0.5
-        )
-    }).reset_index()
-    daily_agg.columns = ['Tanggal', 'News_Count', 'Sentiment_TradingEconomics']
+    daily_agg = df.groupby('date_only').agg(
+        News_Count=('ID', 'count'),
+        Sentiment_TradingEconomics=('sentiment_polarity', 'mean'),
+    ).reset_index().rename(columns={'date_only': 'Tanggal'})
     daily_agg['Tanggal'] = pd.to_datetime(daily_agg['Tanggal'])
     daily_agg = daily_agg.sort_values('Tanggal').reset_index(drop=True)
 
-    # Hari dengan berita (News_Count > 0) tapi Sentiment_TradingEconomics persis 0.5
-    # berarti SEMUA artikel hari itu gagal/kosong (lihat fallback di lambda di atas
-    # dan di add_sentiment) - bukan sentimen netral yang wajar, tapi tanda analisis
-    # sentimennya tidak jalan sama sekali untuk hari tersebut.
-    flat_fallback_mask = (daily_agg['News_Count'] > 0) & (daily_agg['Sentiment_TradingEconomics'] == 0.5)
+    # Hari yang punya berita tapi polaritasnya NaN berarti SELURUH artikel hari
+    # itu gagal diproses - bukan sentimen netral yang wajar, tapi tanda analisis
+    # sentimennya tidak jalan sama sekali untuk tanggal tersebut. Di versi lama
+    # gejalanya nilai persis 0,5; sejak v3 gejalanya NaN, karena kegagalan tidak
+    # lagi menyamar jadi nilai yang sah.
+    flat_fallback_mask = (daily_agg['News_Count'] > 0) & daily_agg['Sentiment_TradingEconomics'].isna()
     flat_fallback_days = int(flat_fallback_mask.sum())
 
     date_range_complete = pd.date_range(
@@ -694,7 +755,6 @@ def run_scrape_and_update(
     df_complete = pd.DataFrame({'Tanggal': date_range_complete})
     daily_agg = df_complete.merge(daily_agg, on='Tanggal', how='left')
     daily_agg['News_Count'] = daily_agg['News_Count'].fillna(0).astype(int)
-    daily_agg['Sentiment_TradingEconomics'] = daily_agg['Sentiment_TradingEconomics'].fillna(0.0)
 
     # Merge ke external_features.xlsx (backup dulu file lama)
     external_features_path = Path(external_features_path)
