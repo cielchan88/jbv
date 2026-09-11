@@ -78,3 +78,7 @@ node_modules/
 scripts/paper/doc_items.json
 scripts/paper/fig/
 *.docx
+
+# Keluaran komputasi ulang naskah. Dibangun ulang dari skripnya; besar dan
+# berisi metrik per seri, sedangkan repo ini publik.
+scripts/paper/revisi/hasil/
