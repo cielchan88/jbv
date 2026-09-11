@@ -132,6 +132,10 @@ def pilih_setelan(r, d, y, t0):
         skor = []
         for ci, cfg in enumerate(GRID[nm]):
             ae = []
+            # Denyut. Satu sel butuh 2-5 menit; tanpa tanda hidup di sini,
+            # layar diam begitu lama tidak bisa dibedakan dari proses macet.
+            print(f'      {nm} cfg{ci+1}/{len(GRID[nm])} ...',
+                  end='\r', flush=True)
             try:
                 # Blok validasi juga memakai refit harian, supaya setelan
                 # dipilih pada rezim yang sama dengan yang nanti dipakai.
@@ -143,35 +147,54 @@ def pilih_setelan(r, d, y, t0):
             except Exception:
                 skor.append((float('inf'), ci))
         best = min(skor)[1]
-        # Tulis SETIAP SEL, jangan ditumpuk sampai leaf selesai. Kontainer ini
-        # restart tiap belasan menit dan membunuh proses lepas; menumpuk berarti
-        # kehilangan seluruh leaf padahal selnya sudah dihitung.
+        # Tulis SETIAP SEL, jangan ditumpuk sampai leaf selesai. Proses ini
+        # bisa mati di tengah; menumpuk berarti kehilangan seluruh leaf
+        # padahal selnya sudah dihitung.
         tulis(TUNE, [{'leaf': r['Row_ID'], 'model': nm, 'cfg': best,
                       'mase_val': min(skor)[0]}])
-        print(f'  setel {r["Row_ID"]}/{nm} -> cfg{best} ({time.time()-t0:.0f}s)',
-              flush=True)
+        print(f'    {nm:13s} -> cfg{best}  MASE_val {min(skor)[0]:.3f}  '
+              f'({time.time()-t0:.0f}s)', flush=True)
 
 
 def main():
+    t0 = time.time()
+    print('=' * 64, flush=True)
+    print('KOMPUTASI ULANG NASKAH - KONFIGURASI OPTIMAL', flush=True)
+    print('=' * 64, flush=True)
+    print(f'  selektor        : mRMR (beta={MRMR_BETA})', flush=True)
+    print(f'  jumlah fitur    : {TOP_K}', flush=True)
+    print(f'  origin validasi : {NVAL}   (untuk memilih setelan)', flush=True)
+    print(f'  origin uji      : {NROLL}  (refit harian)', flush=True)
+    print(f'  keluaran        : {S}', flush=True)
+    print('  memuat panel ...', flush=True)
+
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
-    t0 = time.time()
+    print(f'  panel  : {len(dcols):,} hari, {dcols[0]} s/d {dcols[-1]}', flush=True)
+    print(f'  leaf   : {len(lv)}', flush=True)
     pasang_mrmr()
 
     # ---- tahap 1: setelan per leaf/model dari blok validasi ----
-    for _, r in lv.iterrows():
+    sisa = len(lv) * len(ML) - len(sudah(TUNE, ('leaf', 'model')))
+    print(f'\nTAHAP 1/2  penyetelan - {sisa} sel tersisa '
+          f'(~2-5 menit per sel)\n', flush=True)
+    for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
+        print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
         pilih_setelan(r, d, y, t0)
-    print(f'SETELAN SELESAI ({time.time()-t0:.0f}s)', flush=True)
+    print(f'\nTAHAP 1 SELESAI ({time.time()-t0:.0f}s)', flush=True)
 
     tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
 
     # ---- tahap 2: blok uji, refit harian, seluruh model ----
     done = sudah(OUT, ('leaf', 'model'))
-    for _, r in lv.iterrows():
+    print(f'\nTAHAP 2/2  blok uji - '
+          f'{len(lv) * len(ALL_MODELS) - len(done)} sel tersisa\n', flush=True)
+    for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL
         den = scale_denom(y[:cut])
+        print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
         for nm in ALL_MODELS:
             if (r['Row_ID'], nm) in done:
                 continue
@@ -192,7 +215,8 @@ def main():
                       flush=True)
                 continue
             tulis(OUT, rows)
-            print(f'  {r["Row_ID"]}/{nm} selesai ({time.time()-t0:.0f}s)',
+            print(f'    {nm:15s} MASE {np.nanmean([x["mase"] for x in rows]):.3f}'
+                  f'  ({time.time()-t0:.0f}s)',
                   flush=True)
     print(f'SELESAI TOTAL ({time.time()-t0:.0f}s)', flush=True)
 
