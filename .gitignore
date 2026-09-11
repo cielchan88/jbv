@@ -60,6 +60,12 @@ catboost_info/
 # Checkpoint evaluasi (hasil sementara, di-regenerate tiap run)
 data/eval_checkpoint.pkl
 
+# Korpus berita dan turunannya. JANGAN di-commit: repo ini publik, isinya
+# judul berita pihak ketiga, dan ukurannya bisa ratusan MB sampai beberapa GB
+# untuk rentang 2006-2026. Korpus dibangun ulang dari sumbernya lewat
+# `python -m etl.news.run`, jadi tidak ada yang hilang kalau tidak disimpan.
+data/news/
+
 # Configuration with sensitive data
 config.py
 .env
