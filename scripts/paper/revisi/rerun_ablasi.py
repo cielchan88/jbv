@@ -49,26 +49,46 @@ def pasang_selektor(beta):
 
 
 def main():
-    panel, dcols, dall = load_panel()
-    lv = leaves(panel)
     t0 = time.time()
+    print('=' * 64, flush=True)
+    print('ABLASI TERBALIK - Bagian 4.3', flush=True)
+    print('=' * 64, flush=True)
+    print(f'  lengan   : {", ".join(ARMS)}', flush=True)
+    print(f'  model    : {", ".join(ML)}', flush=True)
+    print(f'  origin   : {NROLL} per sel', flush=True)
+    print(f'  keluaran : {OUT}', flush=True)
 
     if not os.path.exists(TUNE):
-        print('opt_tuned.csv belum ada - jalankan rerun_optimal.py dulu')
+        print('\nBERHENTI: opt_tuned.csv belum ada.', flush=True)
+        print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py',
+              flush=True)
         return
     tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
-    done = sudah(OUT, ('leaf', 'model', 'arm'))
+    print(f'  setelan  : {len(tuned)} sel terbaca', flush=True)
+    print('  memuat panel ...', flush=True)
 
-    for _, r in lv.iterrows():
+    panel, dcols, dall = load_panel()
+    lv = leaves(panel)
+    done = sudah(OUT, ('leaf', 'model', 'arm'))
+    total = len(lv) * len(ML) * len(ARMS)
+    print(f'  panel    : {len(dcols):,} hari, {len(lv)} leaf', flush=True)
+    print(f'\n{total - len(done)} sel tersisa dari {total} '
+          f'(~1-3 menit per sel)\n', flush=True)
+
+    for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL
         den = scale_denom(y[:cut])
+        print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
         for arm in ARMS:
             # mRMR menyala kecuali lengan ini yang mematikannya
             pasang_selektor(0.0 if arm == 'tanpa_mrmr' else MRMR_BETA)
             for nm, (cls, _mod) in ML.items():
                 if (r['Row_ID'], nm, arm) in done:
                     continue
+                # Denyut. Satu sel butuh 1-3 menit; tanpa tanda hidup di sini,
+                # layar diam selama itu tidak bisa dibedakan dari proses macet.
+                print(f'      {arm} / {nm} ...', end='\r', flush=True)
                 ci = tuned.get((r['Row_ID'], nm))
                 # setelan terpilih menyala kecuali lengan ini yang mematikannya
                 cfg = ({} if arm == 'tanpa_setelan' or ci is None
@@ -91,7 +111,9 @@ def main():
                           f'{type(e).__name__}', flush=True)
                     continue
                 tulis(OUT, rows)
-                print(f'  {r["Row_ID"]}/{nm}/{arm} ({time.time()-t0:.0f}s)',
+                print(f'    {arm:14s} {nm:13s} MASE '
+                      f'{np.nanmean([x["mase"] for x in rows]):.3f}'
+                      f'  ({time.time()-t0:.0f}s)',
                       flush=True)
     print(f'ABLASI SELESAI ({time.time()-t0:.0f}s)', flush=True)
 
