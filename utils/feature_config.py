@@ -269,7 +269,31 @@ FEATURE_CONFIG = {
     # ========================================================================
     "lag_features": {
         "enabled": True,
-        "lags": [1, 7, 14, 30],  # 4 features - REMOVED: lag_2, lag_3, lag_21, lag_60, lag_90 (5 removed)
+        # 18 lag. Rapat di 1-15, lalu melebar: 20, 25, 30.
+        #
+        # KENAPA DIPERLEBAR. Daftar lama [1, 7, 14, 30] dibentuk untuk horizon
+        # 60 hari, tempat lag pendek memang tidak banyak menolong. Naskah
+        # jurnal ini horizon SATU hari - justru wilayah tempat sinyal paling
+        # mungkin berada - dan temuannya sendiri menyatakan lag terkini membawa
+        # hampir seluruh sinyal yang bisa diramalkan. Menyimpulkan itu sambil
+        # tidak pernah menawarkan lag 2 sampai 6 kepada penyeleksi adalah
+        # kesimpulan yang tidak pernah diuji.
+        #
+        # HUBUNGANNYA DENGAN PENYELEKSI - BACA SEBELUM MENGUBAH APA PUN.
+        # Catatan di atas (baris ~228) mencatat bahwa memperbesar kolam pernah
+        # diuji dan MEMPERBURUK: redundansi naik 0,638 -> 0,690 dan fitur
+        # efektif turun 2,4 -> 2,0. Tapi uji itu memakai seleksi korelasi
+        # MURNI, yang buta terhadap tumpang tindih antar kandidat. Delapan
+        # belas lag saling berkorelasi tinggi, jadi dengan penyeleksi itu
+        # kolam ini akan mengulang kegagalan yang sama - lebih parah.
+        #
+        # Kolam selebar ini HANYA aman dipasangkan dengan mRMR
+        # (select_top_features_optimized(..., mrmr_beta > 0)), yang menghukum
+        # persis redundansi tersebut. Naskah jurnal memakainya. Bawaan
+        # produksi masih mrmr_beta=0.0, jadi selama itu belum diubah,
+        # kombinasi kolam lebar + korelasi murni adalah kombinasi yang sudah
+        # terukur merugikan.
+        "lags": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30],
     },
 
     # ========================================================================
