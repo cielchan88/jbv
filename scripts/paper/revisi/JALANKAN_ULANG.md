@@ -20,6 +20,17 @@ rm -f scripts/paper/revisi/hasil/opt_tuned.csv \
       scripts/paper/revisi/hasil/opt_ablasi.csv
 
 tmux new -s naskah
+/opt/jbv/venv/bin/python -u scripts/paper/revisi/jalankan_semua.py
+```
+
+Satu perintah menjalankan kedua tahap berurutan. Kalau terputus, jalankan
+lagi perintah yang sama - ia menyelesaikan sisa tahap pertama lebih dulu,
+baru lanjut ke ablasi.
+
+Kedua tahap tetap bisa dijalankan sendiri kalau hanya salah satu yang perlu
+diulang:
+
+```bash
 /opt/jbv/venv/bin/python -u scripts/paper/revisi/rerun_optimal.py
 /opt/jbv/venv/bin/python -u scripts/paper/revisi/rerun_ablasi.py
 ```
