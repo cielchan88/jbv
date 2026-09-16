@@ -1,0 +1,140 @@
+"""Tiga eksperimen pembanding yang tersisa, pada kolam fitur BARU.
+
+    Tabel 7 + Gambar 5   ablasi jumlah fitur (k = 6, 8, 12, 16, 20, 25)
+    Tabel 8 + Gambar 6   data pasar hidup/mati pada dua nilai k
+    Gambar 10            Spearman lawan mRMR pada uji data pasar yang sama
+
+SATU PENYEDERHANAAN, DINYATAKAN TERBUKA. Ketiganya memakai fit SEKALI per
+blok, bukan refit harian seperti Tabel 6 dan 9.
+
+Alasannya bukan penghematan semata. Ketiganya adalah eksperimen PEMBANDING:
+yang dilaporkan selisih antar lengan, bukan tingkat akurasinya. Jalan pintas
+yang sama diterapkan pada SETIAP lengan, jadi ia tidak menguntungkan lengan
+mana pun - ia hanya menggeser kedua sisi dengan besaran yang sama. Dengan
+refit harian ketiganya butuh sekitar 35 jam; dengan fit sekali sekitar dua
+jam. Naskah menyatakan pembatasan ini di caption masing-masing.
+
+Yang TIDAK disederhanakan: kolam 18 lag, seleksi mRMR, dan setelan
+hyperparameter terpilih per leaf - ketiganya sama dengan Tabel 6.
+
+Checkpoint per sel. Jalankan ulang untuk melanjutkan.
+"""
+import os
+import sys
+import time
+import warnings
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from h1_common import *          # noqa: F403
+warnings.filterwarnings('ignore')
+
+from rerun_optimal import GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE, p1, sudah, tulis
+from utils.feature_engineering_optimized import select_top_features_optimized
+
+OUT_K = S + 'sisa_kablasi.csv'
+OUT_X = S + 'sisa_eksternal.csv'
+ARMS_K = [6, 8, 12, 16, 20, 25]
+K_EXT = [12, 25]
+BETAS = [0.0, MRMR_BETA]
+
+
+def pasang(k, beta):
+    for _, mod in ML.values():
+        mod.TOP_K_FEATURES = k
+        if beta <= 0:
+            mod.select_top_features = select_top_features_optimized
+        else:
+            mod.select_top_features = (lambda df, top_k=k, _b=beta:
+                                       select_top_features_optimized(df, top_k=top_k,
+                                                                     mrmr_beta=_b))
+
+
+def pasang_ext(on):
+    for _, mod in ML.values():
+        if on:
+            mod.cross_series_for_recursive = lambda es, name='m': es
+        else:
+            from utils.feature_config import cross_series_for_recursive as f
+            mod.cross_series_for_recursive = f
+
+
+def blok(cls, cfg, d, y, cut, den, esd, extra):
+    """Satu sel: fit sekali di awal blok, lalu 30 ramalan satu langkah."""
+    m = cls(**cfg)
+    m.fit(d[:cut], y[:cut], external_series=esd) if esd is not None else m.fit(d[:cut], y[:cut])
+    rows = []
+    for t in range(cut, len(y)):
+        rec = one_step_metrics(y[t], p1(m, d[:t], y[:t]), den)
+        rec.update(origin=t - cut, **extra)
+        rows.append(rec)
+    return rows
+
+
+def main():
+    t0 = time.time()
+    print('=' * 64, flush=True)
+    print('EKSPERIMEN PEMBANDING SISA - kolam 18 lag, fit sekali per blok', flush=True)
+    print('=' * 64, flush=True)
+    if not os.path.exists(TUNE):
+        print('BERHENTI: opt_tuned.csv belum ada.'); return
+    tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
+    panel, dcols, dall = load_panel()
+    lv = leaves(panel)
+    esd, edt = load_external()
+    print(f'  {len(lv)} leaf, setelan {len(tuned)} sel terbaca\n', flush=True)
+
+    # ---------- 1. ablasi jumlah fitur ----------
+    done = sudah(OUT_K, ('leaf', 'model', 'top_k'))
+    print(f'[1/2] ablasi jumlah fitur - {len(lv)*len(ML)*len(ARMS_K)-len(done)} sel',
+          flush=True)
+    pasang_ext(False)
+    for i, (_, r) in enumerate(lv.iterrows(), 1):
+        d, y = series_of(r, dcols, dall)
+        cut = len(y) - NROLL; den = scale_denom(y[:cut])
+        for k in ARMS_K:
+            for nm, (cls, _m) in ML.items():
+                if (r['Row_ID'], nm, k) in done:
+                    continue
+                pasang(k, MRMR_BETA)
+                try:
+                    rows = blok(cls, GRID[nm][int(tuned[(r['Row_ID'], nm)])],
+                                d, y, cut, den, None,
+                                dict(leaf=r['Row_ID'], model=nm, top_k=k))
+                except Exception as e:
+                    print(f'    GAGAL {r["Row_ID"]}/{nm}/k={k}: {type(e).__name__}',
+                          flush=True); continue
+                tulis(OUT_K, rows)
+        print(f'  [{i}/{len(lv)}] {r["Row_ID"]} ({time.time()-t0:.0f}s)', flush=True)
+
+    # ---------- 2. data pasar, dua penyeleksi ----------
+    done = sudah(OUT_X, ('leaf', 'model', 'top_k', 'ext', 'beta'))
+    total = len(lv)*len(ML)*len(K_EXT)*2*len(BETAS)
+    print(f'\n[2/2] data pasar x penyeleksi - {total-len(done)} sel', flush=True)
+    for i, (_, r) in enumerate(lv.iterrows(), 1):
+        d, y = series_of(r, dcols, dall)
+        cut = len(y) - NROLL; den = scale_denom(y[:cut])
+        for beta in BETAS:
+            for k in K_EXT:
+                for on in (False, True):
+                    pasang(k, beta); pasang_ext(on)
+                    for nm, (cls, _m) in ML.items():
+                        key = (r['Row_ID'], nm, k, on, beta)
+                        if key in done:
+                            continue
+                        try:
+                            rows = blok(cls, GRID[nm][int(tuned[(r['Row_ID'], nm)])],
+                                        d, y, cut, den, esd if on else None,
+                                        dict(leaf=r['Row_ID'], model=nm, top_k=k,
+                                             ext=on, beta=beta))
+                        except Exception as e:
+                            print(f'    GAGAL {r["Row_ID"]}/{nm}: {type(e).__name__}',
+                                  flush=True); continue
+                        tulis(OUT_X, rows)
+        print(f'  [{i}/{len(lv)}] {r["Row_ID"]} ({time.time()-t0:.0f}s)', flush=True)
+
+    print(f'\nSISA SELESAI ({time.time()-t0:.0f}s)', flush=True)
+    print(f'  {OUT_K}\n  {OUT_X}', flush=True)
+
+
+if __name__ == '__main__':
+    main()
