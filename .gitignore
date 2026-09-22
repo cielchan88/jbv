@@ -56,3 +56,8 @@ node_modules/
 scripts/paper/doc_items.json
 scripts/paper/fig/
 *.docx
+
+# Cadangan workbook fitur eksternal. Data pasar mentah, repo ini publik -
+# jangan pernah ikut ter-commit.
+data/*.bak
+data/**/*.bak
