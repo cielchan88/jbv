@@ -13,7 +13,8 @@ Key improvements:
 import pandas as pd
 import numpy as np
 import json
-from .feature_config import FEATURE_CONFIG, get_forced_features
+from .feature_config import (FEATURE_CONFIG, get_forced_features,
+                             TOP_K_FEATURES, TOP_K_CROSS_SERIES)
 
 
 def parse_children(children_value):
@@ -98,7 +99,7 @@ def calculate_series_correlations(df, target_row_id, candidate_series, time_cols
     return correlations
 
 
-def select_top_correlated_series(correlations, top_k=30):
+def select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES):
     """
     Select top K series with highest correlation
 
@@ -664,10 +665,39 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     return df
 
 
-def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_beta=0.0):
+def select_top_features_optimized(train_df, top_k=TOP_K_FEATURES, volatility_quota=0, mrmr_beta=1.0):
     """
-    Select top K features using correlation (Spearman), with an optional
-    reserved quota for volatility features.
+    Pilih top-K fitur dengan kriteria mRMR: relevansi Spearman terhadap target
+    DIKURANGI rata-rata korelasi terhadap fitur yang sudah terpilih.
+
+    BAWAANNYA SEKARANG mRMR (beta=1), BUKAN KORELASI MURNI. Ini perubahan
+    perilaku untuk seluruh sepuluh pemanggil di repo, yang semuanya memakai
+    nilai bawaan. Alasannya diukur, bukan preferensi:
+
+      Pada blok uji 30 origin, 18 leaf, 3 model (1.620 titik berpasangan),
+      mRMR mengalahkan korelasi murni di KEDUA anggaran fitur, dan rata-rata
+      maupun uji peringkat sepakat - hal yang tidak terjadi pada eksperimen
+      lain mana pun di studi ini:
+
+        k=12   -3,62%   menang 880/1620   p = 0,0103
+        k=25   -4,66%   menang 889/1620   p = 0,0024
+
+    LEBIH PENTING LAGI: kolam lag diperlebar jadi 18 (lihat feature_config).
+    Delapan belas lag berurutan saling berkorelasi sangat tinggi, dan aturan
+    yang memeringkat kandidat satu per satu akan meloloskan segerombolan
+    fitur nyaris kembar. Kombinasi kolam lebar + korelasi murni TERUKUR
+    paling merugikan: pada k=12 dengan data pasar menyala, XGBoost mencapai
+    MASE rata-rata 1,857 - jauh di atas sel mana pun yang lain.
+
+    Jadi kolam lebar dan mRMR adalah satu paket. Menurunkan beta ke 0 tanpa
+    juga mempersempit kolam lag mengembalikan kombinasi terburuk itu.
+
+    CATATAN HORIZON. Seluruh angka di atas dari horizon SATU hari. Dashboard
+    berjalan di horizon 60 hari, tempat kombinasi ini belum diuji langsung.
+    Yang diketahui di h=60: memperbesar kolam dengan korelasi murni
+    memperburuk (redundansi 0,638 -> 0,690, fitur efektif 2,4 -> 2,0), dan
+    itu persis redundansi yang dihukum mRMR. Perubahan ini karena itu bergerak
+    ke arah yang benar untuk h=60 juga, tapi besarannya belum terukur.
 
     Args:
         train_df: Training DataFrame with features
@@ -676,8 +706,9 @@ def select_top_features_optimized(train_df, top_k=25, volatility_quota=0, mrmr_b
             VOLATILITY_PRIORITY_FEATURES. 0 = perilaku lama (korelasi murni).
             Lihat penjelasan di badan fungsi. TERUKUR MEMPERBURUK - jangan
             diaktifkan tanpa bukti baru.
-        mrmr_beta: Bobot penalti redundansi (mRMR). 0 = perilaku lama.
-            Lihat penjelasan di badan fungsi.
+        mrmr_beta: Bobot penalti redundansi. 1.0 = bawaan sekarang.
+            0.0 mengembalikan seleksi korelasi murni - hanya untuk
+            mereproduksi hasil lama, bukan untuk produksi.
 
     Returns:
         Tuple of (top_features_list, scores_dict)

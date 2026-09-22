@@ -46,3 +46,10 @@ torch>=2.0.0
 torchvision>=0.15.0
 sentencepiece>=0.1.99
 tqdm>=4.66.0
+
+# Parser HTML untuk scraper Trading Economics. Dipakai langsung oleh
+# etl/scrape_trading_economics.py dan utils/test_scraping_selector.py, tapi
+# selama ini tidak pernah dideklarasikan - keduanya melempar ModuleNotFoundError
+# di lingkungan bersih. Aplikasi Streamlit sendiri tidak mengimpornya, jadi
+# kekurangan ini tidak pernah terlihat dari halaman mana pun.
+beautifulsoup4>=4.12.0

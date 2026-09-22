@@ -33,6 +33,7 @@ os.chdir(WT)
 warnings.filterwarnings('ignore')
 
 from utils import load_holidays, ML_START_DATE
+from utils.feature_config import TOP_K_FEATURES, TOP_K_CROSS_SERIES
 from utils.feature_engineering_optimized import (
     create_features_optimized, select_top_features_optimized,
     calculate_series_correlations, select_top_correlated_series,
@@ -116,7 +117,7 @@ CROSS = {}
 for leaf in LEAVES:
     cand = [l for l in LEAVES if l != leaf]
     corr = calculate_series_correlations(df, leaf, cand, tcm)
-    top30 = select_top_correlated_series(corr, top_k=30)
+    top30 = select_top_correlated_series(corr, top_k=TOP_K_CROSS_SERIES)
     CROSS[leaf] = load_and_merge_external_features(
         prepare_external_series_data(df, top30, tcm), tcm)
 print(f"  selesai, contoh jumlah seri = {len(CROSS[LEAVES[0]])}", flush=True)
@@ -164,7 +165,7 @@ for i, leaf in enumerate(LEAVES):
         feats = create_features_optimized(pd.DataFrame({'ds': tr_d, 'y': tr_v}),
                                           lag_steps=90, holidays_list=hol)
         allc = [c for c in feats.columns if c not in ('ds', 'date', 'value')]
-        top, _ = select_top_features_optimized(feats, top_k=25)
+        top, _ = select_top_features_optimized(feats, top_k=TOP_K_FEATURES)
         cols = [c for c in top if c in allc] or allc[:25]
         X = feats[cols].fillna(0).replace([np.inf, -np.inf], 0).to_numpy()
         yv = feats['value'].to_numpy()

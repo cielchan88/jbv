@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 import warnings
 
+# Ambang peringatan keras untuk pengisian mundur (look-ahead). Di atas angka ini
+# sebuah kolom dianggap mulai terlalu terlambat untuk dipakai apa adanya pada
+# panel penuh. 10% dari 5.032 hari kerja kira-kira dua tahun.
+BACKFILL_WARN_PCT = 10.0
+
 
 def load_external_features(
     filepath: str = 'data/external_features.xlsx',
@@ -99,9 +104,35 @@ def load_external_features(
         # Forward fill NaN values
         if np.isnan(values).any():
             warnings.warn(f"Feature '{col}' has {np.isnan(values).sum()} NaN values. Forward filling...")
-            df[col] = df[col].fillna(method='ffill')
-            # Backward fill for leading NaNs
-            df[col] = df[col].fillna(method='bfill')
+            df[col] = df[col].ffill()
+
+            # Backward fill untuk NaN di awal.
+            # PERHATIAN: ini satu-satunya jalur look-ahead yang tersisa di sini -
+            # tanggal SEBELUM fitur punya data pertama akan diisi nilai MASA DEPAN.
+            #
+            # Aman selama kolom eksternal mulai bersamaan dengan panel. Tidak aman
+            # untuk kolom yang mulainya jauh belakangan - misalnya sentimen berita,
+            # yang arsipnya cuma beberapa tahun sementara panel mulai 2006. Kolom
+            # seperti itu akan terisi mundur ribuan hari dengan satu nilai masa
+            # depan yang sama: bocor DAN nyaris konstan sepanjang training.
+            #
+            # Karena itu proporsi yang terisi mundur sekarang dihitung dan
+            # diperingatkan secara eksplisit, bukan dibiarkan senyap.
+            lead = int(df[col].isna().sum())      # sisa NaN setelah ffill = NaN di awal
+            if lead:
+                share = 100.0 * lead / len(df)
+                msg = (f"Fitur '{col}' punya {lead} tanggal ({share:.1f}%) SEBELUM "
+                       f"data pertamanya; semuanya diisi mundur dengan nilai masa depan.")
+                if share > BACKFILL_WARN_PCT:
+                    warnings.warn(
+                        msg + f" Ini di atas ambang {BACKFILL_WARN_PCT:.0f}% - kolom ini "
+                        "bocor ke periode training dan hampir konstan di sana. "
+                        "Potong panel ke rentang yang benar-benar punya data, atau "
+                        "keluarkan kolom ini dari kolam fitur.",
+                        stacklevel=2)
+                else:
+                    warnings.warn(msg, stacklevel=2)
+            df[col] = df[col].bfill()
             values = df[col].values
 
         external_dict[col] = values
@@ -206,9 +237,10 @@ def merge_with_training_data(
     for col in external_cols:
         if merged[col].isna().any():
             # Forward fill first
-            merged[col] = merged[col].fillna(method='ffill')
-            # Then backward fill for leading NaNs
-            merged[col] = merged[col].fillna(method='bfill')
+            merged[col] = merged[col].ffill()
+            # Then backward fill for leading NaNs (lihat catatan look-ahead di
+            # load_external_features)
+            merged[col] = merged[col].bfill()
             # If still NaN, fill with median
             if merged[col].isna().any():
                 merged[col] = merged[col].fillna(merged[col].median())

@@ -36,6 +36,7 @@ class StackingForecaster(BaseForecaster):
     def fit(self, dates, values, external_series=None):
         """Fit Stacking ensemble model with 4 base models (APUVA + 3 ML)"""
         from ..feature_engineering_optimized import create_features_optimized, select_top_features_optimized
+        from ..feature_config import TOP_K_FEATURES
 
         self.last_date = pd.to_datetime(dates[-1]) if not isinstance(dates[-1], pd.Timestamp) else dates[-1]
 
@@ -68,7 +69,7 @@ class StackingForecaster(BaseForecaster):
 
         # Select features
         available_features = [col for col in features_df.columns if col not in ['ds', 'date', 'value']]
-        top_features, _ = select_top_features_optimized(features_df, top_k=25)
+        top_features, _ = select_top_features_optimized(features_df, top_k=TOP_K_FEATURES)
         self.feature_cols = [f for f in top_features if f in available_features]
 
         if len(self.feature_cols) == 0:

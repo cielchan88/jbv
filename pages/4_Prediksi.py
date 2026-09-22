@@ -29,6 +29,7 @@ st.set_page_config(page_title="Prediksi - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
+from utils.feature_config import TOP_K_FEATURES, TOP_K_CROSS_SERIES
 from utils.data_loader import load_etl_output, parse_children
 from utils.forecasting import forecast_single_series
 
@@ -198,7 +199,7 @@ if run_test and selected_series:
         correlations = calculate_series_correlations(df, selected_series, candidate_series, time_cols_ml)
 
         # 3. Select top 30 correlated series
-        top_30_series = select_top_correlated_series(correlations, top_k=30)
+        top_30_series = select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES)
 
         # 4. Prepare external series data (cross-series only) - using 2019+ data
         cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
@@ -260,7 +261,7 @@ if run_test and selected_series:
                 feature_scores[col] = 0
 
         # Select top 25 features based on correlation (with volatility priority)
-        top_features, _ = select_top_features_optimized(train_features, top_k=25)
+        top_features, _ = select_top_features_optimized(train_features, top_k=TOP_K_FEATURES)
 
         # Final feature columns to use
         if len(top_features) > 0:

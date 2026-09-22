@@ -18,6 +18,22 @@ data/processed/*.csv
 data/processed/step-*/
 data/forecast_versions/
 data/api_sample/
+# Salinan cadangan berkas data - selalu lokal, jangan pernah ikut ter-commit
+data/*.bak
+data/*.xlsx.bak
+
+# Keluaran analisis yang nyasar ke akar repo. Skrip di scripts/paper/ melakukan
+# os.chdir ke akar repo, jadi keluaran dengan nama relatif mendarat di sini alih-alih
+# di direktori kerja. Sebagian memuat statistik deskriptif per seri dari data
+# pengawasan - repositori ini publik, jadi keluaran semacam itu tidak boleh
+# ter-commit karena kelalaian. Tulis ke direktori kerja di luar repo.
+/*.csv
+/desc.csv
+/tables.json
+/e1_*.csv
+/e2_*.csv
+/e3_*.csv
+/e4_*.csv
 arsip/
 
 # Temporary files
@@ -44,6 +60,12 @@ catboost_info/
 # Checkpoint evaluasi (hasil sementara, di-regenerate tiap run)
 data/eval_checkpoint.pkl
 
+# Korpus berita dan turunannya. JANGAN di-commit: repo ini publik, isinya
+# judul berita pihak ketiga, dan ukurannya bisa ratusan MB sampai beberapa GB
+# untuk rentang 2006-2026. Korpus dibangun ulang dari sumbernya lewat
+# `python -m etl.news.run`, jadi tidak ada yang hilang kalau tidak disimpan.
+data/news/
+
 # Configuration with sensitive data
 config.py
 .env
@@ -56,6 +78,10 @@ node_modules/
 scripts/paper/doc_items.json
 scripts/paper/fig/
 *.docx
+
+# Keluaran komputasi ulang naskah. Dibangun ulang dari skripnya; besar dan
+# berisi metrik per seri, sedangkan repo ini publik.
+scripts/paper/revisi/hasil/
 
 # Cadangan workbook fitur eksternal. Data pasar mentah, repo ini publik -
 # jangan pernah ikut ter-commit.

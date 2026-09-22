@@ -30,7 +30,8 @@ st.set_page_config(page_title="Evaluasi - JBV Dashboard", layout="wide")
 
 # Import utils
 from utils import load_holidays, generate_business_dates, ML_START_DATE
-from utils.feature_config import ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE
+from utils.feature_config import (ENABLE_HOLIDAY_FEATURES, ENABLE_CROSS_SERIES_FOR_RECURSIVE,
+                                  TOP_K_FEATURES, TOP_K_CROSS_SERIES)
 from utils.data_loader import load_etl_output, parse_children
 
 # Daftar model didefinisikan DI SINI, sebelum judul, supaya jumlah pada subjudul
@@ -146,9 +147,20 @@ limit_horizon = st.sidebar.checkbox(
 eval_horizon = None
 if limit_horizon:
     eval_horizon = st.sidebar.number_input(
-        "Horizon evaluasi (hari)", min_value=7, max_value=365, value=60, step=7,
-        help="Samakan dengan horizon forecast yang biasa dipakai di Lembar Kerja"
+        "Horizon evaluasi (hari)", min_value=1, max_value=365, value=60, step=1,
+        help="Samakan dengan horizon forecast yang biasa dipakai di Lembar Kerja. "
+             "Isi 1 untuk uji satu langkah: training memakai seluruh data kecuali "
+             "tanggal terakhir, test hanya tanggal terakhir."
     )
+    if eval_horizon == 1:
+        st.sidebar.info(
+            "🎯 **Uji satu langkah.** Dengan horizon 1 dan 1 jendela, training "
+            "memakai seluruh periode kecuali observasi terakhir, dan test hanya "
+            "observasi terakhir itu. Catatan: **R² dan DA tidak terdefinisi** "
+            "pada satu titik uji (keduanya butuh variasi antar-titik) dan akan "
+            "muncul sebagai kosong. Pakai MAE, RMSE, SMAPE, atau MASE sebagai "
+            "metric acuan."
+        )
 
 # Jumlah jendela walk-forward.
 # Memilih model terbaik dari SATU jendela test tidak reprodusibel: diuji pada
@@ -357,7 +369,10 @@ def hitung_jendela(n_titik, tanggal, test_size, eval_horizon, n_windows,
             'train_akhir': tanggal[ts - 1] if ts > 0 else None,
             'test_awal': tanggal[ts] if 0 <= ts < n_titik else None,
             'test_akhir': tanggal[te - 1] if 0 < te <= n_titik else None,
-            'cukup': ts >= MIN_TRAIN and (te - ts) >= 5,
+            # Ambang panjang test = 1, bukan 5. Batas lama menutup uji satu
+            # langkah, padahal calculate_metrics() sudah menangani n = 1:
+            # DA dan R2 mengembalikan nan, bukan galat.
+            'cukup': ts >= MIN_TRAIN and (te - ts) >= 1,
         })
     return hasil
 
@@ -785,7 +800,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
             correlations = calculate_series_correlations(df, leaf_id, candidate_series, time_cols_ml)
 
             # 3. Select top 30 correlated series
-            top_30_series = select_top_correlated_series(correlations, top_k=30)
+            top_30_series = select_top_correlated_series(correlations, top_k=TOP_K_CROSS_SERIES)
 
             # 4. Prepare external series data (cross-series only) - using 2019+ data
             cross_series_only = prepare_external_series_data(df, top_30_series, time_cols_ml)
@@ -988,7 +1003,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
         # memakai ambang yang PERSIS SAMA - kalau dua angka ini pernah berbeda,
         # pratinjau akan menjanjikan jendela yang diam-diam dilewati saat run.
         if (test_start_ml < MIN_TRAIN or test_start_ap < MIN_TRAIN
-                or len(test_ml) < 5 or len(test_apuva) < 5):
+                or len(test_ml) < 1 or len(test_apuva) < 1):
             current_step += len(selected_models)
             progress_bar.progress(min(current_step / total_steps, 1.0))
             continue
@@ -1038,7 +1053,7 @@ if run_comparison and len(selected_models) > 0 and len(leaf_nodes_to_run) > 0:
 
             # Select top 25 features ONCE (SAME AS Prediksi.py line 225-232)
             if len(common_features) > 0:
-                top_features, _ = select_top_features_optimized(train_features, top_k=25)
+                top_features, _ = select_top_features_optimized(train_features, top_k=TOP_K_FEATURES)
                 feature_cols = [f for f in top_features if f in common_features]
                 if len(feature_cols) == 0:
                     feature_cols = common_features[:25]
@@ -2115,7 +2130,7 @@ elif _shap_store and _shap_results is not None:
                             _fe, lag_steps=90, holidays_list=load_holidays())
                         _allc = [c for c in _feats.columns
                                  if c not in ('ds', 'date', 'value')]
-                        _top, _ = select_top_features_optimized(_feats, top_k=25)
+                        _top, _ = select_top_features_optimized(_feats, top_k=TOP_K_FEATURES)
                         _cols = [c for c in _top if c in _allc] or _allc[:25]
                         _X_full = _feats[_cols].fillna(0).replace([np.inf, -np.inf], 0)
                         _y_full = _feats['value'].to_numpy(dtype=float)

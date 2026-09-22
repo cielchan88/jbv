@@ -158,6 +158,90 @@ def warn_missing_at_predict(missing, model_name='model'):
 
 
 # ============================================================================
+# JUMLAH FITUR YANG DIPILIH
+# ============================================================================
+# Berapa fitur teratas yang diteruskan select_top_features_optimized() ke model.
+#
+# Sebelumnya angka 25 ditulis keras di sembilan tempat terpisah - empat model,
+# tiga halaman, dan skrip naskah. Akibatnya mengubahnya berarti sembilan
+# suntingan, dan kalau satu terlewat model bisa dilatih dengan jumlah fitur
+# berbeda tanpa satu pun tanda di log. Sekarang semuanya menunjuk ke sini.
+#
+# 25 adalah nilai yang dipakai untuk seluruh hasil yang sudah tercatat, jadi
+# mengubahnya membuat angka baru tidak sebanding dengan angka lama.
+#
+# ----------------------------------------------------------------------------
+# HASIL ABLATION: 12 MENGALAHKAN 25. LEBIH BANYAK FITUR JUSTRU LEBIH BURUK.
+#
+# Diuji pada 18 leaf x 3 jendela rolling-origin x 3 model pohon (162 unit
+# berpasangan), horizon 60 hari, dibandingkan Wilcoxon signed-rank terhadap
+# nilai lama 25. Protokolnya sama dengan dua eksperimen seleksi fitur
+# sebelumnya supaya angkanya sebanding.
+#
+#   arm   MASE rata   vs k=25    menang     Wilcoxon p
+#    10       2,531    +19,71%   106/162        0,0000   <- lihat peringatan
+#    12       1,915     -9,39%   105/162        0,0000   <- dipakai
+#    15       1,979     -6,40%    98/162        0,0006
+#    18       2,002     -5,27%    91/162        0,0159
+#    20       2,037     -3,64%    87/162        0,1287
+#    25       2,114     (acuan)         -            -
+#    40       2,230     +5,49%    66/162        0,0005
+#    60       2,314     +9,45%    55/162        0,0000
+#
+# Monoton dan searah di ketiga model, tanpa perkecualian. Pada k=12 seluruhnya
+# membaik: RandomForest -16,57%, XGBoost -6,67%, LightGBM -3,11%.
+#
+# PENJELASANNYA menyatukan temuan yang sebelumnya terpisah. Rata-rata
+# |korelasi| antar 25 fitur terpilih 0,638 - setara hanya sekitar 2,4 fitur
+# bebas. Artinya fitur ke-13 sampai ke-25 hampir seluruhnya salinan dari yang
+# sudah ada: tidak menambah informasi, tapi tetap menambah dimensi yang harus
+# dipilih pohon di tiap split. Itu ragam tanpa sinyal.
+#
+# Sekaligus menjelaskan kenapa mRMR "bekerja tapi tidak berpengaruh": ia
+# menurunkan redundansi sambil MEMPERTAHANKAN 25 slot. Yang mengganggu ternyata
+# jumlah slotnya, bukan redundansinya.
+#
+# ----------------------------------------------------------------------------
+# PERINGATAN - ADA TEBING TAJAM DI BAWAH 12. JANGAN TURUNKAN LAGI.
+#
+# Pada k=10, A.1.b (PTMN - Repatriasi) meledak: MASE RandomForest 27-42
+# di ketiga jendela, padahal di k=12 dan k=25 nilainya 0,17-2,46. Satu leaf itu
+# sendirian menyeret rata-rata k=10 dari 1,89 ke 2,53. Perhatikan bahwa Wilcoxon
+# tetap menyatakan k=10 "menang" (106/162, p=0,0000) - uji berbasis peringkat
+# tidak melihat besarnya kegagalan. Rata-rata dan maksimum yang melihatnya.
+#
+# Penyebabnya: A.1.b 95,9 persen nol, jauh lebih jarang daripada leaf mana pun
+# (yang terdekat A.1.c di 49,0 persen). Deret sejarang itu tampaknya butuh
+# jumlah fitur minimum untuk bisa diwakili sama sekali.
+#
+# Pada k=12 SELURUH 18 leaf aman, termasuk A.1.b. Tapi marginnya cuma dua
+# langkah, dan letak tebing itu hanya teramati dari SATU deret. Kalau nanti ada
+# leaf baru yang lebih jarang dari 96 persen nol, ablation ini harus diulang
+# sebelum k=12 dipertahankan. Alternatif konservatifnya k=15: margin lebih lebar
+# dengan perbaikan 3 poin persen lebih kecil (-6,40% vs -9,39%).
+#
+# ----------------------------------------------------------------------------
+# CATATAN REPRODUKSI: seluruh angka pada naskah jurnal dihasilkan pada k=25.
+# Hasil yang dijalankan ulang dengan k=12 TIDAK sebanding dengan tabel-tabel di
+# sana; untuk mereproduksinya, setel konstanta ini kembali ke 25.
+#
+# Yang TIDAK menolong, sudah diuji, jangan diulang: memperbesar KOLAM fitur.
+# Pada 10 leaf dengan kolam diperluas ke 149 kandidat (menambah lag 2/3/21/60,
+# rolling 3/21, ewm 14/60, z-score 7/60), kandidat baru merebut 7,7 dari 25 slot
+# - didominasi rolling_mean_3 dan rolling_max_3 - sementara redundansi naik
+# 0,638 -> 0,690 dan fitur efektif turun 2,4 -> 2,0. Jendela pendek nyaris
+# identik dengan level, jadi ia menang lalu menendang keluar fitur yang membawa
+# informasi lain.
+TOP_K_FEATURES = 12
+
+# Berapa seri saudara (leaf lain) yang dipertimbangkan sebagai cross-series.
+# Dipakai select_top_correlated_series(). Perlu dicatat: hasilnya hanya sampai
+# ke VAR dan jalur teacher-forced, karena ENABLE_CROSS_SERIES_FOR_RECURSIVE
+# menyaringnya keluar dari peramal rekursif (lihat catatan saklar di atas).
+TOP_K_CROSS_SERIES = 30
+
+
+# ============================================================================
 # FEATURE CONFIGURATION FOR HIGH VOLATILITY DATA
 # ============================================================================
 
@@ -185,7 +269,31 @@ FEATURE_CONFIG = {
     # ========================================================================
     "lag_features": {
         "enabled": True,
-        "lags": [1, 7, 14, 30],  # 4 features - REMOVED: lag_2, lag_3, lag_21, lag_60, lag_90 (5 removed)
+        # 18 lag. Rapat di 1-15, lalu melebar: 20, 25, 30.
+        #
+        # KENAPA DIPERLEBAR. Daftar lama [1, 7, 14, 30] dibentuk untuk horizon
+        # 60 hari, tempat lag pendek memang tidak banyak menolong. Naskah
+        # jurnal ini horizon SATU hari - justru wilayah tempat sinyal paling
+        # mungkin berada - dan temuannya sendiri menyatakan lag terkini membawa
+        # hampir seluruh sinyal yang bisa diramalkan. Menyimpulkan itu sambil
+        # tidak pernah menawarkan lag 2 sampai 6 kepada penyeleksi adalah
+        # kesimpulan yang tidak pernah diuji.
+        #
+        # HUBUNGANNYA DENGAN PENYELEKSI - BACA SEBELUM MENGUBAH APA PUN.
+        # Catatan di atas (baris ~228) mencatat bahwa memperbesar kolam pernah
+        # diuji dan MEMPERBURUK: redundansi naik 0,638 -> 0,690 dan fitur
+        # efektif turun 2,4 -> 2,0. Tapi uji itu memakai seleksi korelasi
+        # MURNI, yang buta terhadap tumpang tindih antar kandidat. Delapan
+        # belas lag saling berkorelasi tinggi, jadi dengan penyeleksi itu
+        # kolam ini akan mengulang kegagalan yang sama - lebih parah.
+        #
+        # Kolam selebar ini HANYA aman dipasangkan dengan mRMR
+        # (select_top_features_optimized(..., mrmr_beta > 0)), yang menghukum
+        # persis redundansi tersebut. Naskah jurnal memakainya. Bawaan
+        # produksi masih mrmr_beta=0.0, jadi selama itu belum diubah,
+        # kombinasi kolam lebar + korelasi murni adalah kombinasi yang sudah
+        # terukur merugikan.
+        "lags": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 25, 30],
     },
 
     # ========================================================================
@@ -194,8 +302,13 @@ FEATURE_CONFIG = {
     "rolling_statistics": {
         "enabled": True,
         "windows": [7, 14, 30, 60, 90],  # REDUCED from [3, 7, 14, 21, 30, 60, 90, 120, 180]
+        # PERHATIAN: daftar ini hanya bisa DIKURANGI, tidak bisa ditambah.
+        # create_features_optimized() punya cabang eksplisit untuk empat nama
+        # ini saja (mean/std/min/max); nama lain diabaikan diam-diam. Sudah
+        # diukur - menambahkan "median" dan "skew" menghasilkan delta +0 fitur.
+        # Untuk menambah statistik baru, tambahkan dulu cabangnya di sana.
         "stats": ["mean", "std", "min", "max"],  # 4 stats per window = 20 features
-        # REMOVED: median, skew, kurt, range, q25, q75 (6 stats removed)
+        # DIHAPUS: median, skew, kurt, range, q25, q75
     },
 
     # ========================================================================
@@ -291,27 +404,37 @@ FEATURE_CONFIG = {
     },
 
     # ========================================================================
-    # MOMENTUM FEATURES (REMOVED - 9 features)
+    # TIGA BLOK BERIKUT BUKAN SAKLAR - TIDAK ADA IMPLEMENTASINYA
     # ========================================================================
+    # Ketiganya terbaca seperti fitur yang tinggal dinyalakan lewat
+    # enabled=True. Itu keliru: create_features_optimized() TIDAK PERNAH
+    # membaca ketiga kunci ini. Sudah diukur - menyetel ketiganya ke True
+    # menghasilkan tepat 90 fitur, sama persis dengan False (delta +0).
+    #
+    # Jadi untuk memakainya, kodenya harus ditulis lebih dulu di
+    # create_features_optimized(); mengubah False jadi True tidak melakukan
+    # apa pun. Kuncinya sengaja tidak dihapus supaya catatan alasan
+    # penghapusannya tidak ikut hilang.
+    # ========================================================================
+
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
     "momentum_features": {
-        "enabled": False,  # REMOVED ALL - redundant with value_diff and value_pct_change
-        # momentum_7, momentum_30, momentum_60, roc_7, roc_14, roc_30, roc_60, roc_90 (9 features removed)
+        "enabled": False,  # dihapus dulu: redundan dengan value_diff dan value_pct_change
+        # momentum_7, momentum_30, momentum_60, roc_7, roc_14, roc_30, roc_60, roc_90
     },
 
-    # ========================================================================
-    # AUTOCORRELATION FEATURES (REMOVED - 3 features)
-    # ========================================================================
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
     "autocorrelation_features": {
-        "enabled": False,  # REMOVED ALL - low correlation with target
-        # autocorr_7, autocorr_14, autocorr_30 (3 features removed)
+        "enabled": False,  # dihapus dulu: korelasi rendah dengan target
+        # autocorr_7, autocorr_14, autocorr_30
     },
 
-    # ========================================================================
-    # DISTANCE FROM MEAN (REMOVED - 3 features)
-    # ========================================================================
+    # TIDAK AKTIF - tidak ada kodenya (lihat catatan di atas)
+    # Catatan: utils/feature_engineering.py (modul lama) memang membangun
+    # distance_from_mean_*, tapi ia tidak membaca kunci ini juga.
     "distance_from_mean": {
-        "enabled": False,  # REMOVED ALL - redundant with z_score
-        # distance_from_mean_7, distance_from_mean_30, distance_from_mean_60 (3 features removed)
+        "enabled": False,  # dihapus dulu: redundan dengan z_score
+        # distance_from_mean_7, distance_from_mean_30, distance_from_mean_60
     },
 
     # ========================================================================
