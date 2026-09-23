@@ -15,8 +15,16 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-H = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hasil')
-NLEAF, NROLL = 18, 30
+# Folder hasil dan jumlah leaf ikut JBV_PANEL, dengan aturan turunan yang
+# sama seperti h1_common - ringkas.py sengaja tidak mengimpornya supaya tetap
+# bisa dijalankan tanpa memuat seluruh utils.
+_P = os.environ.get('JBV_PANEL')
+_BAWAAN = 'hasil' if not _P else 'hasil_' + os.path.splitext(os.path.basename(_P))[0]
+H = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 os.environ.get('JBV_HASIL', _BAWAAN))
+_NLEAF = {'sdv-wide.csv': 18, 'sdv-wide-gabung.csv': 15}
+NLEAF = int(os.environ.get('JBV_NLEAF', _NLEAF.get(os.path.basename(_P or 'sdv-wide.csv'), 18)))
+NROLL = 30
 ALL_MODELS = ['Naive', 'NaiveMean', 'NaiveDrift', 'Croston', 'SeasonalDecomp',
               'ARIMA', 'Prophet', 'RandomForest', 'LightGBM', 'XGBoost']
 ML3 = ['RandomForest', 'LightGBM', 'XGBoost']
