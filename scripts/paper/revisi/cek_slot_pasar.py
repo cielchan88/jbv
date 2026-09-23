@@ -36,7 +36,7 @@ import pandas as pd
 from utils.feature_engineering_optimized import (create_features_optimized,
                                                  select_top_features_optimized)
 
-H = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hasil') + os.sep
+H = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 CKPT = H + 'slot_pasar.json'
 NROLL = 30
 KS = (12, 25)
@@ -92,7 +92,7 @@ def main():
     print(f"  dengan pasar  : {int(D.kandidat_total.mode()[0])}"
           f"  (pasar {int(D.kandidat_pasar.mode()[0])})")
 
-    print('\nRATA SLOT PASAR YANG TERPILIH, 18 leaf')
+    print(f'\nRATA SLOT PASAR YANG TERPILIH, {len(D)} leaf')
     print('  Kedua aturan diukur pada kolam lag yang SAMA. Selisihnya murni')
     print('  efek penyeleksi - itulah gunanya menghitung keduanya di sini.')
     for k in KS:

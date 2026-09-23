@@ -35,7 +35,7 @@ from utils.forecasting import (ARIMAForecaster, APUVAForecaster,
                                RandomForestForecaster, XGBoostForecaster)
 from utils.feature_engineering_optimized import select_top_features_optimized
 
-S = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hasil') + os.sep
+S = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 os.makedirs(S, exist_ok=True)
 OUT = S + 'opt_rolling.csv'
 TUNE = S + 'opt_tuned.csv'

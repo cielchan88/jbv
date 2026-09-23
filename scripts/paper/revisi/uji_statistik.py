@@ -24,7 +24,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
 
-H = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hasil') + os.sep
+_P = os.environ.get('JBV_PANEL')
+_BAWAAN = 'hasil' if not _P else 'hasil_' + os.path.splitext(os.path.basename(_P))[0]
+H = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 os.environ.get('JBV_HASIL', _BAWAAN)) + os.sep
 OUT = H + 'uji_statistik.json'
 ML = ['RandomForest', 'LightGBM', 'XGBoost']
 KUNCI = ['leaf', 'model', 'origin']

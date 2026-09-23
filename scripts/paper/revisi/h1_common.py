@@ -12,8 +12,36 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 
-PANEL = 'data/processed/sdv-wide.csv'
+_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ---------------------------------------------------------------------------
+# Panel bisa dialihkan lewat env JBV_PANEL supaya satu salinan kode melayani
+# beberapa dataset - misalnya panel 18 leaf dan panel 15 leaf hasil
+# penggabungan A.1 ke A.2.
+#
+# JEBAKANNYA, DAN KENAPA FOLDER HASIL IKUT BERGESER SENDIRI. Seluruh skrip
+# rerun_* memakai checkpoint per sel dan melewati sel yang kuncinya sudah ada
+# di berkas keluaran. Kunci itu (leaf, model, origin) TIDAK menyebut panel.
+# Kalau panel diganti tapi folder hasil tidak, sel A.2.d dari panel lama
+# dianggap sudah selesai - padahal datanya kini berbeda - dan hasilnya jadi
+# campuran dua dataset tanpa satu pun pesan galat. Karena itu menyetel
+# JBV_PANEL otomatis memindahkan folder hasil, kecuali JBV_HASIL disetel
+# eksplisit.
+# ---------------------------------------------------------------------------
+_PANEL_ENV = os.environ.get('JBV_PANEL')
+PANEL = _PANEL_ENV or 'data/processed/sdv-wide.csv'
 EXT = 'data/external_features.xlsx'
+
+_HASIL_BAWAAN = ('hasil' if not _PANEL_ENV else
+                 'hasil_' + os.path.splitext(os.path.basename(PANEL))[0])
+HASIL = os.path.join(_DIR, os.environ.get('JBV_HASIL', _HASIL_BAWAAN)) + os.sep
+
+# Jumlah leaf yang seharusnya, per panel. Dipakai leaves() sebagai penegasan.
+NLEAF_HARUS = {'sdv-wide.csv': 18, 'sdv-wide-gabung.csv': 15}
+
+if os.environ.get('JBV_DIAM') != '1':
+    print(f'[h1_common] panel {PANEL}', flush=True)
+    print(f'[h1_common] hasil {HASIL}', flush=True)
 
 
 def load_panel():
@@ -27,13 +55,22 @@ def leaves(panel):
 
     'Level terdalam' BUKAN definisi leaf - level 3 hanya memberi 9 baris karena
     cabang B dan C berhenti di level 2. D adalah total A+B+C dan dikeluarkan.
+
+    Jumlahnya ditegaskan, bukan sekadar dihitung, supaya salah-definisi seperti
+    di atas berhenti di sini alih-alih diam-diam mengecilkan panel. Angkanya
+    ikut panel: 18 untuk panel penuh, 15 untuk panel gabungan. JBV_NLEAF
+    menimpanya kalau ada panel ketiga.
     """
     ids = list(panel['Row_ID'])
     def punya_anak(i):
         return any(j != i and j.startswith(i + '.') for j in ids)
     lv = panel[panel['Row_ID'].apply(lambda i: not punya_anak(i))
                & (panel['Row_ID'] != 'D')]
-    assert len(lv) == 18, f'harus 18 leaf, dapat {len(lv)}'
+    harus = int(os.environ.get('JBV_NLEAF', NLEAF_HARUS.get(os.path.basename(PANEL), 0)))
+    assert harus, (f'panel {os.path.basename(PANEL)} belum terdaftar di '
+                   f'NLEAF_HARUS; setel JBV_NLEAF kalau memang disengaja '
+                   f'(dapat {len(lv)} leaf)')
+    assert len(lv) == harus, f'harus {harus} leaf, dapat {len(lv)}'
     return lv
 
 

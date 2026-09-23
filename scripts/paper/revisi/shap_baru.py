@@ -27,7 +27,7 @@ from sklearn.ensemble import RandomForestRegressor
 from utils.feature_engineering_optimized import (create_features_optimized,
                                                  select_top_features_optimized)
 
-S = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hasil') + os.sep
+S = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 CKPT = S + 'shap_baru.json'
 NROLL, TOP_K, BETA = 30, 25, 1.0
 BLUE, ACC, GRID = '#3b6ea5', '#c4713d', '#d8d8d8'

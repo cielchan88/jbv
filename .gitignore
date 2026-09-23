@@ -87,3 +87,6 @@ scripts/paper/revisi/hasil/
 # jangan pernah ikut ter-commit.
 data/*.bak
 data/**/*.bak
+
+# Keluaran komputasi ulang untuk panel alternatif (JBV_PANEL).
+scripts/paper/revisi/hasil_*/
