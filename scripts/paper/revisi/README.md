@@ -1,70 +1,239 @@
-# Komputasi ulang naskah pada konfigurasi optimal
+# Komputasi ulang naskah
 
-Menjawab tiga kritik pengulas yang menuntut angka baru, bukan penyuntingan:
-
-1. **Peringkat memakai parameter bawaan.** RandomForest tersetel membaik
-   9,5% dan semestinya naik ke peringkat satu. Hasil utama harus mewakili
-   kapasitas optimal tiap model.
-2. **Selektor univariat.** mRMR memangkas galat rata-rata ~7% dibanding
-   Spearman, jadi arsitektur inferior tidak bisa dipertahankan di hasil utama.
-3. **Refit statis.** Refit harian lebih baik 4,5% dan biayanya hitungan
-   detik, sehingga alasan memakai jalan pintas menjadi lemah.
-
-Ketiganya menuntut konfigurasi yang sama, jadi dijalankan sebagai satu jalur:
-**mRMR + setelan terpilih dari blok validasi + refit setiap hari.**
-
-## Jalankan di VPS, bukan di sesi Claude
-
-Pekerjaan ini 6-7 jam. Lingkungan sesi Claude me-restart kontainernya tiap
-belasan menit dan membunuh proses lepas, sehingga tidak pernah bisa selesai
-di sana. VPS stabil dan sudah punya data serta venv-nya.
+Seluruh tabel dan gambar naskah dihasilkan dari satu perintah:
 
 ```bash
-cd /opt/jbv && git pull
-tmux new -s naskah
-
-# tahap 1+2: setelan per leaf/model, lalu blok uji dengan refit harian
-/opt/jbv/venv/bin/python -u scripts/paper/revisi/rerun_optimal.py
-
-# tahap 3: ablasi terbalik untuk Bagian 4.3
-/opt/jbv/venv/bin/python -u scripts/paper/revisi/rerun_ablasi.py
+cd /opt/jbv && tmux new -s naskah
+venv/bin/python scripts/paper/revisi/jalankan_semua.py           # panel 18 leaf
+venv/bin/python scripts/paper/revisi/jalankan_semua.py gabung    # panel 15 leaf
 ```
 
 Lepas dengan `Ctrl-b d`, sambung lagi dengan `tmux attach -t naskah`.
+Perkiraan 12-15 jam untuk 18 leaf, sekitar seperlima lebih singkat untuk 15.
 
-## Checkpoint
+**Jalankan di VPS, bukan di sesi Claude.** Lingkungan sesi Claude me-restart
+kontainernya tiap belasan menit dan membunuh proses lepas, jadi pekerjaan
+sepanjang ini tidak pernah bisa selesai di sana.
 
-Keduanya menulis **setiap sel** ke `hasil/*.csv` begitu selesai, dan
-melewati sel yang sudah tercatat saat dijalankan ulang. Mati di tengah
-berarti kehilangan satu sel, bukan seluruh pekerjaan. Menjalankan ulang
-perintah yang sama akan melanjutkan, bukan mengulang.
+Cek kemajuan kapan saja dari jendela lain:
+
+```bash
+JBV_PANEL=data/processed/sdv-wide-gabung.csv venv/bin/python scripts/paper/revisi/ringkas.py
+```
+
+Keluarannya menutup dengan verdikt **SELESAI** atau **BELUM SELESAI**.
+
+---
+
+## Alurnya, langkah demi langkah
+
+### 1. Siapkan data
+
+Panel 15 atau 18 seri × 5.032 hari kerja, dalam juta USD, plus 8 variabel
+pasar pada tanggal yang sama persis: kurs spot bid/ask, forward 1 bulan
+bid/ask, yield SUN 10 tahun, indeks dolar, arus saham nonresiden, IHSG.
+
+Panel 15 leaf dibangun `gabung_leaf.py`, yang menjumlahkan tiga leaf PTMN ke
+pasangannya di Korporasi Lainnya (A.1.a→A.2.d, A.1.b→A.2.e, A.1.c→A.2.f) lalu
+membuang simpul A.1 yang kehilangan seluruh anaknya.
+
+### 2. Potong garis waktu jadi tiga
+
+Untuk **tiap** seri:
+
+```
+hari 1 ──────────────── 4.992 │ 4.993─5.002 │ 5.003─5.032
+       bahan latihan            10 hari        30 hari
+                                VALIDASI        UJI
+```
+
+Validasi hanya untuk memilih setelan, uji hanya untuk melaporkan angka.
+Keduanya tidak pernah bertukar peran.
+
+### 3. Bangun fitur
+
+Dari riwayat seri itu sendiri: 18 lag (1-15, 20, 25, 30), rata-rata bergerak,
+volatilitas, indikator teknikal, efek kalender → **104 kandidat**. Dengan data
+pasar, tiap variabel masuk sebagai lag 1, 7, 14 hari plus rata-rata 7 hari —
+32 tambahan, total **136**.
+
+Semuanya menoleh ke belakang; tidak ada nilai hari berjalan yang masuk.
+
+### 4. Pilih 25 fitur dengan mRMR
+
+Skor kandidat = korelasi Spearman dengan target **dikurangi** rata-rata
+korelasinya dengan fitur yang sudah terpilih, diambil satu per satu sampai k.
+
+mRMR hanya berjalan atas **3k kandidat teratas** menurut korelasi mentah
+(`select_top_features_optimized`). Akibatnya variabel pasar bisa menendang
+fitur internal keluar dari daftar pendek tanpa pernah terpilih sendiri — jadi
+"nol slot pasar" tidak berarti "tanpa pengaruh pasar".
+
+### 5. Cari setelan tiap model — *tahap 1*
+
+Empat kandidat setelan per model, masing-masing diuji di 10 hari validasi,
+yang menang disimpan ke `opt_tuned.csv`.
+
+`15 × 3 model × 4 setelan × 10 hari = 1.800 pelatihan`
+
+### 6. Blok uji 30 hari — *tahap 1*
+
+Inti evaluasinya. Untuk tiap seri, metode, dan hari di blok uji: latih ulang
+dari nol dengan **semua** data sebelum hari itu, ramal hari itu, bandingkan
+aktual, bagi penyebut MASE.
+
+`15 × 10 metode × 30 hari = 4.500 ramalan` → **Tabel 6, Gambar 3-4**
+
+### 7. Desain satu hari — *tahap 2*
+
+Latih seluruh riwayat, ramal hari terakhir. Cara desk sebenarnya bekerja,
+tapi satu hari tidak memberi sebaran sampel — deskripsi, bukan bukti.
+
+`15 × 10 = 150 ramalan` → **Tabel 5, Lampiran A1**
+
+---
+
+## Tiga ablasi
+
+Semuanya berprinsip sama: **tahan segalanya, ubah satu hal, bandingkan
+berpasangan** pada hari, seri dan model yang identik.
+
+### 8. Ablasi terbalik — *tahap 3*
+
+Mulai dari konfigurasi penuh, copot **satu** komponen, ukur berapa yang
+hilang. Dua komponen lain tetap menyala, jadi yang terukur adalah sumbangan
+marginalnya di atas yang lain.
+
+| Lengan | Yang dicopot |
+|---|---|
+| `tanpa_mrmr` | seleksi mRMR → kembali ke korelasi biasa |
+| `tanpa_setelan` | setelan terpilih → pakai bawaan library |
+| `tanpa_refit` | refit harian → latih sekali di awal blok |
+
+`15 × 3 model × 3 lengan × 30 hari = 4.050` → **Tabel 9, Gambar 9**, refit harian.
+
+Hasil panel 18 leaf: mRMR +2,28% (p=0,637, tidak nyata), refit harian +1,64%
+(**p=0,001, nyata**), penyetelan **−0,94%** — mematikannya justru memperbaiki
+11 dari 18 seri.
+
+### 9. Ablasi jumlah fitur — *tahap 4a*
+
+Satu tombol disapu enam nilai, sisanya beku: `k = 6, 8, 12, 16, 20, 25`.
+
+`15 × 3 × 6 × 30 = 8.100` → **Tabel 7, Gambar 5**
+
+Hasil panel 18 leaf: k=8 terbaik tapi hanya −0,88% dan tidak signifikan —
+jawabannya null. Yang tidak null ada di kolom maksimum: pada k=6 galat
+terburuk meledak ke 25,3, dua kali lipat semua nilai k lain. Rata-rata dan
+median diam soal itu.
+
+### 10. Ablasi data pasar — *tahap 4b*
+
+Copot seluruh blok 32 fitur pasar sekaligus, di dua nilai k × dua aturan
+seleksi × hidup/mati.
+
+`15 × 3 × 2 k × 2 aturan × 2 kondisi × 30 = 10.800` → **Tabel 8, Gambar 6**;
+perbandingan antar aturan seleksinya jadi **Gambar 10**.
+
+Hasil panel 18 leaf terbelah: menurut rata-rata data pasar merugikan di
+keempat sel, tapi menurut hitungan hari ia menang di tiga dari empat — sampai
+82% hari. Ia memperbaiki hari biasa dan gagal parah di segelintir hari.
+
+> **Refit.** Ablasi terbalik memakai refit harian; dua ablasi lain fit sekali
+> per blok. Sah, karena keduanya melaporkan selisih antar lengan dan jalan
+> pintas yang sama dikenakan ke setiap lengan — menggeser kedua sisi sama
+> besar. Dengan refit harian ketiganya butuh ~35 jam, dengan fit sekali ~2 jam.
+
+---
+
+### 11. SHAP — *tahap 5*
+
+Seleksi hanya memutuskan fitur mana yang **masuk**; SHAP mengukur berapa besar
+tiap fitur benar-benar **menggerakkan** ramalan setelah model terlatih.
+→ **Gambar 7-8**
+
+### 12. Uji statistik — *tahap 6*
+
+Wilcoxon berpasangan atas 1.350 titik per perbandingan. Dilaporkan berempat
+sekaligus: rata-rata, median, maksimum, hitungan menang.
+
+Keempatnya sering tidak sepakat — refit harian menang lebih *sedikit* daripada
+mRMR tapi justru signifikan — karena rata-rata digerakkan segelintir selisih
+besar sementara uji peringkat digerakkan banyak selisih kecil yang konsisten.
+Menyajikan satu saja akan menyesatkan.
+
+**Total 27.600 ramalan** plus 1.800 pelatihan penyetelan.
+
+---
 
 ## Keluaran
 
+Semua di `hasil/`, atau `hasil_<nama-panel>/` untuk panel alternatif.
+
 | Berkas | Isi |
 |---|---|
-| `hasil/opt_tuned.csv` | Setelan terpilih per (leaf, model) dari blok validasi |
-| `hasil/opt_rolling.csv` | Blok uji 30 origin, 10 metode, refit harian |
-| `hasil/opt_ablasi.csv` | Tiga lengan ablasi terbalik untuk Bagian 4.3 |
+| `opt_tuned.csv` | Setelan terpilih per (leaf, model) dari blok validasi |
+| `opt_rolling.csv` | Blok uji 30 origin, 10 metode, refit harian |
+| `headline.csv` | Desain tanggal-tunggal, 10 metode |
+| `opt_ablasi.csv` | Tiga lengan ablasi terbalik |
+| `sisa_kablasi.csv` | Ablasi jumlah fitur, enam nilai k |
+| `sisa_eksternal.csv` | Data pasar hidup/mati × dua k × dua aturan |
+| `shap_ringkas.json` | Pangsa kepentingan fitur per keluarga dan per seri |
+| `uji_statistik.json` | p-value, hitungan menang, median gabungan |
 
-Kirim balik ketiga berkas itu untuk penyusunan tabel, gambar, dan naskahnya.
+Kirim isi folder itu untuk penyusunan tabel, gambar dan naskahnya.
+
+## Perkakas lain
+
+| Skrip | Kegunaan |
+|---|---|
+| `ringkas.py` | Status keenam tahap + verdikt SELESAI/BELUM |
+| `cek_slot_pasar.py` | Berapa slot yang dimenangkan fitur pasar; hanya penyeleksi, murah |
+| `buang_baris_rusak.py` | Buang baris dari lengan yang rusak supaya checkpoint mengisinya kembali |
+| `gabung_leaf.py` | Bangun panel 15 leaf dari panel penuh |
+
+---
 
 ## Catatan desain
 
-**Blok validasi 10 origin, blok uji 30 origin.** Blok validasi lebih pendek
-dengan sengaja: ini tahap pemilihan, bukan hasil yang dilaporkan, dan
-menyetel dengan refit harian pada 30 origin makan 10 menit per model per
-leaf — 9 jam hanya untuk menyetel. Yang dipersoalkan pengulas tidak berubah:
-setelan tetap dipilih pada blok yang **mendahului** blok uji, jadi tidak ada
-kebocoran.
+**Checkpoint per sel.** Setiap tahap menulis sel begitu selesai dan melewati
+sel yang sudah tercatat saat dijalankan ulang. Mati di tengah berarti
+kehilangan satu sel, bukan seluruh pekerjaan.
 
-**`TOP_K = 25` dipertahankan.** Supaya hanya satu hal yang berubah terhadap
-draf lama. Jangan disamakan dulu dengan `TOP_K_FEATURES = 12` di
+**Panel dipilih lewat `JBV_PANEL`, folder hasil ikut bergeser sendiri.**
+Checkpoint berkunci `(leaf, model, origin)` tanpa menyebut panel, jadi
+mengganti panel tanpa memindahkan folder akan membuat sel dari dataset lama
+dianggap selesai — hasilnya campuran dua dataset tanpa satu pun pesan galat.
+Karena itu menyetel `JBV_PANEL` otomatis memindahkan folder, kecuali
+`JBV_HASIL` disetel eksplisit.
+
+**Blok validasi 10 origin, blok uji 30 origin.** Blok validasi lebih pendek
+dengan sengaja: ini tahap pemilihan, bukan hasil yang dilaporkan. Setelan
+tetap dipilih pada blok yang *mendahului* blok uji, jadi tidak ada kebocoran.
+Keterbatasannya nyata dan dilaporkan naskah: sepuluh galat satu langkah tidak
+cukup memisahkan empat kandidat, dan pada konfigurasi ini penyetelan justru
+lebih buruk daripada memakai bawaan library.
+
+**`TOP_K = 25` dipertahankan** supaya hanya satu hal yang berubah terhadap
+draf lama. Jangan disamakan dengan `TOP_K_FEATURES = 12` di
 `utils/feature_config.py`, yang dipilih dari ablasi horizon 60 hari.
 
-**Ablasi terbalik.** Dari konfigurasi optimal, tiap lengan mematikan satu
-komponen: `tanpa_setelan`, `tanpa_mrmr`, `tanpa_refit`. Arah pertanyaannya
-membalik dari draf lama — bukan lagi "apakah komponen ini penting" melainkan
-"berapa yang hilang kalau dimatikan" — sehingga bukti yang sudah dibayar
-mahal tetap terpakai dan pembaca mendapat jawaban atas "kenapa konfigurasi
-ini".
+**`leaves()` menegaskan jumlah leaf**, per panel lewat `NLEAF_HARUS`. Ini
+menangkap salah-definisi "level terdalam", yang hanya memberi 9 baris karena
+cabang B dan C berhenti di level 2.
+
+## Jebakan yang pernah terjadi
+
+**Nilai bawaan `mrmr_beta`.** Lengan `beta=0` harus menyebut `mrmr_beta=0.0`
+secara eksplisit. Nilai bawaan `select_top_features_optimized` adalah 1.0
+sejak commit 7006b01, jadi menyerahkan fungsinya begitu saja membuat lengan
+"tanpa mRMR" diam-diam tetap memakai mRMR — gejalanya selisih persis 0,0000
+dengan p=NaN. Sudah diperbaiki; `buang_baris_rusak.py` ada untuk merapikan
+hasil yang terlanjur tertulis.
+
+**Layar diam bukan berarti macet.** Blok uji melatih ulang model di setiap
+origin; satu model bisa memakan tiga menit atau lebih sebelum mencetak apa
+pun. Denyut per origin sudah dipasang supaya diamnya tidak disalahartikan.
+
+**Jalankan di tmux, keluar dengan `Ctrl-b d`.** Tanpa tmux, proses ikut mati
+begitu koneksi SSH putus.
