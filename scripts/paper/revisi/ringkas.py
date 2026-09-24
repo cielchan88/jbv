@@ -166,11 +166,61 @@ def ablasi(a, r):
     print('  Angka inilah yang jadi isi Bagian 4.3 versi revisi.')
 
 
+def selesai():
+    """Satu jawaban untuk 'sudah selesai belum?' atas kelima tahap.
+
+    Target dihitung dari NLEAF, jadi ikut panel yang dipakai. Berkas CSV
+    dihitung barisnya (tanpa header); dua tahap terakhir hanya perlu ada.
+    """
+    garis('STATUS KELIMA TAHAP')
+    N = NLEAF
+    TARGET = [
+        ('1 penyetelan',  'opt_tuned.csv',      N * 3),
+        ('2 blok uji',    'opt_rolling.csv',    N * 10 * 30),
+        ('3 ablasi balik', 'opt_ablasi.csv',    N * 3 * 3 * 30),
+        ('4a jumlah fitur', 'sisa_kablasi.csv', N * 3 * 6 * 30),
+        ('4b data pasar', 'sisa_eksternal.csv', N * 3 * 2 * 2 * 2 * 30),
+    ]
+    tuntas = True
+    for nama, berkas, target in TARGET:
+        jalan = os.path.join(H, berkas)
+        n = 0
+        if os.path.exists(jalan):
+            with open(jalan) as f:
+                n = max(0, sum(1 for _ in f) - 1)
+        pct = 100 * n / target if target else 0
+        tanda = 'OK   ' if n >= target else '     '
+        if n < target:
+            tuntas = False
+        print(f'  {tanda}{nama:16s} {berkas:20s} {n:6d} / {target:6d}  {pct:5.1f}%')
+
+    for nama, berkas in (('5 SHAP', 'shap_ringkas.json'),
+                         ('6 uji statistik', 'uji_statistik.json')):
+        ada = os.path.exists(os.path.join(H, berkas))
+        if not ada:
+            tuntas = False
+        print(f'  {"OK   " if ada else "     "}{nama:16s} {berkas:20s} '
+              f'{"ada" if ada else "belum ada"}')
+
+    print()
+    if tuntas:
+        print('  SELESAI. Kirim isi folder ini untuk penyusunan naskahnya:')
+        print(f'    {H}')
+    else:
+        print('  BELUM SELESAI. Kalau prosesnya sudah tidak berjalan, jalankan')
+        print('  lagi perintah yang sama - semua tahap melanjutkan dari checkpoint:')
+        print('    python scripts/paper/revisi/jalankan_semua.py gabung')
+        print('\n  Cek prosesnya masih hidup atau tidak:')
+        print('    pgrep -af "[j]alankan_semua"')
+    return tuntas
+
+
 def main():
     if not os.path.isdir(H):
         print(f'Folder hasil belum ada: {H}')
         print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py')
         return 1
+    selesai()
     t, r, a = kemajuan()
     tabel_setelan(t)
     peringkat(r)
