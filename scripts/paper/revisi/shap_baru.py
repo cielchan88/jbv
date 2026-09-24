@@ -146,6 +146,10 @@ def main():
     ax.set_xlabel('external share of importance (%)')
     ax.grid(axis='x', color=GRID, lw=.6); ax.set_axisbelow(True)
     ax.set_title('By series', fontsize=8.4, loc='left', pad=6)
+    # Folder gambar dibuat di sini, bukan diasumsikan ada. Di hasil/ ia
+    # kebetulan sudah ada dari jalan sebelumnya; di folder hasil yang baru
+    # tidak, dan savefig akan gagal SESUDAH seluruh SHAP dihitung.
+    os.makedirs(S + 'fig', exist_ok=True)
     fig.tight_layout(); fig.savefig(S + 'fig/fig7_shapfamily.png', dpi=200)
     plt.close(fig)
 

@@ -177,6 +177,7 @@ def selesai():
     TARGET = [
         ('1 penyetelan',  'opt_tuned.csv',      N * 3),
         ('2 blok uji',    'opt_rolling.csv',    N * 10 * 30),
+        ('2b headline',   'headline.csv',       N * 10),
         ('3 ablasi balik', 'opt_ablasi.csv',    N * 3 * 3 * 30),
         ('4a jumlah fitur', 'sisa_kablasi.csv', N * 3 * 6 * 30),
         ('4b data pasar', 'sisa_eksternal.csv', N * 3 * 2 * 2 * 2 * 30),

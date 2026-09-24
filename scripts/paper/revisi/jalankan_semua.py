@@ -9,10 +9,11 @@ membangunnya lebih dulu lewat gabung_leaf.py. Tidak perlu 'export' apa pun.
 
     0. gabung_leaf     bangun panel gabungan, kalau diminta dan belum ada
     1. rerun_optimal   penyetelan + blok uji, 10 metode, refit harian
-    2. rerun_ablasi    ablasi terbalik, 3 lengan
-    3. rerun_sisa      ablasi jumlah fitur + data pasar + dua penyeleksi
-    4. shap_baru       SHAP pada konfigurasi terpilih
-    5. uji_statistik   p-value, hitungan menang, median gabungan
+    2. rerun_headline  desain tanggal-tunggal, Tabel 5 + Lampiran A1
+    3. rerun_ablasi    ablasi terbalik, 3 lengan
+    4. rerun_sisa      ablasi jumlah fitur + data pasar + dua penyeleksi
+    5. shap_baru       SHAP pada konfigurasi terpilih
+    6. uji_statistik   p-value, hitungan menang, median gabungan
 
 URUTANNYA WAJIB. Tahap 2 membaca setelan terpilih dari tahap 1, tahap 3 juga,
 dan tahap 5 membaca seluruh berkas mentah yang dihasilkan 1-3.
@@ -46,6 +47,7 @@ PINTASAN = {'gabung': 'data/processed/sdv-wide-gabung.csv'}
 
 TAHAP = [
     ('rerun_optimal.py', 'penyetelan + blok uji, 10 metode'),
+    ('rerun_headline.py', 'desain tanggal-tunggal, Tabel 5 + Lampiran A1'),
     ('rerun_ablasi.py', 'ablasi terbalik, 3 lengan'),
     ('rerun_sisa.py', 'jumlah fitur + data pasar + dua penyeleksi'),
     ('shap_baru.py', 'SHAP pada konfigurasi terpilih'),
