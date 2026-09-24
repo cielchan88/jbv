@@ -205,6 +205,13 @@ def main():
             rows = []
             try:
                 for t in range(cut, len(y)):
+                    # Denyut per origin. Tanpa ini layar diam sepanjang satu
+                    # model penuh - tiga menit untuk RandomForest, lebih lama
+                    # lagi untuk ARIMA yang memilih ordo di setiap origin - dan
+                    # diam selama itu tidak bisa dibedakan dari proses macet.
+                    # Hanya cetakan; tidak ada perhitungan yang berubah.
+                    print(f'      {nm} origin {t-cut+1}/{NROLL} ...',
+                          end='\r', flush=True)
                     m = build(nm, r['Row_ID'], cfg)
                     m.fit(d[:t], y[:t])          # REFIT HARIAN
                     rec = one_step_metrics(y[t], p1(m, d[:t], y[:t]), den)
