@@ -42,7 +42,14 @@ def pasang(k, beta):
     for _, mod in ML.values():
         mod.TOP_K_FEATURES = k
         if beta <= 0:
-            mod.select_top_features = select_top_features_optimized
+            # mrmr_beta HARUS disebut eksplisit. Nilai bawaan
+            # select_top_features_optimized adalah 1.0 sejak commit 7006b01,
+            # jadi menyerahkan fungsinya begitu saja membuat lengan 'tanpa
+            # mRMR' diam-diam TETAP memakai mRMR - identik dengan lengan
+            # optimal, selisih persis 0,0000.
+            mod.select_top_features = (lambda df, top_k=k:
+                                       select_top_features_optimized(
+                                           df, top_k=top_k, mrmr_beta=0.0))
         else:
             mod.select_top_features = (lambda df, top_k=k, _b=beta:
                                        select_top_features_optimized(df, top_k=top_k,
