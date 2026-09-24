@@ -32,6 +32,16 @@ import sys
 import time
 
 DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Pindah ke akar repo sebelum apa pun. Jalan panel di PINTASAN relatif
+# terhadap akar repo, dan tiap skrip tahap juga ber-chdir ke sana lewat
+# h1_common - tapi pemeriksaan os.path.exists di bawah dijalankan di sini,
+# di cwd pemanggil. Tanpa chdir ini, menjalankan perintahnya dari direktori
+# lain (misalnya home) membuat panel yang sudah ada dianggap tidak ada, lalu
+# skrip berhenti dengan 'BERHENTI' padahal berkasnya lengkap.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(DIR)))
+os.chdir(REPO)
+
 PINTASAN = {'gabung': 'data/processed/sdv-wide-gabung.csv'}
 
 TAHAP = [
