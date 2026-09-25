@@ -54,10 +54,22 @@ Keduanya tidak pernah bertukar peran.
 
 Dari riwayat seri itu sendiri: 18 lag (1-15, 20, 25, 30), rata-rata bergerak,
 volatilitas, indikator teknikal, efek kalender → **104 kandidat**. Dengan data
-pasar, tiap variabel masuk sebagai lag 1, 7, 14 hari plus rata-rata 7 hari —
-32 tambahan, total **136**.
+pasar, tiap variabel masuk sebagai lag 1 sampai 14 hari plus rata-rata 7 hari
+— 8 seri × 15 = 120 tambahan, total **224**.
 
-Semuanya menoleh ke belakang; tidak ada nilai hari berjalan yang masuk.
+Semuanya menoleh ke belakang; tidak ada nilai hari berjalan yang masuk. Lag
+pasar mulai dari 1, bukan 0: lag 0 berarti memakai angka yang belum ada saat
+ramalan dibuat.
+
+> **Kolam 224 hanya berlaku di sebagian tahap.** `fit()` model berbasis fitur
+> menyaring seri pasar lewat `cross_series_for_recursive`, dan saklar
+> `ENABLE_CROSS_SERIES_FOR_RECURSIVE` bernilai `False` — peramal rekursif
+> tidak punya nilai seri lain untuk tanggal masa depan, jadi fitur `ext_*`
+> akan dinolkan saat `predict()`. Akibatnya tahap 1, 2, 3 dan 4a berjalan
+> pada **104 kandidat**. Yang benar-benar memakai 224 hanya lengan "pasar
+> hidup" di tahap 4b — yang memang menambal saringan itu jadi identitas —
+> serta `shap_baru.py` dan `cek_slot_pasar.py`, yang memanggil pembangun
+> fitur langsung.
 
 ### 4. Pilih 25 fitur dengan mRMR
 
@@ -129,7 +141,7 @@ median diam soal itu.
 
 ### 10. Ablasi data pasar — *tahap 4b*
 
-Copot seluruh blok 32 fitur pasar sekaligus, di dua nilai k × dua aturan
+Copot seluruh blok 120 fitur pasar sekaligus, di dua nilai k × dua aturan
 seleksi × hidup/mati.
 
 `15 × 3 × 2 k × 2 aturan × 2 kondisi × 30 = 10.800` → **Tabel 8, Gambar 6**;
@@ -191,6 +203,8 @@ Kirim isi folder itu untuk penyusunan tabel, gambar dan naskahnya.
 | `cek_slot_pasar.py` | Berapa slot yang dimenangkan fitur pasar; hanya penyeleksi, murah |
 | `buang_baris_rusak.py` | Buang baris dari lengan yang rusak supaya checkpoint mengisinya kembali |
 | `gabung_leaf.py` | Bangun panel 15 leaf dari panel penuh |
+| `ganti_hasil.py` | Arsipkan folder hasil lalu kosongkan, sebelum komputasi dari nol |
+| `cache_fitur.py` | Bangun bingkai fitur sekali per leaf lalu iris; dipakai otomatis |
 
 ---
 

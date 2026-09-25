@@ -27,7 +27,7 @@ from h1_common import *          # noqa: F403
 warnings.filterwarnings('ignore')
 
 from rerun_optimal import (ALL_MODELS, GRID, ML, S, TUNE, build, p1,
-                           pasang_mrmr, sudah, tulis)
+                           panaskan, pasang_mrmr, sudah, tulis)
 
 OUT = S + 'headline.csv'
 
@@ -56,6 +56,10 @@ def main():
         dtr, ytr, yte = d[:-1], y[:-1], y[-1]
         den = scale_denom(ytr)
         print(f'  [{i}/{len(lv)}] {r["Row_ID"]}  aktual {yte:.1f}', flush=True)
+        # Di sini untungnya kecil - hanya satu fit per model - tapi ketiga
+        # model berbasis fitur memakai rentang yang sama, jadi dua dari tiga
+        # pembangunan bingkai hilang.
+        panaskan(d, y)
         for nm in ALL_MODELS:
             if (r['Row_ID'], nm) in done:
                 continue

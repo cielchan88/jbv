@@ -29,8 +29,10 @@ from h1_common import *          # noqa: F403
 
 warnings.filterwarnings('ignore')
 
+# panaskan/CACHE ikut dari rerun_optimal: cache fitur dipasang sekali di sana,
+# saat modul itu diimpor. Mengimpornya lagi di sini tidak melapisi ulang.
 from rerun_optimal import (GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE,
-                           p1, sudah, tulis)
+                           p1, sudah, tulis, panaskan, CACHE)
 from utils.feature_engineering_optimized import select_top_features_optimized
 
 OUT = S + 'opt_ablasi.csv'
@@ -87,6 +89,7 @@ def main():
         cut = len(y) - NROLL
         den = scale_denom(y[:cut])
         print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
+        panaskan(d, y)
         for arm in ARMS:
             # mRMR menyala kecuali lengan ini yang mematikannya
             pasang_selektor(0.0 if arm == 'tanpa_mrmr' else MRMR_BETA)
@@ -123,6 +126,11 @@ def main():
                       f'  ({time.time()-t0:.0f}s)',
                       flush=True)
     print(f'ABLASI SELESAI ({time.time()-t0:.0f}s)', flush=True)
+    if CACHE is not None:
+        st = CACHE()
+        print(f'  cache fitur: kena {st["kena_cache"]}, bangun ulang '
+              f'{st["bangun_ulang"]} ({st["persen_kena"]:.0f}% kena, '
+              f'{st["n_kunci"]} kunci)', flush=True)
 
 
 if __name__ == '__main__':

@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from h1_common import *          # noqa: F403
 warnings.filterwarnings('ignore')
 
-from rerun_optimal import GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE, p1, sudah, tulis
+from rerun_optimal import (GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE, p1,
+                           sudah, tulis, CACHE)
 from utils.feature_engineering_optimized import select_top_features_optimized
 
 OUT_K = S + 'sisa_kablasi.csv'
@@ -65,6 +66,27 @@ def pasang_ext(on):
             mod.cross_series_for_recursive = f
 
 
+def panaskan_dua(d, y, esd=None):
+    """Panaskan cache untuk leaf ini - dua kunci sekaligus kalau perlu.
+
+    Di sini setiap sel fit di titik yang SAMA (d[:cut]), jadi satu leaf
+    membangun bingkai yang identik puluhan kali: 18 sel di bagian 1, 24 sel
+    di bagian 2. Dengan cache itu jadi satu bingkai per kunci.
+
+    Dua kunci karena bagian 2 menjalankan lengan dengan dan tanpa data pasar
+    di leaf yang sama, dan keduanya memberi bingkai berbeda. panaskan() dari
+    rerun_optimal tidak dipakai di sini justru karena ia membersihkan cache
+    lebih dulu - memanggilnya dua kali akan membuang bingkai pertama.
+    """
+    if CACHE is None:
+        return
+    CACHE.bersihkan()
+    d_p, y_p = d[:len(y) - 1], y[:len(y) - 1]
+    CACHE.siapkan(d_p, y_p)
+    if esd is not None:
+        CACHE.siapkan(d_p, y_p, external_series=esd)
+
+
 def blok(cls, cfg, d, y, cut, den, esd, extra):
     """Satu sel: fit sekali di awal blok, lalu 30 ramalan satu langkah."""
     m = cls(**cfg)
@@ -98,6 +120,7 @@ def main():
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL; den = scale_denom(y[:cut])
+        panaskan_dua(d, y)                 # bagian ini tanpa data pasar
         for k in ARMS_K:
             for nm, (cls, _m) in ML.items():
                 if (r['Row_ID'], nm, k) in done:
@@ -120,6 +143,13 @@ def main():
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL; den = scale_denom(y[:cut])
+        # pasang_ext(True) dulu, baru panaskan: panaskan_dua melewatkan seri
+        # pasar lewat saringan modul yang SEDANG terpasang, supaya kuncinya
+        # sama persis dengan yang nanti diminta fit(). Kalau saringan masih
+        # yang asli, seri pasar dibuang dan kunci 'dengan pasar' tidak pernah
+        # terisi.
+        pasang_ext(True)
+        panaskan_dua(d, y, esd)
         for beta in BETAS:
             for k in K_EXT:
                 for on in (False, True):
@@ -140,6 +170,11 @@ def main():
         print(f'  [{i}/{len(lv)}] {r["Row_ID"]} ({time.time()-t0:.0f}s)', flush=True)
 
     print(f'\nSISA SELESAI ({time.time()-t0:.0f}s)', flush=True)
+    if CACHE is not None:
+        st = CACHE()
+        print(f'  cache fitur: kena {st["kena_cache"]}, bangun ulang '
+              f'{st["bangun_ulang"]} ({st["persen_kena"]:.0f}% kena, '
+              f'{st["n_kunci"]} kunci)', flush=True)
     print(f'  {OUT_K}\n  {OUT_X}', flush=True)
 
 

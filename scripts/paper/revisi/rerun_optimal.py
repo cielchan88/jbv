@@ -34,6 +34,27 @@ from utils.forecasting import (ARIMAForecaster, APUVAForecaster,
                                NaiveForecaster, ProphetForecaster,
                                RandomForestForecaster, XGBoostForecaster)
 from utils.feature_engineering_optimized import select_top_features_optimized
+from cache_fitur import pasang_cache
+
+# Cache bingkai fitur. Protokol refit harian membangun ulang seluruh bingkai
+# di setiap origin padahal baris lama tidak berubah; lihat cache_fitur.py.
+# JBV_CACHE=0 mematikannya kalau perlu membandingkan.
+CACHE = (pasang_cache(rfm, lgm, xgm)
+         if os.environ.get('JBV_CACHE', '1') != '0' else None)
+
+
+def panaskan(d, y, external_series=None):
+    """Bangun bingkai rentang terpanjang sekali, sebelum loop origin leaf ini.
+
+    bersihkan() dulu supaya bingkai leaf sebelumnya dilepas - satu bingkai
+    5.000 x 225 sekitar 9 MB, dan menyimpannya untuk 15 leaf sekaligus tidak
+    ada gunanya karena leaf diproses satu per satu.
+    """
+    if CACHE is None:
+        return
+    CACHE.bersihkan()
+    CACHE.siapkan(d[:len(y) - 1], y[:len(y) - 1], external_series=external_series)
+
 
 S = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 os.makedirs(S, exist_ok=True)
@@ -181,6 +202,7 @@ def main():
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
+        panaskan(d, y)
         pilih_setelan(r, d, y, t0)
     print(f'\nTAHAP 1 SELESAI ({time.time()-t0:.0f}s)', flush=True)
 
@@ -195,6 +217,7 @@ def main():
         cut = len(y) - NROLL
         den = scale_denom(y[:cut])
         print(f'  [{i}/{len(lv)}] {r["Row_ID"]}', flush=True)
+        panaskan(d, y)
         for nm in ALL_MODELS:
             if (r['Row_ID'], nm) in done:
                 continue
@@ -226,6 +249,11 @@ def main():
                   f'  ({time.time()-t0:.0f}s)',
                   flush=True)
     print(f'SELESAI TOTAL ({time.time()-t0:.0f}s)', flush=True)
+    if CACHE is not None:
+        st = CACHE()
+        print(f'  cache fitur: kena {st["kena_cache"]}, bangun ulang '
+              f'{st["bangun_ulang"]} ({st["persen_kena"]:.0f}% kena, '
+              f'{st["n_kunci"]} kunci)', flush=True)
 
 
 if __name__ == '__main__':
