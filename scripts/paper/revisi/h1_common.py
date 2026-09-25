@@ -102,6 +102,37 @@ def periksa_konfigurasi():
 periksa_konfigurasi()
 
 
+def catat_versi():
+    """Catat versi pustaka ke versi.json - DICATAT, tidak dibandingkan.
+
+    KENAPA PERLU. Hasil VPS tidak bisa direproduksi di mesin lain: XGBoost
+    berbeda di seluruh sel yang diuji, dan sebagian sel RandomForest dan
+    LightGBM juga, semata karena versi pustakanya berbeda. Angka naskah karena
+    itu terikat pada satu tumpukan pustaka tertentu, dan tumpukan itu harus
+    ikut dilaporkan supaya orang lain tahu apa yang mereka bandingkan.
+
+    KENAPA TIDAK MASUK SIDIK JARI KONFIGURASI. periksa_konfigurasi() berhenti
+    dengan exit 2 kalau isinya berbeda dari yang tercatat di folder. Kalau
+    versi pustaka ikut di sana, memperbarui satu paket akan memblokir
+    kelanjutan komputasi yang sudah berjam-jam jalan - padahal yang benar
+    adalah mencatatnya, lalu manusia yang memutuskan.
+    """
+    import json as _json
+    catatan = {'python': sys.version.split()[0]}
+    for nama in ('numpy', 'pandas', 'scipy', 'sklearn', 'lightgbm', 'xgboost',
+                 'statsmodels', 'prophet', 'shap'):
+        try:
+            catatan[nama] = __import__(nama).__version__
+        except Exception:
+            catatan[nama] = None          # tidak terpasang, dan itu bukan galat
+    os.makedirs(HASIL, exist_ok=True)
+    _json.dump(catatan, open(HASIL + 'versi.json', 'w'), indent=1)
+    return catatan
+
+
+catat_versi()
+
+
 # ---------------------------------------------------------------------------
 # PEMBAGIAN KERJA PER LEAF.
 #

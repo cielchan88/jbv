@@ -69,10 +69,35 @@ class RandomForestForecaster(BaseForecaster):
 
         return self
 
-    def predict(self, dates, values, n_days):
-        """Predict n_days into the future using business dates with inverse transformation"""
+    def predict(self, dates, values, n_days, external_series=None,
+                external_series_dates=None):
+        """Ramal n_days ke depan memakai tanggal hari kerja.
+
+        SERI PASAR SAAT MERAMAL. Sebelumnya predict() tidak punya jalan untuk
+        menerima seri pasar sama sekali, sehingga fitur ext_* yang dipakai
+        saat fit() selalu hilang di sini dan ditambal NOL (lihat
+        warn_missing_at_predict). Untuk ramalan rekursif multi-langkah itu
+        memang tak terhindarkan - nilai seri lain di masa depan tidak ada.
+        Tapi untuk ramalan SATU langkah, ext_lag_1 adalah nilai pasar hari
+        sebelumnya: sudah diketahui. Penolan itu membuang informasi yang
+        tersedia, dan makin banyak slot yang direbut fitur pasar makin besar
+        kerusakannya - terukur, Spearman 0,690 antara jumlah slot dan
+        kerusakan MASE per leaf.
+
+        external_series_dates WAJIB ikut kalau external_series dikirim.
+        Bingkai di sini hanya memuat 271 baris TERAKHIR, sementara jalur
+        penyejajaran tanpa tanggal memotong dari DEPAN (series_values[:len]).
+        Tanpa tanggal, nilai pasar 2006 akan ditempelkan ke baris 2026 tanpa
+        satu pun pesan galat.
+        """
         if self.model is None:
             raise ValueError("Model not fitted. Call fit() first.")
+        if external_series and external_series_dates is None:
+            raise ValueError(
+                'external_series_dates wajib diberikan bersama external_series '
+                'di predict(): bingkai di sini hanya 271 baris terakhir, dan '
+                'penyejajaran tanpa tanggal memotong dari depan sehingga '
+                'nilai pasar akan tergeser bertahun-tahun tanpa pesan galat.')
 
         # Prepare data - ensure no None/NaN values
         values = np.array(values, dtype=float)
@@ -89,7 +114,10 @@ class RandomForestForecaster(BaseForecaster):
         for next_date in future_business_dates:
             temp_df = pd.DataFrame({'ds': [next_date], 'y': [0]})
             temp_df = pd.concat([last_data, temp_df], ignore_index=True)
-            temp_features = create_features_advanced(temp_df, lag_steps=90, holidays_list=self.holidays)
+            temp_features = create_features_advanced(
+                temp_df, lag_steps=90, holidays_list=self.holidays,
+                external_series=external_series,
+                external_series_dates=external_series_dates)
 
             if len(temp_features) > 0:
                 X_next = temp_features[[col for col in temp_features.columns if col in self.feature_cols]].iloc[-1:]

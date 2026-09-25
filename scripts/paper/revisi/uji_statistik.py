@@ -167,6 +167,41 @@ if ext is not None:
                   f"delta {rec['delta_pct']:+6.2f}%  menang {rec['menang_mrmr']:4d}/{rec['n']}  "
                   f"p={rec['p']:.4g}")
 
+# ----------------------------------------------------- Tabel 8b  pasar benar
+bagian('TABEL 8b  data pasar yang IKUT DIPAKAI saat meramal')
+pb = baca('sisa_pasar_benar.csv')
+if pb is not None and ext is not None:
+    # Dua pembanding, dan keduanya perlu.
+    #   lawan MATI  : apakah data pasar menolong sama sekali?
+    #   lawan NOL   : berapa banyak kerusakan Tabel 8 yang cuma penolan nol?
+    # Lengan mati tidak diulang di bagian 3 - ia identik dengan ext=False di
+    # bagian 2, jadi baris itulah yang dipakai sebagai acuan.
+    kk = KUNCI + ['beta', 'top_k']
+    mati = (ext[~ext.ext.astype(bool)][kk + ['mase']]
+            .rename(columns={'mase': 'mati'}))
+    nol = (ext[ext.ext.astype(bool)][kk + ['mase']]
+           .rename(columns={'mase': 'nol'}))
+    benar = pb[kk + ['mase']].rename(columns={'mase': 'benar'})
+    g = mati.merge(nol, on=kk).merge(benar, on=kk).dropna()
+    hasil['tabel8b'] = []
+    for (b, k), d in g.groupby(['beta', 'top_k']):
+        r1 = uji(d['mati'], d['benar'])          # menang = tanpa pasar lebih baik
+        r2 = uji(d['benar'], d['nol'])           # menang = pasar benar lebih baik
+        rec = {'beta': float(b), 'top_k': int(k),
+               'mean_mati': r1['mean_a'], 'mean_benar': r1['mean_b'],
+               'mean_nol': r2['mean_b'],
+               'delta_benar_vs_mati_pct': 100*(r1['mean_b']-r1['mean_a'])/r1['mean_a'],
+               'delta_nol_vs_mati_pct': 100*(r2['mean_b']-r1['mean_a'])/r1['mean_a'],
+               'menang_mati': r1['menang'], 'p_vs_mati': r1['p'],
+               'menang_benar': r2['menang'], 'p_vs_nol': r2['p'],
+               'n': r1['n']}
+        hasil['tabel8b'].append(rec)
+        print(f"  beta={b:.1f} k={int(k):2d}  mati {rec['mean_mati']:.4f}  "
+              f"pasar-benar {rec['mean_benar']:.4f} ({rec['delta_benar_vs_mati_pct']:+6.2f}%)  "
+              f"pasar-nol {rec['mean_nol']:.4f} ({rec['delta_nol_vs_mati_pct']:+6.2f}%)")
+        print(f"{'':16s}lawan mati p={rec['p_vs_mati']:.4g}   "
+              f"lawan nol p={rec['p_vs_nol']:.4g}  n={rec['n']}")
+
 # ---------------------------------------------------------------- Tabel 9
 bagian('TABEL 9  ablasi balik: tiap lengan terhadap konfigurasi optimal')
 abl = baca('opt_ablasi.csv')

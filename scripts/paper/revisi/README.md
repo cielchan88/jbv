@@ -195,6 +195,34 @@ Hasil panel 18 leaf terbelah: menurut rata-rata data pasar merugikan di
 keempat sel, tapi menurut hitungan hari ia menang di tiga dari empat — sampai
 82% hari. Ia memperbaiki hari biasa dan gagal parah di segelintir hari.
 
+### 10b. Data pasar yang ikut dipakai saat meramal — *tahap 4c*
+
+Tahap 4b di atas mengukur lengan yang **dilumpuhkan**. `predict()` dulu tidak
+punya jalan untuk menerima seri pasar, jadi fitur `ext_*` yang dipakai saat
+`fit()` selalu hilang saat meramal dan ditambal **nol**
+(`warn_missing_at_predict`). Untuk ramalan rekursif multi-langkah itu tak
+terhindarkan — nilai seri lain di masa depan tidak ada. Tapi desain naskah ini
+**satu langkah**, dan di situ `ext_lag_1` adalah nilai pasar hari sebelumnya:
+sudah diketahui, begitu juga lag 2–14.
+
+Gejalanya terukur di hasil kolam 224: kerusakan per leaf berkorelasi dengan
+jumlah slot yang direbut fitur pasar — **Spearman 0,690, p = 0,004** — dan dua
+leaf yang tidak memberi slot pasar sama sekali nyaris tidak rusak (0,0% dan
+4,3%). Pada satu sel uji, galat absolut turun dari 370,8 kembali ke 195,1,
+hampir menyamai acuan tanpa pasar (191,5).
+
+`15 × 3 × 2 k × 2 aturan × 30 = 5.400` → **Tabel 8b**
+
+Lengan *tanpa* pasar tidak diulang — identik dengan `ext=False` di tahap 4b,
+jadi baris itu yang jadi acuan. `uji_statistik.py` melaporkan dua pembanding:
+lawan tanpa-pasar (apakah pasar menolong?) dan lawan pasar-dinolkan (berapa
+banyak kerusakan Tabel 8 yang sekadar penolan nol?).
+
+`predict()` **menolak** `external_series` tanpa `external_series_dates`:
+bingkainya hanya 271 baris terakhir, sementara penyejajaran tanpa tanggal
+memotong dari depan — nilai pasar 2006 akan tertempel ke baris 2026 tanpa satu
+pun pesan galat.
+
 > **Refit.** Ablasi terbalik memakai refit harian; dua ablasi lain fit sekali
 > per blok. Sah, karena keduanya melaporkan selisih antar lengan dan jalan
 > pintas yang sama dikenakan ke setiap lengan — menggeser kedua sisi sama

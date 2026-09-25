@@ -81,6 +81,33 @@ menghentikannya kalau ada yang gagal.
 **Kalau terputus, jalankan lagi perintah yang sama.** Checkpoint per sel
 tersimpan; yang sudah selesai dilewati.
 
+## 2b. Tahap 4c — data pasar yang ikut dipakai saat meramal
+
+Hanya perlu kalau hasil tahap 1–4 **sudah ada**. `rerun_sisa.py` akan melewati
+bagian 1 dan 2 yang sudah tercatat, dan hanya mengerjakan bagian 3 yang baru.
+
+```bash
+cd /opt/jbv && git pull
+P=data/processed/sdv-wide-gabung.csv
+venv/bin/python scripts/paper/revisi/jalankan_paralel.py rerun_sisa.py 4 gabung
+JBV_PANEL=$P venv/bin/python scripts/paper/revisi/gabung_shard.py --ya
+```
+
+Keluarannya `sisa_pasar_benar.csv`, 5.400 baris. Lengan *tanpa* pasar tidak
+diulang — identik dengan `ext=False` di bagian 2.
+
+**Kenapa ada bagian ini.** Bagian 2 mengukur lengan yang dilumpuhkan:
+`predict()` dulu tidak punya jalan menerima seri pasar, jadi fitur `ext_*` yang
+dipakai saat `fit()` ditambal **nol** saat meramal. Untuk ramalan satu hari itu
+tidak perlu — `ext_lag_1` adalah nilai pasar hari sebelumnya, sudah diketahui.
+Terukur: kerusakan per leaf berkorelasi dengan jumlah slot pasar
+(Spearman 0,690, p = 0,004), dan pada satu sel uji galat turun dari 370,8
+kembali ke 195,1 setelah diperbaiki — hampir menyamai acuan tanpa pasar (191,5).
+
+Jalur lama **tidak berubah**: parameter barunya opsional dan bawaan `None`,
+jadi Tabel 5, 6, 7 dan 9 tetap apa adanya. Sudah diuji A/B di kode yang sama —
+selisih maksimum 2×10⁻¹⁶.
+
 ## 3. Tahap 5–6, seluruh panel
 
 Kedua tahap ini **tidak boleh dibagi** — keduanya menulis satu berkas
