@@ -249,6 +249,7 @@ Kirim isi folder itu untuk penyusunan tabel, gambar dan naskahnya.
 | `gabung_leaf.py` | Bangun panel 15 leaf dari panel penuh |
 | `ganti_hasil.py` | Arsipkan folder hasil lalu kosongkan, sebelum komputasi dari nol |
 | `cache_fitur.py` | Bangun bingkai fitur sekali per leaf lalu iris; dipakai otomatis |
+| `cek_jalan.py` | Apa yang sedang berjalan, dan apakah masih hidup atau sudah diam |
 | `jalankan_paralel.py` | Jalankan satu tahap pada beberapa proses, dibagi per leaf |
 | `gabung_shard.py` | Satukan berkas per shard jadi berkas kanonik |
 
