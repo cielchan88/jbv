@@ -70,6 +70,14 @@ def main():
     if n < 1:
         print('BERHENTI: jumlah proses minimal 1.')
         return 1
+    # jalankan_semua.py membangun panel gabungan kalau belum ada; skrip ini
+    # tidak. Tanpa penjagaan ini semua shard mati serentak dengan galat yang
+    # sama dan penyebabnya tenggelam di antara N berkas log.
+    if panel and not os.path.exists(panel):
+        print(f'BERHENTI: panel {panel} belum ada.')
+        print(f'  Bangun dulu: {sys.executable} '
+              f'{os.path.join(DIR, "gabung_leaf.py")}')
+        return 1
 
     inti = os.cpu_count() or 1
     if n > inti:
