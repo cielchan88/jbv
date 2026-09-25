@@ -58,8 +58,11 @@ def panaskan(d, y, external_series=None):
 
 S = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 os.makedirs(S, exist_ok=True)
-OUT = S + 'opt_rolling.csv'
-TUNE = S + 'opt_tuned.csv'
+# jalur() menyisipkan nomor shard saat JBV_SHARD disetel, supaya dua proses
+# tidak pernah meng-append ke berkas yang sama. Pembacaan tetap menyatukan
+# seluruh shard; lihat h1_common.
+OUT = jalur('opt_rolling.csv')
+TUNE = jalur('opt_tuned.csv')
 NROLL = 30
 # Origin validasi untuk memilih setelan. Lebih pendek dari blok uji dengan
 # sengaja: ini tahap PEMILIHAN, bukan hasil yang dilaporkan, dan menyetel
@@ -121,14 +124,16 @@ def pasang_mrmr():
 
 
 def sudah(path, kunci):
-    """Sel yang sudah tercatat, untuk melewati saat dijalankan ulang."""
-    if not os.path.exists(path):
+    """Sel yang sudah tercatat, untuk melewati saat dijalankan ulang.
+
+    Membaca SELURUH shard, bukan hanya berkas yang ditulis proses ini, supaya
+    sel yang sudah dikerjakan proses lain - atau yang sudah disatukan ke
+    berkas kanonik oleh gabung_shard.py - tidak dihitung ulang.
+    """
+    d = baca(path)
+    if not len(d) or any(k not in d.columns for k in kunci):
         return set()
-    try:
-        d = pd.read_csv(path)
-        return set(map(tuple, d[list(kunci)].drop_duplicates().values))
-    except Exception:
-        return set()
+    return set(map(tuple, d[list(kunci)].drop_duplicates().values))
 
 
 def tulis(path, rows):
@@ -196,7 +201,12 @@ def main():
     pasang_mrmr()
 
     # ---- tahap 1: setelan per leaf/model dari blok validasi ----
-    sisa = len(lv) * len(ML) - len(sudah(TUNE, ('leaf', 'model')))
+    # Hitungan sisa disaring ke leaf milik shard ini. sudah() sengaja membaca
+    # seluruh shard, jadi tanpa penyaringan ini angkanya ikut menghitung sel
+    # milik proses lain - dan bisa jadi negatif.
+    milik = set(lv['Row_ID'])
+    sisa = (len(lv) * len(ML)
+            - len([k for k in sudah(TUNE, ('leaf', 'model')) if k[0] in milik]))
     print(f'\nTAHAP 1/2  penyetelan - {sisa} sel tersisa '
           f'(~2-5 menit per sel)\n', flush=True)
     for i, (_, r) in enumerate(lv.iterrows(), 1):
@@ -206,12 +216,14 @@ def main():
         pilih_setelan(r, d, y, t0)
     print(f'\nTAHAP 1 SELESAI ({time.time()-t0:.0f}s)', flush=True)
 
-    tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
+    tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')
+             .set_index(['leaf', 'model'])['cfg'].to_dict())
 
     # ---- tahap 2: blok uji, refit harian, seluruh model ----
     done = sudah(OUT, ('leaf', 'model'))
     print(f'\nTAHAP 2/2  blok uji - '
-          f'{len(lv) * len(ALL_MODELS) - len(done)} sel tersisa\n', flush=True)
+          f'{len(lv) * len(ALL_MODELS) - len([k for k in done if k[0] in milik])} '
+          f'sel tersisa\n', flush=True)
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL

@@ -32,8 +32,8 @@ from rerun_optimal import (GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE, p1,
                            sudah, tulis, CACHE)
 from utils.feature_engineering_optimized import select_top_features_optimized
 
-OUT_K = S + 'sisa_kablasi.csv'
-OUT_X = S + 'sisa_eksternal.csv'
+OUT_K = jalur('sisa_kablasi.csv')
+OUT_X = jalur('sisa_eksternal.csv')
 ARMS_K = [6, 8, 12, 16, 20, 25]
 K_EXT = [12, 25]
 BETAS = [0.0, MRMR_BETA]
@@ -104,9 +104,10 @@ def main():
     print('=' * 64, flush=True)
     print('EKSPERIMEN PEMBANDING SISA - kolam 18 lag, fit sekali per blok', flush=True)
     print('=' * 64, flush=True)
-    if not os.path.exists(TUNE):
+    if not ada(TUNE):
         print('BERHENTI: opt_tuned.csv belum ada.'); return
-    tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
+    tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')
+             .set_index(['leaf', 'model'])['cfg'].to_dict())
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
     esd, edt = load_external()
@@ -114,7 +115,11 @@ def main():
 
     # ---------- 1. ablasi jumlah fitur ----------
     done = sudah(OUT_K, ('leaf', 'model', 'top_k'))
-    print(f'[1/2] ablasi jumlah fitur - {len(lv)*len(ML)*len(ARMS_K)-len(done)} sel',
+    # sudah() membaca seluruh shard, jadi hitungan sisa disaring ke leaf
+    # milik proses ini - kalau tidak, ia ikut menghitung sel proses lain.
+    milik = set(lv['Row_ID'])
+    print(f'[1/2] ablasi jumlah fitur - '
+          f'{len(lv)*len(ML)*len(ARMS_K)-len([k for k in done if k[0] in milik])} sel',
           flush=True)
     pasang_ext(False)
     for i, (_, r) in enumerate(lv.iterrows(), 1):
@@ -139,7 +144,8 @@ def main():
     # ---------- 2. data pasar, dua penyeleksi ----------
     done = sudah(OUT_X, ('leaf', 'model', 'top_k', 'ext', 'beta'))
     total = len(lv)*len(ML)*len(K_EXT)*2*len(BETAS)
-    print(f'\n[2/2] data pasar x penyeleksi - {total-len(done)} sel', flush=True)
+    print(f'\n[2/2] data pasar x penyeleksi - '
+          f'{total-len([k for k in done if k[0] in milik])} sel', flush=True)
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)
         cut = len(y) - NROLL; den = scale_denom(y[:cut])

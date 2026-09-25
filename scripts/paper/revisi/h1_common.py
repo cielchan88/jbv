@@ -3,7 +3,7 @@
 Semua eksperimen memakai definisi leaf, pemuat data, dan metrik yang sama dari
 sini supaya angkanya konsisten antar tabel.
 """
-import os, sys, warnings
+import glob, os, re, sys, warnings
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 os.chdir(_REPO); sys.path.insert(0, _REPO)
@@ -39,9 +39,15 @@ HASIL = os.path.join(_DIR, os.environ.get('JBV_HASIL', _HASIL_BAWAAN)) + os.sep
 # Jumlah leaf yang seharusnya, per panel. Dipakai leaves() sebagai penegasan.
 NLEAF_HARUS = {'sdv-wide.csv': 18, 'sdv-wide-gabung.csv': 15}
 
-if os.environ.get('JBV_DIAM') != '1':
+def _lapor_awal():
+    if os.environ.get('JBV_DIAM') == '1':
+        return
     print(f'[h1_common] panel {PANEL}', flush=True)
     print(f'[h1_common] hasil {HASIL}', flush=True)
+    if os.environ.get('JBV_LEAF'):
+        print(f'[h1_common] leaf  {os.environ["JBV_LEAF"]}', flush=True)
+    elif os.environ.get('JBV_SHARD'):
+        print(f'[h1_common] shard {os.environ["JBV_SHARD"]}', flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +102,136 @@ def periksa_konfigurasi():
 periksa_konfigurasi()
 
 
+# ---------------------------------------------------------------------------
+# PEMBAGIAN KERJA PER LEAF.
+#
+# Leaf saling bebas: tidak ada tahap yang memakai hasil leaf lain. Jadi 15 leaf
+# boleh dikerjakan beberapa proses sekaligus. Yang mahal - pembangunan fitur
+# dan seleksi mRMR, 79% waktu - berjalan satu utas, jadi menambah proses
+# benar-benar menambah laju.
+#
+# BERKAS KELUARAN HARUS TERPISAH PER SHARD. Ini bukan kehati-hatian berlebih:
+# dua proses yang meng-append ke satu CSV persis yang melahirkan baris ganda
+# 125,9% dan 163,3% di folder hasil panel 18 seri. append tidak atomik untuk
+# tulisan sebesar satu sel, dan barisnya saling menyisip. Karena itu setiap
+# shard menulis ke berkasnya sendiri, dan gabung_shard.py menyatukannya
+# sesudah semua selesai.
+#
+# MEMBACA tetap menyatukan seluruh shard, supaya checkpoint tetap berlaku
+# lintas shard - melanjutkan pekerjaan yang sudah digabung tidak mengulangnya.
+#
+#     JBV_SHARD=2/4   kerjakan bagian ke-2 dari 4, leaf dibagi berselang-seling
+#     JBV_LEAF=A.2.a,B.b   kerjakan leaf itu saja (menang atas JBV_SHARD)
+# ---------------------------------------------------------------------------
+LEAF_PILIH = os.environ.get('JBV_LEAF')
+_SHARD_ENV = os.environ.get('JBV_SHARD')
+
+
+def _baca_shard(teks):
+    if not teks:
+        return None
+    m = re.fullmatch(r'\s*(\d+)\s*/\s*(\d+)\s*', teks)
+    if not m:
+        sys.exit(f'JBV_SHARD harus berbentuk "i/n", dapat: {teks!r}')
+    i, n = int(m.group(1)), int(m.group(2))
+    if not 1 <= i <= n:
+        sys.exit(f'JBV_SHARD={teks}: i harus antara 1 dan n')
+    return i, n
+
+
+SHARD = _baca_shard(_SHARD_ENV)
+_lapor_awal()          # sesudah SHARD terbaca, supaya barisnya ikut tercetak
+
+
+def _sisipan():
+    """Penanda yang membedakan berkas proses ini dari proses paralel lain.
+
+    JBV_LEAF ikut dapat sisipan, bukan hanya JBV_SHARD. Tanpa itu dua
+    perintah JBV_LEAF yang jalan bersamaan akan meng-append ke berkas kanonik
+    yang sama - persis cara baris ganda 125,9% dan 163,3% itu lahir.
+    """
+    if LEAF_PILIH:
+        aman = re.sub(r'[^A-Za-z0-9]+', '-',
+                      ','.join(sorted(x.strip() for x in LEAF_PILIH.split(',')
+                                      if x.strip()))).strip('-')
+        return f'.shard-leaf-{aman[:60]}'
+    if SHARD is not None:
+        i, n = SHARD
+        return f'.shard-{i}-of-{n}'
+    return ''
+
+
+def jalur(nama):
+    """Berkas yang DITULIS proses ini - bersisipan penanda shard kalau ada."""
+    sisip = _sisipan()
+    if not sisip:
+        return HASIL + nama
+    batang, ekor = os.path.splitext(nama)
+    return HASIL + f'{batang}{sisip}{ekor}'
+
+
+def semua_jalur(path):
+    """Seluruh berkas yang memuat isi logis path ini: kanonik + semua shard.
+
+    Dipakai untuk MEMBACA. Dengan begitu satu shard tahu sel yang sudah
+    dikerjakan shard lain, dan pekerjaan yang sudah digabung ke berkas
+    kanonik tidak dihitung ulang.
+    """
+    folder, nama = os.path.split(path)
+    batang, ekor = os.path.splitext(nama)
+    batang = re.sub(r'\.shard-(?:\d+-of-\d+|leaf-[A-Za-z0-9-]*)$', '', batang)
+    kandidat = ([os.path.join(folder, batang + ekor)]
+                + sorted(glob.glob(os.path.join(folder, batang + '.shard-*' + ekor))))
+    return [p for p in kandidat if os.path.exists(p)]
+
+
+def ada(path):
+    """Apakah isi logis path ini sudah ada, di berkas kanonik atau shard mana pun."""
+    return bool(semua_jalur(path))
+
+
+def baca(path):
+    """Baca isi logis path ini dari seluruh shard sekaligus.
+
+    Mengembalikan DataFrame kosong kalau belum ada apa-apa, jadi pemanggil
+    cukup memeriksa len().
+    """
+    bagian = []
+    for p in semua_jalur(path):
+        try:
+            # float_precision='round_trip': pembaca CSV pandas tidak bolak-balik
+            # persis secara bawaan - 2,0406320647409077 kembali sebagai
+            # 2,040632064740908. Di sini itu membuat berkas kanonik berbeda
+            # satu bit dari berkas shard sumbernya.
+            d = pd.read_csv(p, float_precision='round_trip')
+        except Exception as e:
+            print(f'  ({os.path.basename(p)} belum terbaca: {type(e).__name__})',
+                  flush=True)
+            continue
+        if len(d):
+            bagian.append(d)
+    return pd.concat(bagian, ignore_index=True) if bagian else pd.DataFrame()
+
+
+def tolak_shard(nama):
+    """Berhenti kalau tahap seluruh-panel dijalankan dengan JBV_SHARD.
+
+    Tahap yang menulis SATU berkas ringkasan - bukan menambah baris per sel -
+    tidak bisa dibagi: tiap shard akan menimpa ringkasan shard sebelumnya dan
+    yang tersisa hanya potongan terakhir, tanpa pesan galat. Lebih baik
+    berhenti di sini daripada menghasilkan ringkasan yang diam-diam tidak
+    lengkap. Biasanya ini sisa env dari perintah sebelumnya.
+    """
+    if SHARD is None and not LEAF_PILIH:
+        return
+    print(f'\nBERHENTI: {nama} memproses seluruh panel dan tidak bisa dibagi '
+          f'per leaf.', file=sys.stderr)
+    print(f'  JBV_SHARD={_SHARD_ENV or "-"}  JBV_LEAF={LEAF_PILIH or "-"}',
+          file=sys.stderr)
+    print('  Lepaskan dulu:  unset JBV_SHARD JBV_LEAF', file=sys.stderr)
+    sys.exit(2)
+
+
 def load_panel():
     p = pd.read_csv(PANEL)
     dcols = [c for c in p.columns if c[:2] == '20']
@@ -123,7 +259,26 @@ def leaves(panel):
                    f'NLEAF_HARUS; setel JBV_NLEAF kalau memang disengaja '
                    f'(dapat {len(lv)} leaf)')
     assert len(lv) == harus, f'harus {harus} leaf, dapat {len(lv)}'
-    return lv
+    # Penyaringan shard SESUDAH penegasan di atas, supaya penjaga jumlah leaf
+    # tetap memeriksa panel utuh - bukan potongan yang kebetulan dikerjakan
+    # proses ini.
+    return _saring_leaf(lv)
+
+
+def _saring_leaf(lv):
+    if LEAF_PILIH:
+        minta = [x.strip() for x in LEAF_PILIH.split(',') if x.strip()]
+        punya = set(lv['Row_ID'])
+        hilang = [x for x in minta if x not in punya]
+        assert not hilang, f'JBV_LEAF menyebut leaf yang tidak ada: {hilang}'
+        return lv[lv['Row_ID'].isin(minta)]
+    if SHARD is None:
+        return lv
+    i, n = SHARD
+    # Berselang-seling, bukan blok berurutan: leaf bertetangga cenderung
+    # sebesar dan selambat satu sama lain, jadi membaginya berselang membuat
+    # beban tiap shard lebih rata.
+    return lv.iloc[[k for k in range(len(lv)) if k % n == i - 1]]
 
 
 def series_of(row, dcols, dates_all):

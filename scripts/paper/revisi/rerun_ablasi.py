@@ -35,7 +35,7 @@ from rerun_optimal import (GRID, ML, NROLL, TOP_K, MRMR_BETA, S, TUNE,
                            p1, sudah, tulis, panaskan, CACHE)
 from utils.feature_engineering_optimized import select_top_features_optimized
 
-OUT = S + 'opt_ablasi.csv'
+OUT = jalur('opt_ablasi.csv')
 ARMS = ('tanpa_setelan', 'tanpa_mrmr', 'tanpa_refit')
 
 
@@ -67,21 +67,25 @@ def main():
     print(f'  origin   : {NROLL} per sel', flush=True)
     print(f'  keluaran : {OUT}', flush=True)
 
-    if not os.path.exists(TUNE):
+    if not ada(TUNE):
         print('\nBERHENTI: opt_tuned.csv belum ada.', flush=True)
         print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py',
               flush=True)
         return
-    tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
+    tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')
+             .set_index(['leaf', 'model'])['cfg'].to_dict())
     print(f'  setelan  : {len(tuned)} sel terbaca', flush=True)
     print('  memuat panel ...', flush=True)
 
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
     done = sudah(OUT, ('leaf', 'model', 'arm'))
+    # sudah() membaca seluruh shard, jadi hitungan sisa disaring ke leaf
+    # milik proses ini - kalau tidak, ia ikut menghitung sel proses lain.
+    milik = set(lv['Row_ID'])
     total = len(lv) * len(ML) * len(ARMS)
     print(f'  panel    : {len(dcols):,} hari, {len(lv)} leaf', flush=True)
-    print(f'\n{total - len(done)} sel tersisa dari {total} '
+    print(f'\n{total - len([k for k in done if k[0] in milik])} sel tersisa dari {total} '
           f'(~1-3 menit per sel)\n', flush=True)
 
     for i, (_, r) in enumerate(lv.iterrows(), 1):

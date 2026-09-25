@@ -26,6 +26,10 @@ diminta di baris perintah, bukan yang kebetulan terbaca lebih dulu.
 AMAN DIJALANKAN ULANG. Setiap tahap melanjutkan dari checkpoint per sel, jadi
 perintah yang sama meneruskan pekerjaan - bukan mengulangnya. Kalau mati di
 tengah, jalankan lagi persis perintah yang sama.
+
+KALAU MAU LEBIH CEPAT. Skrip ini berurutan, satu proses. Leaf saling bebas,
+jadi tahap 1-4 bisa dibagi ke beberapa proses lewat jalankan_paralel.py, lalu
+disatukan gabung_shard.py - lihat bagian "Lebih cepat" di README.md.
 """
 import os
 import subprocess

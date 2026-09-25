@@ -29,7 +29,7 @@ warnings.filterwarnings('ignore')
 from rerun_optimal import (ALL_MODELS, GRID, ML, S, TUNE, build, p1,
                            panaskan, pasang_mrmr, sudah, tulis)
 
-OUT = S + 'headline.csv'
+OUT = jalur('headline.csv')
 
 
 def main():
@@ -37,17 +37,22 @@ def main():
     print('=' * 64, flush=True)
     print('DESAIN HEADLINE - Tabel 5 dan Lampiran A1', flush=True)
     print('=' * 64, flush=True)
-    if not os.path.exists(TUNE):
+    if not ada(TUNE):
         print('BERHENTI: opt_tuned.csv belum ada. Jalankan rerun_optimal.py dulu.')
         return 1
-    tuned = pd.read_csv(TUNE).set_index(['leaf', 'model'])['cfg'].to_dict()
+    tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')
+             .set_index(['leaf', 'model'])['cfg'].to_dict())
 
     pasang_mrmr()
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
     done = sudah(OUT, ('leaf', 'model'))
+    # sudah() membaca seluruh shard, jadi hitungan sisa disaring ke leaf
+    # milik proses ini - kalau tidak, ia ikut menghitung sel proses lain.
+    milik = set(lv['Row_ID'])
     print(f'  {len(lv)} leaf x {len(ALL_MODELS)} metode, '
-          f'{len(lv) * len(ALL_MODELS) - len(done)} sel tersisa\n', flush=True)
+          f'{len(lv) * len(ALL_MODELS) - len([k for k in done if k[0] in milik])} '
+          f'sel tersisa\n', flush=True)
 
     for i, (_, r) in enumerate(lv.iterrows(), 1):
         d, y = series_of(r, dcols, dall)

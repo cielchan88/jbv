@@ -25,6 +25,50 @@ Keluarannya menutup dengan verdikt **SELESAI** atau **BELUM SELESAI**.
 
 ---
 
+## Lebih cepat: paralel per leaf
+
+Leaf saling bebas — tidak ada tahap yang memakai hasil leaf lain — jadi 15 leaf
+boleh dikerjakan beberapa proses sekaligus. Dan yang mahal justru bagian yang
+berjalan **satu utas**: pembangunan bingkai fitur dan seleksi mRMR, 79% waktu
+per sel. Pelatihan model yang memakai banyak utas hanya 0,5–1,3 detik. Empat
+proses satu-utas karena itu mengalahkan satu proses empat-utas.
+
+```bash
+cd /opt/jbv && tmux new -s naskah
+P=data/processed/sdv-wide-gabung.csv
+for T in rerun_optimal.py rerun_headline.py rerun_ablasi.py rerun_sisa.py; do
+  venv/bin/python scripts/paper/revisi/jalankan_paralel.py $T 4 gabung || break
+  JBV_PANEL=$P venv/bin/python scripts/paper/revisi/gabung_shard.py --ya || break
+done
+JBV_PANEL=$P venv/bin/python scripts/paper/revisi/shap_baru.py
+JBV_PANEL=$P venv/bin/python scripts/paper/revisi/uji_statistik.py
+```
+
+Tiga hal yang membuatnya aman, dan kenapa:
+
+**Berkas keluaran terpisah per shard.** Tiap proses menulis ke
+`opt_rolling.shard-2-of-4.csv` dan seterusnya, lalu `gabung_shard.py`
+menyatukannya. Ini bukan kehati-hatian berlebih: dua proses yang meng-`append`
+ke satu CSV persis yang melahirkan baris ganda 125,9% dan 163,3% di folder
+hasil panel 18 seri. `gabung_shard.py` menolak menulis kalau satu kunci sel
+muncul dengan isi berbeda — tanda dua shard mengerjakan leaf yang sama.
+
+**Satu utas per proses.** `jalankan_paralel.py` menyetel `OMP_NUM_THREADS=1`
+dan `LOKY_MAX_CPU_COUNT=1`. Tanpa itu keempat proses sama-sama meminta seluruh
+core dan saling berebut — bisa lebih lambat daripada berurutan.
+
+**Urutan antar tahap tetap wajib.** `rerun_headline`, `rerun_ablasi` dan
+`rerun_sisa` membaca setelan terpilih dari `rerun_optimal`. Satukan dulu
+sebelum lanjut; loop di atas sudah melakukannya.
+
+`ringkas.py` memperingatkan kalau masih ada berkas shard yang belum disatukan —
+ia membaca nama kanonik saja, jadi tanpa peringatan itu layarnya tampak seperti
+pekerjaan yang belum jalan.
+
+Untuk menjalankan satu leaf saja: `JBV_LEAF=A.2.d` (menang atas `JBV_SHARD`).
+
+---
+
 ## Alurnya, langkah demi langkah
 
 ### 1. Siapkan data
@@ -205,6 +249,8 @@ Kirim isi folder itu untuk penyusunan tabel, gambar dan naskahnya.
 | `gabung_leaf.py` | Bangun panel 15 leaf dari panel penuh |
 | `ganti_hasil.py` | Arsipkan folder hasil lalu kosongkan, sebelum komputasi dari nol |
 | `cache_fitur.py` | Bangun bingkai fitur sekali per leaf lalu iris; dipakai otomatis |
+| `jalankan_paralel.py` | Jalankan satu tahap pada beberapa proses, dibagi per leaf |
+| `gabung_shard.py` | Satukan berkas per shard jadi berkas kanonik |
 
 ---
 
@@ -251,3 +297,9 @@ pun. Denyut per origin sudah dipasang supaya diamnya tidak disalahartikan.
 
 **Jalankan di tmux, keluar dengan `Ctrl-b d`.** Tanpa tmux, proses ikut mati
 begitu koneksi SSH putus.
+
+**Dua proses meng-`append` ke satu CSV.** Inilah asal baris ganda 125,9% dan
+163,3% di folder hasil panel 18 seri: `append` tidak atomik untuk tulisan
+sebesar satu sel, dan barisnya saling menyisip. Kalau menjalankan sesuatu
+secara paralel, pastikan berkas keluarannya terpisah — itu yang dilakukan
+`JBV_SHARD`. `periksa_duplikat.py` ada untuk memeriksa hasil yang terlanjur.

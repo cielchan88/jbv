@@ -216,11 +216,29 @@ def selesai():
     return tuntas
 
 
+def peringatan_shard():
+    """Berkas shard yang belum disatukan tidak terbaca di sini.
+
+    ringkas.py membaca nama kanonik saja. Sesudah jalankan_paralel.py, hasil
+    masih tersebar di berkas per shard - tanpa peringatan ini layarnya tampak
+    seperti pekerjaan yang belum jalan sama sekali.
+    """
+    import glob as _g
+    sisa = _g.glob(os.path.join(H, '*.shard-*.csv'))
+    if not sisa:
+        return
+    print('\n' + '!' * 68)
+    print(f'{len(sisa)} berkas shard BELUM DISATUKAN dan tidak ikut terbaca di bawah.')
+    print('  python scripts/paper/revisi/gabung_shard.py --ya')
+    print('!' * 68)
+
+
 def main():
     if not os.path.isdir(H):
         print(f'Folder hasil belum ada: {H}')
         print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py')
         return 1
+    peringatan_shard()
     selesai()
     t, r, a = kemajuan()
     tabel_setelan(t)

@@ -136,6 +136,9 @@ def beeswarm(top, Xs, sv, judul, keluar, n_fitur=14):
 
 def main():
     global RF_CFG
+    # shap_ringkas.json ditulis utuh di akhir, bukan ditambah per sel, jadi
+    # menjalankannya per shard hanya menyisakan potongan shard terakhir.
+    tolak_shard('shap_baru.py')
     RF_CFG = muat_setelan()
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
