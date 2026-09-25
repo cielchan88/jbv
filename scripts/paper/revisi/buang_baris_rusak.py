@@ -74,7 +74,7 @@ def main():
         return 0
 
     print(f'\n{total} baris dibuang. Jalankan lagi untuk mengisinya kembali:')
-    print('  python scripts/paper/revisi/jalankan_semua.py gabung')
+    print(f'  {sys.executable} scripts/paper/revisi/jalankan_semua.py gabung')
     print('\nTahap 1, 2 dan ablasi jumlah fitur tidak tersentuh, jadi yang')
     print('dihitung ulang hanya bagian yang memang rusak.')
     return 0

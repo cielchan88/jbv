@@ -144,8 +144,8 @@ def verifikasi_tanpa_mrmr():
         print('  TERKONTAMINASI. Sel sebanyak ini tidak mungkin kebetulan;')
         print('  sebagian masih berasal dari jalan sebelum perbaikan.')
         print('  Buang seluruh lengan ini lalu hitung ulang:')
-        print('    python scripts/paper/revisi/buang_baris_rusak.py')
-        print('    python scripts/paper/revisi/jalankan_semua.py gabung')
+        print(f'    {sys.executable} scripts/paper/revisi/buang_baris_rusak.py')
+        print(f'    {sys.executable} scripts/paper/revisi/jalankan_semua.py gabung')
         print(f'  Sel yang terkena: {", ".join(f"{l}/{m}" for l, m in per_sel[per_sel].index[:8])}'
               + (' ...' if n > 8 else ''))
 

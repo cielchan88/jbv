@@ -210,7 +210,7 @@ def selesai():
     else:
         print('  BELUM SELESAI. Kalau prosesnya sudah tidak berjalan, jalankan')
         print('  lagi perintah yang sama - semua tahap melanjutkan dari checkpoint:')
-        print('    python scripts/paper/revisi/jalankan_semua.py gabung')
+        print(f'    {sys.executable} scripts/paper/revisi/jalankan_semua.py gabung')
         print('\n  Cek prosesnya masih hidup atau tidak:')
         print('    pgrep -af "[j]alankan_semua"')
     return tuntas
@@ -229,14 +229,14 @@ def peringatan_shard():
         return
     print('\n' + '!' * 68)
     print(f'{len(sisa)} berkas shard BELUM DISATUKAN dan tidak ikut terbaca di bawah.')
-    print('  python scripts/paper/revisi/gabung_shard.py --ya')
+    print(f'  {sys.executable} scripts/paper/revisi/gabung_shard.py --ya')
     print('!' * 68)
 
 
 def main():
     if not os.path.isdir(H):
         print(f'Folder hasil belum ada: {H}')
-        print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py')
+        print(f'Jalankan dulu: {sys.executable} scripts/paper/revisi/rerun_optimal.py')
         return 1
     peringatan_shard()
     selesai()

@@ -88,7 +88,7 @@ def main():
     os.makedirs(H, exist_ok=True)
     print(f'\nfolder dikosongkan: {H}')
     print('\nJalankan komputasi ulang sekarang - seluruh tahap akan mengisinya dari nol:')
-    print('  python scripts/paper/revisi/jalankan_semua.py gabung')
+    print(f'  {sys.executable} scripts/paper/revisi/jalankan_semua.py gabung')
     print(f'\nKalau perlu mengembalikan yang lama:')
     print(f'  tar xzf {arsip} -C {os.path.dirname(H)}')
     return 0

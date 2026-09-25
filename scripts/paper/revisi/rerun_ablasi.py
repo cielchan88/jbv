@@ -69,7 +69,7 @@ def main():
 
     if not ada(TUNE):
         print('\nBERHENTI: opt_tuned.csv belum ada.', flush=True)
-        print('Jalankan dulu: python scripts/paper/revisi/rerun_optimal.py',
+        print(f'Jalankan dulu: {sys.executable} scripts/paper/revisi/rerun_optimal.py',
               flush=True)
         return
     tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')

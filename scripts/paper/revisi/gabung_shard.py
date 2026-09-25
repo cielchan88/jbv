@@ -78,8 +78,12 @@ def hitung_bentrok(gab, kunci, rtol=1e-9):
     for c in bukan_kunci:
         s = gab[kembar][c]
         if pd.api.types.is_numeric_dtype(s):
-            rentang = g[c].max() - g[c].min()
-            besar = g[c].apply(lambda v: v.abs().max())
+            # astype(float) sebelum clip: agg() bisa mengembalikan dtype
+            # object untuk kolom campuran, dan clip di atas object memicu
+            # FutureWarning penurunan dtype dari pandas. Perbandingannya
+            # memang perbandingan pecahan, jadi tegaskan saja tipenya.
+            rentang = (g[c].max() - g[c].min()).astype(float)
+            besar = g[c].agg(lambda v: v.abs().max()).astype(float)
             buruk = rentang > rtol * besar.clip(lower=1e-300)
         else:
             buruk = g[c].nunique(dropna=False) > 1
@@ -219,7 +223,7 @@ def main():
         print(f'{n} berkas shard dihapus')
     else:
         print('Berkas shard dibiarkan. Tambahkan --bersihkan untuk menghapusnya.')
-    print('\nLanjutkan:  python scripts/paper/revisi/ringkas.py')
+    print(f'\nLanjutkan:  {sys.executable} scripts/paper/revisi/ringkas.py')
     return 0
 
 

@@ -103,7 +103,7 @@ def main():
               f'| total {(time.time()-t0)/3600:.2f} jam', flush=True)
 
     garis(f'SELESAI dalam {(time.time()-t0)/3600:.1f} jam')
-    print('  Ringkasan:  python scripts/paper/revisi/ringkas.py', flush=True)
+    print(f'  Ringkasan:  {sys.executable} scripts/paper/revisi/ringkas.py', flush=True)
     print('  Kirim isi folder hasil untuk penyusunan naskahnya.', flush=True)
 
 

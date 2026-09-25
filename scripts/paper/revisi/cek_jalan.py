@@ -151,10 +151,10 @@ def main():
             print(f'BERJALAN - {len(ps)} proses, log masih bertambah.')
     elif shard:
         print(f'BERHENTI, DAN {len(shard)} BERKAS SHARD BELUM DISATUKAN.')
-        print('  python scripts/paper/revisi/gabung_shard.py --ya')
+        print(f'  {sys.executable} scripts/paper/revisi/gabung_shard.py --ya')
     elif csv:
         print('BERHENTI. Tidak ada shard yang menggantung.')
-        print('  Periksa kelengkapannya: python scripts/paper/revisi/ringkas.py')
+        print(f'  Periksa kelengkapannya: {sys.executable} scripts/paper/revisi/ringkas.py')
     else:
         print('BELUM ADA APA-APA di folder ini.')
     print('=' * 66)

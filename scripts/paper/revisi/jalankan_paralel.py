@@ -132,7 +132,7 @@ def main():
 
     print('\nSatukan berkasnya sebelum tahap berikutnya:')
     env_panel = f'JBV_PANEL={panel} ' if panel else ''
-    print(f'  {env_panel}python scripts/paper/revisi/gabung_shard.py --ya')
+    print(f'  {env_panel}{sys.executable} scripts/paper/revisi/gabung_shard.py --ya')
     return 0
 
 
