@@ -442,10 +442,36 @@ FEATURE_CONFIG = {
     # ========================================================================
     "cross_series_features": {
         "enabled": True,
-        "lags": [1, 7, 14],  # 3 lags per series (REMOVED: lag_30)
-        "rolling_mean_window": 7,  # 1 rolling mean per series
-        # Total: 4 features per external series
-        # If 3 external series (Oil, USD_IDR, Sentiment) = 12 features
+
+        # ------------------------------------------------------------------
+        # LAG 1 SAMPAI 14, RAPAT. Sebelumnya hanya [1, 7, 14].
+        #
+        # KENAPA MULAI DARI 1, BUKAN 0. Target ramalan adalah arus hari t, dan
+        # nilai pasar hari t baru diketahui setelah pasar tutup hari itu. Lag 0
+        # berarti memakai angka yang belum ada saat ramalan dibuat: akurasinya
+        # melonjak di backtest dan tidak bisa direproduksi di meja kerja. Kalau
+        # suatu saat dibutuhkan, itu pertanyaan nowcasting - horizon berbeda,
+        # tabel berbeda, dan tidak boleh dibandingkan dengan hasil satu hari
+        # ke depan.
+        #
+        # APA YANG BERUBAH, TERUKUR. Kandidat naik dari 136 ke 224, yang 120 di
+        # antaranya fitur pasar. Diuji dengan penyeleksi saja pada panel 15
+        # leaf, k=25, mRMR: slot pasar naik dari rata-rata 2,13 menjadi 5,40
+        # dari 25, dengan maksimum 17 pada satu seri.
+        #
+        # RISIKONYA DINYATAKAN TERBUKA. SHAP mengukur lag dan rata-rata
+        # bergerak seri itu sendiri memegang 81,3% kepentingan fitur, dan
+        # evaluasi mengukur data pasar MERUGIKAN 9,4% pada k=25. Memberi
+        # mereka lebih banyak slot kemungkinan memperburuk, bukan memperbaiki.
+        # Kolam ini dipilih untuk diukur, bukan karena sudah terbukti lebih
+        # baik - jalankan ulang seluruh evaluasi sebelum menyimpulkan apa pun.
+        # ------------------------------------------------------------------
+        "lags": list(range(1, 15)),
+
+        "rolling_mean_window": 7,  # 1 rata-rata bergerak per variabel
+        # Total: 15 fitur per variabel pasar.
+        # 8 variabel (kurs bid/ask, NDF bid/ask, yield SBN, DXY, arus saham
+        # nonresiden, IHSG) = 120 fitur.
     },
 
     # ========================================================================

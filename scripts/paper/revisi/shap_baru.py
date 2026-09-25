@@ -29,15 +29,34 @@ from utils.feature_engineering_optimized import (create_features_optimized,
 
 S = HASIL                      # ikut JBV_PANEL / JBV_HASIL, lihat h1_common
 CKPT = S + 'shap_baru.json'
+TUNE = S + 'opt_tuned.csv'
+RF_CFG = {}                    # diisi muat_setelan() saat main() berjalan
 NROLL, TOP_K, BETA = 30, 25, 1.0
 BLUE, ACC, GRID = '#3b6ea5', '#c4713d', '#d8d8d8'
 
-# Setelan RandomForest terpilih per leaf (indeks grid, dari opt_tuned.csv).
 RF_GRID = [dict(n_estimators=100, max_depth=10), dict(n_estimators=300, max_depth=10),
            dict(n_estimators=300, max_depth=None), dict(n_estimators=100, max_depth=4)]
-RF_CFG = {'A.1.a': 2, 'A.1.b': 3, 'A.1.c': 3, 'A.2.a': 3, 'A.2.b': 1, 'A.2.c': 0,
-          'A.2.d': 3, 'A.2.e': 3, 'A.2.f': 1, 'B.a': 0, 'B.b': 2, 'B.c': 1,
-          'B.d': 3, 'C.a': 3, 'C.b': 0, 'C.c': 3, 'C.d': 1, 'C.e': 2}
+
+
+def muat_setelan():
+    """Baca setelan RandomForest terpilih per leaf dari opt_tuned.csv.
+
+    Dulu daftar ini di-hardcode di berkas ini. Itu diam-diam salah begitu
+    panelnya berganti: nilai yang tertulis berasal dari penyetelan panel lain,
+    dan leaf yang namanya kebetulan sama akan memakai setelan milik panel itu.
+    Pada panel 15 leaf satu seri (A.2.f) memang tersetel berbeda, sehingga
+    gambar SHAP-nya dibuat dari model yang bukan model yang dievaluasi.
+
+    Sekarang dibaca dari berkas, jadi ia selalu cocok dengan blok uji.
+    """
+    if not os.path.exists(TUNE):
+        print(f'PERINGATAN: {TUNE} tidak ada; memakai setelan pertama grid '
+              f'untuk semua leaf. Gambar SHAP tidak akan mencerminkan blok uji.',
+              flush=True)
+        return {}
+    t = pd.read_csv(TUNE)
+    t = t[t['model'] == 'RandomForest']
+    return {r.leaf: int(r.cfg) for r in t.itertuples()}
 
 FAMILY = [
     ('ext_', 'External'), ('lag_', 'Lag'), ('rolling_mean', 'Moving average'),
@@ -85,7 +104,39 @@ def feats(r, dcols, dall, esd, edt):
     return top, X, f['value'].values
 
 
+def beeswarm(top, Xs, sv, judul, keluar, n_fitur=14):
+    """Gambar beeswarm satu leaf dari nilai SHAP yang sudah dihitung.
+
+    Dipisah jadi fungsi supaya bisa dipanggil untuk SETIAP leaf tanpa
+    menghitung ulang SHAP-nya - nilai sv yang sama yang dipakai menyusun
+    pangsa per keluarga dipakai lagi di sini.
+    """
+    order = np.argsort(-np.abs(sv).mean(0))[:n_fitur]
+    fig, ax = plt.subplots(figsize=(7.0, 3.8))
+    for row, i in enumerate(order):
+        v = sv[:, i]
+        xv = Xs.iloc[:, i].values.astype(float)
+        rk = (np.argsort(np.argsort(xv)) / max(1, len(xv) - 1))
+        jit = (np.random.RandomState(row).rand(len(v)) - .5) * .34
+        ax.scatter(v, len(order) - row + jit, c=rk, cmap='coolwarm', s=5,
+                   alpha=.7, linewidths=0)
+    ax.set_yticks([len(order) - k for k in range(len(order))])
+    ax.set_yticklabels([pretty(top[i]) for i in order], fontsize=7.4)
+    for k, i in enumerate(order):
+        if top[i].startswith('ext_'):
+            ax.get_yticklabels()[k].set_color(ACC)
+    ax.axvline(0, color='#888', lw=.7)
+    ax.set_xlabel('SHAP value (effect on the forecast, millions of USD)')
+    if judul:
+        ax.set_title(judul, fontsize=9, loc='left', pad=6)
+    ax.grid(axis='x', color=GRID, lw=.6); ax.set_axisbelow(True)
+    os.makedirs(os.path.dirname(keluar), exist_ok=True)
+    fig.tight_layout(); fig.savefig(keluar, dpi=200); plt.close(fig)
+
+
 def main():
+    global RF_CFG
+    RF_CFG = muat_setelan()
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
     esd, edt = load_external()
@@ -113,9 +164,13 @@ def main():
             'top': [{'name': pretty(top[i]), 'ext': bool(top[i].startswith('ext_'))}
                     for i in np.argsort(-imp)[:14]],
         }
+        # Beeswarm per leaf. Memakai sv yang baru saja dihitung, jadi
+        # ongkosnya hanya menggambar - bukan menghitung SHAP dua kali.
+        beeswarm(top, X.iloc[-300:], sv, f'{rid}',
+                 S + f'fig/beeswarm/{rid}.png')
         json.dump(st, open(CKPT, 'w'))
         print(f'  shap {rid}  ext={st["leaf"][rid]["n_ext"]}  '
-              f'lag={st["leaf"][rid]["n_lag"]}', flush=True)
+              f'lag={st["leaf"][rid]["n_lag"]}  -> fig/beeswarm/{rid}.png', flush=True)
 
     # ---- agregasi ----
     L = st['leaf']
@@ -161,36 +216,25 @@ def main():
                               **RF_GRID[RF_CFG.get(target, 0)]).fit(X, yv)
     Xs = X.iloc[-700:]
     sv = shap.TreeExplainer(m).shap_values(Xs, check_additivity=False)
-    order = np.argsort(-np.abs(sv).mean(0))[:14]
-    fig, ax = plt.subplots(figsize=(7.0, 3.8))
-    for row, i in enumerate(order):
-        v = sv[:, i]
-        xv = Xs.iloc[:, i].values.astype(float)
-        rk = (np.argsort(np.argsort(xv)) / max(1, len(xv) - 1))
-        jit = (np.random.RandomState(row).rand(len(v)) - .5) * .34
-        ax.scatter(v, len(order) - row + jit, c=rk, cmap='coolwarm', s=5,
-                   alpha=.7, linewidths=0)
-    ax.set_yticks([len(order) - k for k in range(len(order))])
-    ax.set_yticklabels([pretty(top[i]) for i in order], fontsize=7.4)
-    for k, i in enumerate(order):
-        if top[i].startswith('ext_'):
-            ax.get_yticklabels()[k].set_color(ACC)
-    ax.axvline(0, color='#888', lw=.7)
-    ax.set_xlabel('SHAP value (effect on the forecast, millions of USD)')
-    ax.grid(axis='x', color=GRID, lw=.6); ax.set_axisbelow(True)
-    fig.tight_layout(); fig.savefig(S + 'fig/fig6_beeswarm.png', dpi=200)
-    plt.close(fig)
+    beeswarm(top, Xs, sv, '', S + 'fig/fig6_beeswarm.png')
 
     out = {'shap_family': fam, 'shap_ext_share': shares,
            'beeswarm_leaf': target, 'beeswarm_n_ext': L[target]['n_ext'],
            'beeswarm_top': L[target]['top'],
+           # Rincian per leaf: pangsa tiap keluarga fitur, jumlah slot, dan
+           # 14 fitur terpenting. Inilah isi tabel SHAP per seri di naskah.
+           'per_leaf': {k: {'family': {f: 100 * x for f, x in v['family'].items()},
+                            'ext_share': v['ext_share'], 'n_ext': v['n_ext'],
+                            'n_lag': v['n_lag'], 'top': v['top']}
+                        for k, v in L.items()},
            'mean_lag_slots': float(np.mean([v['n_lag'] for v in L.values()])),
            'mean_ext_slots': float(np.mean([v['n_ext'] for v in L.values()]))}
     json.dump(out, open(S + 'shap_ringkas.json', 'w'), indent=1)
     print('\nkeluarga:', {k: round(v, 1) for k, v in fam.items()})
     print('rata slot lag:', round(out['mean_lag_slots'], 2),
           '| rata slot eksternal:', round(out['mean_ext_slots'], 2))
-    print('beeswarm leaf:', target)
+    print('beeswarm leaf utama:', target)
+    print(f'beeswarm per leaf : {len(L)} berkas di {S}fig/beeswarm/')
 
 
 if __name__ == '__main__':

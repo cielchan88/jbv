@@ -44,6 +44,58 @@ if os.environ.get('JBV_DIAM') != '1':
     print(f'[h1_common] hasil {HASIL}', flush=True)
 
 
+# ---------------------------------------------------------------------------
+# SIDIK JARI KONFIGURASI FITUR.
+#
+# Nama folder hasil hanya mengikuti PANEL. Kolam fitur tidak ikut di dalamnya,
+# padahal checkpoint per sel berkunci (leaf, model, origin) - juga tanpa
+# menyebut kolam fitur. Akibatnya, mengubah kolam lag lalu menjalankan ulang ke
+# folder yang sama membuat SELURUH sel dianggap sudah selesai: skrip berhenti
+# dalam hitungan detik dan hasilnya tetap hasil lama, tanpa satu pun pesan.
+# Kalau hanya sebagian sel terisi, hasilnya lebih buruk lagi - campuran dua
+# kolam fitur di satu berkas.
+#
+# Sidik jari ini ditulis saat folder hasil pertama kali dipakai, lalu dicocokkan
+# setiap kali. Kolam berubah tanpa memindahkan folder akan berhenti di sini.
+# ---------------------------------------------------------------------------
+def _sidik_konfigurasi():
+    from utils.feature_config import FEATURE_CONFIG as FC
+    return {
+        'lag_target': list(FC['lag_features']['lags']),
+        'lag_pasar': list(FC['cross_series_features']['lags']),
+        'rata_pasar': FC['cross_series_features']['rolling_mean_window'],
+        'panel': os.path.basename(PANEL),
+    }
+
+
+def periksa_konfigurasi():
+    import json as _json
+    os.makedirs(HASIL, exist_ok=True)
+    jalan = HASIL + 'konfigurasi.json'
+    kini = _sidik_konfigurasi()
+    if not os.path.exists(jalan):
+        _json.dump(kini, open(jalan, 'w'), indent=1)
+        return
+    lama = _json.load(open(jalan))
+    if lama == kini:
+        return
+    beda = [k for k in kini if lama.get(k) != kini[k]]
+    print('\n' + '=' * 68, file=sys.stderr)
+    print('BERHENTI: konfigurasi fitur berbeda dari isi folder hasil ini.', file=sys.stderr)
+    print('=' * 68, file=sys.stderr)
+    for k in beda:
+        print(f'  {k}\n      folder : {lama.get(k)}\n      sekarang: {kini[k]}', file=sys.stderr)
+    print(f'\n  folder: {HASIL}', file=sys.stderr)
+    print('\n  Checkpoint per sel tidak menyebut kolam fitur, jadi melanjutkan di', file=sys.stderr)
+    print('  sini akan mencampur dua konfigurasi dalam satu berkas.', file=sys.stderr)
+    print('\n  Pakai folder lain, misalnya:', file=sys.stderr)
+    print('    JBV_HASIL=hasil_<nama-yang-menjelaskan> python ...', file=sys.stderr)
+    sys.exit(2)
+
+
+periksa_konfigurasi()
+
+
 def load_panel():
     p = pd.read_csv(PANEL)
     dcols = [c for c in p.columns if c[:2] == '20']
