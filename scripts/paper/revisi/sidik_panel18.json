@@ -1,0 +1,136 @@
+{
+ "nama": "panel-18-seri",
+ "keterangan": "Konfigurasi yang menghasilkan naskah FX_OneDayAhead_v13 (18 seri).",
+ "panel": {
+  "berkas": "data/processed/sdv-wide.csv",
+  "leaf": 18,
+  "hari": 5032,
+  "mulai": "2006-01-02",
+  "akhir": "2026-08-26",
+  "satuan": "juta USD"
+ },
+ "kolam_fitur": {
+  "lag_target": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   20,
+   25,
+   30
+  ],
+  "lag_pasar": [
+   1,
+   7,
+   14
+  ],
+  "rata_pasar": 7,
+  "variabel_pasar": [
+   "bid_usdidr",
+   "ask_usdidr",
+   "bid_ndf1m",
+   "ask_ndf1m",
+   "yield_sbn_10year",
+   "dxy",
+   "flows_nr_eq",
+   "jci_index"
+  ],
+  "kandidat_internal": 104,
+  "kandidat_total": 136
+ },
+ "parameter": {
+  "NROLL": 30,
+  "NVAL": 10,
+  "TOP_K": 25,
+  "MRMR_BETA": 1.0,
+  "mrmr_beta_bawaan_saat_itu": 0.0
+ },
+ "commit_reproduksi": {
+  "sha": "8c5e0406be33f3ebd6d3e1bf2a8904868a573af4",
+  "pendek": "8c5e040",
+  "judul": "Tambahkan skrip untuk tiga eksperimen pembanding yang tersisa",
+  "tanggal": "2026-09-16",
+  "catatan": "Di commit ini mrmr_beta bawaan masih 0.0, sehingga lengan beta=0 di rerun_ablasi dan rerun_sisa benar-benar mematikan mRMR tanpa perlu menyebutnya. Commit 7006b01 mengubah bawaan itu jadi 1.0 dan diam-diam merusak lengan tersebut; 7ce4e97 memperbaikinya dengan menyebut mrmr_beta=0.0 eksplisit. Commit 66bc95a melebarkan lag pasar ke 1-14, sehingga HEAD tidak lagi mereproduksi hasil ini."
+ },
+ "acuan_hasil": {
+  "tabel6": {
+   "RandomForest": 0.9797,
+   "XGBoost": 1.0015,
+   "LightGBM": 1.0069,
+   "ARIMA": 1.0275,
+   "Croston": 1.082,
+   "Prophet": 1.1321,
+   "Naive": 1.1806,
+   "NaiveDrift": 1.1807,
+   "SeasonalDecomp": 1.3511,
+   "NaiveMean": 1.5009
+  },
+  "tabel7_mean": {
+   "6": 1.0648,
+   "8": 1.0034,
+   "12": 1.0237,
+   "16": 1.0539,
+   "20": 1.0287,
+   "25": 1.0123
+  },
+  "tabel8": {
+   "beta0.0_k12": [
+    1.0622,
+    1.3486
+   ],
+   "beta0.0_k25": [
+    1.0618,
+    1.1479
+   ],
+   "beta1.0_k12": [
+    1.0237,
+    1.0803
+   ],
+   "beta1.0_k25": [
+    1.0123,
+    1.123
+   ]
+  },
+  "tabel9": {
+   "Redundancy-aware selection": [
+    0.9961,
+    1.0188,
+    0.6371
+   ],
+   "Daily re-fitting": [
+    0.9961,
+    1.0123,
+    0.001029
+   ],
+   "Tuned hyperparameters": [
+    0.9961,
+    0.9867,
+    0.9671
+   ]
+  },
+  "shap_keluarga": {
+   "Moving average": 49.82,
+   "Lag": 28.52,
+   "External": 8.93,
+   "Technical": 4.86,
+   "Other": 4.18,
+   "Volatility / range": 3.26,
+   "Change / trend": 0.29,
+   "Extreme value": 0.14,
+   "Calendar": 0.0
+  }
+ },
+ "sidik_acuan_sha256_16": "d2d2e9098a3f77c8",
+ "cara_verifikasi": "Jalankan ulang di commit 8c5e040 dengan panel di atas, lalu bandingkan nilai di acuan_hasil. Kalau cocok, arsip yang dipulihkan memang berasal dari konfigurasi ini."
+}
