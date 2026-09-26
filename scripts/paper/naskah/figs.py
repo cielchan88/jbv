@@ -269,3 +269,32 @@ ax.text(0, .44, 'B. Inference design — 30 origins, one step each',
         fontsize=8.2, weight='bold', color='#1B2530')
 ax.set_xlim(-.1, 12.3); ax.set_ylim(0, 1.15); ax.axis('off')
 simpan(fig, 'fig2_design.png')
+
+
+# ------------------------------------------------- beeswarm per leaf (disalin)
+# TIDAK dihitung di sini. shap_baru.py sudah menuliskannya ke folder hasil saat
+# SHAP dihitung, memakai nilai SHAP yang sama yang menghasilkan angka di
+# shap_ringkas.json. Menghitung ulang di mesin lain bisa menggeser pangsa
+# kepentingan - terukur pada C.b, 14,6% jadi 8,6% - sehingga gambarnya
+# bertentangan dengan Gambar 9 yang memakai angka folder hasil.
+#
+# Jadi yang benar adalah MENYALIN dari folder hasil. Kalau tidak ada,
+# Lampiran B dilewati build.js, dan itu disebutkan di sini.
+import shutil
+ASAL = H + 'fig' + os.sep + 'beeswarm' + os.sep
+TUJU = F + 'beeswarm' + os.sep
+os.makedirs(TUJU, exist_ok=True)
+n_bees = 0
+if os.path.isdir(ASAL):
+    for lf in sorted(T['shap_per_leaf']):
+        src = ASAL + lf + '.png'
+        if os.path.exists(src):
+            shutil.copy2(src, TUJU + lf + '.png'); n_bees += 1
+if n_bees == len(T['shap_per_leaf']):
+    print(f'   beeswarm/ {n_bees} berkas disalin dari folder hasil')
+else:
+    print(f'   beeswarm/ HANYA {n_bees} dari {len(T["shap_per_leaf"])} - '
+          f'Lampiran B akan dilewati.')
+    print(f'     Sumbernya: {ASAL}')
+    print(f'     Dibuat shap_baru.py bersama shap_ringkas.json; salin dari VPS '
+          f'kalau naskah disusun di mesin lain.')

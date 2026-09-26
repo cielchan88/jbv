@@ -779,6 +779,9 @@ function build() {
   c.push(TCAP('A1', 'Series-level results for the headline design. Values in millions of US dollars. Best method chosen per series by MASE.'));
   c.push(appendixTable());
 
+  /* ------------------------------------------- Lampiran B: beeswarm per seri */
+  c.push(...appendixBeeswarm());
+
   return c;
 }
 
@@ -1201,6 +1204,42 @@ function conclProse() {
     'indistinguishable from a simpler one - and the only way to learn that is to remove the choices one at ' +
     'a time and test the difference on paired forecasts. ' +
     'Reporting the assembled system alone would have implied an improvement the data do not support.'));
+  return c;
+}
+
+function appendixBeeswarm() {
+  /* Satu beeswarm per seri. Dilewati seluruhnya kalau gambarnya tidak lengkap:
+     lampiran yang memuat sebagian seri tanpa mengatakan seri mana yang hilang
+     lebih menyesatkan daripada tidak ada lampiran. */
+  const dir = FIG + 'beeswarm' + path.sep;
+  const leafs = Object.keys(T.shap_per_leaf).sort();
+  const ada = leafs.filter(l => fs.existsSync(dir + l + '.png'));
+  if (ada.length !== leafs.length) {
+    console.warn(`  Lampiran B dilewati: ${ada.length} dari ${leafs.length} `
+      + `beeswarm ada di ${dir}`);
+    return [];
+  }
+  const share = Object.fromEntries(T.shap_ext_share.map(r => [r.leaf, r.share]));
+  const c = [];
+  c.push(H1('Appendix B. Feature contributions, series by series'));
+  c.push(P('Figure 9 shows how the 25 selected features divide between market variables, own lags and ' +
+    'everything else, and how much of the fitted importance the market variables carry. ' +
+    'It cannot show direction. The beeswarms below can: each dot is one of the last 300 training days, ' +
+    'placed by that feature contribution to the predicted next-day flow in millions of US dollars, and ' +
+    'coloured by whether the feature value was low (blue) or high (red) that day. ' +
+    'Feature names in orange are market variables; names in black are engineered from the series own ' +
+    'history. A wide spread means the feature moves the forecast from day to day; a narrow band around ' +
+    'zero means it is carried in the model and does almost nothing.'));
+  c.push(NOTE('These are the fourteen highest-importance features of the 25 selected, ordered by mean ' +
+    'absolute SHAP value. A series can therefore show fewer market rows here than its market slot count ' +
+    'in Figure 9, which means the remaining market features rank below the fourteenth.'));
+  ada.forEach((l, i) => {
+    const v = T.shap_per_leaf[l];
+    c.push(IMG('beeswarm' + path.sep + l + '.png', 520, 282));
+    c.push(FCAP(`B${i + 1}`, `${l} (${LABEL[l]}, ${ACTOROF(l)}). ` +
+      `The selector kept ${v.n_ext} market features and ${v.n_lag} own lags of 25; ` +
+      `market variables carry ${n(share[l] ?? 0, 1)} per cent of total absolute SHAP value.`));
+  });
   return c;
 }
 

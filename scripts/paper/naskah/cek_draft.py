@@ -142,6 +142,19 @@ if t:
             banding(f'T8 {row[0]} fe25', num(row[5]), round(p25[row[0]]['fe'], 3))
             banding(f'T8 {row[0]} slot', num(row[8]), p25[row[0]]['n_ext'], 0.5)
 
+# ------------------------------------------- 2b. kelengkapan Lampiran B
+# Lampiran yang memuat sebagian seri tanpa mengatakan seri mana yang hilang
+# lebih menyesatkan daripada tidak ada lampiran. build.js sudah melewatkannya
+# kalau tidak lengkap; ini menangkap kalau penjagaan itu sendiri bocor.
+n_leaf = len(T['shap_per_leaf'])
+bees = sorted(int(x) for x in re.findall(r'Figure B(\d+)', prosa))
+if bees:
+    if bees != list(range(1, n_leaf + 1)):
+        beda.append(f'Lampiran B: gambar {bees} bukan B1..B{n_leaf}')
+    print(f'2b. Lampiran B : {len(bees)} dari {n_leaf} seri')
+else:
+    print(f'2b. Lampiran B : tidak ada (beeswarm belum disalin ke keluaran/gambar/)')
+
 # ---------------------------------------------------- 3. angka yatim di prosa
 sah = set()
 

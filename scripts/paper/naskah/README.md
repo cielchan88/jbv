@@ -87,11 +87,24 @@ pemeriksa ini melapor gagal, periksa dulu pemeriksanya sebelum mengubah naskah.
 
 ---
 
-## Yang tidak bisa dibangun ulang di sini
+## Lampiran B: beeswarm per seri
 
-Beeswarm SHAP per leaf. `shap_baru.py` menulisnya sebagai PNG di folder
-hasil (`fig/beeswarm/<leaf>.png`), dan `shap_ringkas.json` hanya menyimpan
-nama fitur tanpa magnitudonya. Naskah memakai Gambar 9 — komposisi 25 slot
-terpilih per seri — yang bisa direproduksi penuh dari `shap_ringkas.json`.
-Kalau beeswarm-nya diinginkan, salin PNG-nya ke `keluaran/gambar/` dan
-sisipkan sendiri di `build.js`.
+`figs.py` **menyalin** beeswarm dari `<hasil>/fig/beeswarm/<leaf>.png`, tidak
+menghitungnya ulang. `shap_baru.py` sudah menuliskannya di sana memakai nilai
+SHAP yang sama yang menghasilkan `shap_ringkas.json`.
+
+**Jangan menghitungnya ulang di mesin lain.** Fitur terpilihnya memang sama,
+tapi pembagian kepentingan SHAP bisa bergeser antar versi pustaka — terukur
+pada C.b, 14,6% jadi 8,6% — sehingga beeswarm-nya bertentangan dengan Gambar 9
+yang memakai angka folder hasil. Kalau naskah disusun di mesin yang bukan
+tempat komputasi berjalan, salin foldernya:
+
+```bash
+# di mesin tempat komputasi berjalan
+cd <hasil> && tar czf ~/beeswarm.tgz fig/beeswarm/
+```
+
+Kalau gambarnya tidak lengkap, `build.js` **melewatkan seluruh Lampiran B**
+dan mengatakannya. Lampiran yang memuat sebagian seri tanpa menyebut seri mana
+yang hilang lebih menyesatkan daripada tidak ada lampiran. `cek_draft.py`
+memeriksa B1..B15 berurutan sebagai penjagaan kedua.
