@@ -16,6 +16,7 @@ pekerjaan ini berjam-jam. Setiap sel (leaf x model) ditulis ke CSV begitu
 selesai, dan sel yang sudah ada di CSV dilewati saat dijalankan ulang. Mati
 di tengah berarti kehilangan satu sel, bukan seluruh pekerjaan.
 """
+import gc
 import os
 import sys
 import time
@@ -188,7 +189,17 @@ def pilih_setelan(r, d, y, t0):
                     m = build(nm, r['Row_ID'], cfg)
                     m.fit(d[:t], y[:t])
                     ae.append(one_step_metrics(y[t], p1(m, d[:t], y[:t]), den_va)['mase'])
+                    # Lepaskan model SEBELUM yang berikutnya dibangun. Tanpa
+                    # ini dua hutan hidup bersamaan di puncak tiap iterasi:
+                    # m masih memegang yang lama saat build() mengalokasikan
+                    # yang baru. RandomForest 300 pohon tanpa batas kedalaman
+                    # di 5.000 baris sekitar 240 MB, dan pada mesin 3,8 GB
+                    # tanpa swap selisih satu hutan itulah yang menentukan
+                    # apakah OOM killer datang - terbukti: empat proses masing
+                    # masing 978 MB persis menghabiskan memorinya.
+                    del m
                 skor.append((float(np.nanmean(ae)), ci))
+                gc.collect()
             except Exception:
                 skor.append((float('inf'), ci))
         best = min(skor)[1]

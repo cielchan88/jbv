@@ -168,6 +168,41 @@ Setelan lama **tidak dibuang** — folder `hasil_sdv-wide-gabung` tetap utuh,
 jadi naskah bisa melaporkan keduanya berdampingan: itu justru jawaban yang
 lebih kuat kepada pengulas daripada sekadar mengganti angkanya.
 
+### Kalau prosesnya mati diam: kehabisan memori
+
+Terjadi pada NVAL=60 dengan 4 shard di mesin 3,8 GiB **tanpa swap**. Tiap
+proses memuncak di sekitar 978 MB, empat proses menghabiskan seluruh RAM, dan
+OOM killer membunuhnya tanpa jejak di log — bukan galat Python, jadi tidak ada
+traceback. `cek_jalan.py` akan menunjukkan "BERHENTI" dengan log yang diam.
+
+Memastikannya:
+
+```bash
+sudo dmesg -T | grep -iE "killed process|out of memory" | tail
+free -h                      # perhatikan baris Swap
+```
+
+Tiga penangkalnya, bisa digabung:
+
+```bash
+# 1. Swap sebagai jaring pengaman - tanpa ini puncak sesaat langsung jadi kill
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 2. Kurangi jumlah shard - memori puncak turun sebanding
+venv/bin/python scripts/paper/revisi/jalankan_paralel.py rerun_optimal.py 2 gabung
+```
+
+3. Model kini dilepas (`del`) sebelum yang berikutnya dibangun, jadi dua hutan
+tidak pernah hidup bersamaan di puncak iterasi. RandomForest 300 pohon tanpa
+batas kedalaman di 5.000 baris sekitar 240 MB, dan selisih satu hutan itulah
+yang menentukan apakah OOM killer datang.
+
+**Mengubah jumlah shard di tengah jalan aman.** Pembagian leaf berubah, tapi
+checkpoint berkunci `(leaf, model)` dan `sudah()` membaca seluruh shard, jadi
+sel yang sudah jadi tetap dilewati. Berkas shard lama tidak mengganggu.
+
 ## 3. Tahap 5–6, seluruh panel
 
 Kedua tahap ini **tidak boleh dibagi** — keduanya menulis satu berkas
