@@ -154,9 +154,15 @@ NVAL=40 sudah empat kali lipat dari sekarang.
 > **Cache seleksi.** Di tahap penyetelan, satu origin diselesaikan 4 kandidat
 > setelan × 3 model = 12 kali, dan keduabelasnya menyeleksi himpunan fitur
 > yang sama persis — seleksi tidak bergantung hyperparameter. Hasil seleksi
-> kini dipakai ulang dalam origin yang sama, yang memangkas sekitar 12 menit
-> per leaf pada NVAL=60. Ini **bukan** mengunci seleksi: begitu datanya
-> bertambah satu baris, kuncinya meleset dan seleksi dijalankan lagi.
+> kini dipakai ulang dalam origin yang sama.
+>
+> Terukur pada A.2.d: tahap penyetelan **1,17×** lebih cepat, cache kena 75%,
+> dan **setelan terpilih serta skor validasinya identik sampai 10 desimal**
+> untuk ketiga model. Pada NVAL=60 itu sekitar **9 menit per leaf**.
+>
+> Ini **bukan** mengunci seleksi: begitu datanya bertambah satu baris,
+> kuncinya meleset dan seleksi dijalankan lagi. Yang dipakai ulang hanya
+> dalam origin yang sama. `JBV_CACHE=0` mematikan seluruh cache.
 
 Setelan lama **tidak dibuang** — folder `hasil_sdv-wide-gabung` tetap utuh,
 jadi naskah bisa melaporkan keduanya berdampingan: itu justru jawaban yang
