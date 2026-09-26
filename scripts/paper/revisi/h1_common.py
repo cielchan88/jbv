@@ -4,6 +4,32 @@ Semua eksperimen memakai definisi leaf, pemuat data, dan metrik yang sama dari
 sini supaya angkanya konsisten antar tabel.
 """
 import glob, os, re, sys, warnings
+
+# ---------------------------------------------------------------------------
+# JUMLAH UTAS DIKUNCI, DAN INI HARUS SEBELUM numpy DIIMPOR.
+#
+# Pemilihan ordo ARIMA deterministik kalau hasil titik mengambangnya sama, dan
+# yang menggesernya adalah JUMLAH UTAS: banyak utas mengubah urutan penjumlahan
+# BLAS, hasilnya bergeser di bit terakhir, lalu pencarian ordo mendarat di ordo
+# lain. Terukur: menjalankan ulang kode dan data yang sama dengan jumlah utas
+# berbeda menggeser 392 dari 450 sel ARIMA.
+#
+# Dengan utas dikunci ia bit-identik antar-run - diuji pada tiga leaf, 30
+# origin masing-masing, dua run penuh, selisih maksimum 0,0. Jadi ini BUKAN
+# soal seed; ARIMA di sini tidak memakai bilangan acak sama sekali.
+#
+# Harus di sini, sebelum numpy diimpor: pustaka BLAS membaca variabel ini saat
+# dimuat, dan menyetelnya sesudah itu tidak berpengaruh.
+#
+# JBV_UTAS>1 mengembalikan multi-utas kalau kecepatan lebih penting daripada
+# reprodusibilitas ARIMA. jalankan_paralel.py memang sudah menyetelnya ke 1
+# per proses; ini membuat skrip yang dijalankan LANGSUNG ikut terlindungi.
+# ---------------------------------------------------------------------------
+_UTAS = os.environ.get('JBV_UTAS', '1')
+for _v in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+           'NUMEXPR_NUM_THREADS', 'LOKY_MAX_CPU_COUNT'):
+    os.environ.setdefault(_v, _UTAS)
+
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 os.chdir(_REPO); sys.path.insert(0, _REPO)

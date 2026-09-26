@@ -231,6 +231,10 @@ T['slot_vs_shap_beda'] = beda
 
 # ------------------------------------------------- catatan reprodusibilitas
 T['versi'] = V
+# Percobaan reprodusibilitas yang membandingkan beberapa RUN, jadi tidak bisa
+# diturunkan dari berkas hasil mana pun. Disimpan tercatat di repro.json.
+_repro = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'repro.json')
+T['repro'] = json.load(open(_repro)) if os.path.exists(_repro) else None
 # Catatan reprodusibilitas ARIMA hanya bisa dihitung kalau ada run PEMBANDING.
 # Tanpa itu naskah kehilangan satu butir batasan - bukan galat.
 T['arima_repro'] = None

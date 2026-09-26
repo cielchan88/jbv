@@ -1,0 +1,38 @@
+{
+  "_catatan": [
+    "Hasil dua percobaan reprodusibilitas yang TIDAK bisa diturunkan dari berkas",
+    "hasil komputasi, karena keduanya membandingkan beberapa run. Disimpan di sini",
+    "supaya angkanya tetap terlacak ke sumber dan bukan diketik langsung ke naskah.",
+    "Perbaruinya kalau percobaannya diulang; perintahnya ada di README.md."
+  ],
+  "arima_utas": {
+    "pertanyaan": "Apakah ARIMA reproducible antar-run kalau jumlah utas dikunci?",
+    "cara": "Dua run penuh dalam satu proses, OMP/MKL/OPENBLAS/NUMEXPR/LOKY = 1",
+    "leaf": ["A.2.a", "B.b", "C.d"],
+    "n_origin": 30,
+    "n_run": 2,
+    "beda_maks_absolut": 0.0,
+    "bit_identik": true,
+    "kesimpulan": "deterministik pada utas terkunci; bukan soal seed"
+  },
+  "arima_utas_berbeda": {
+    "pertanyaan": "Berapa yang bergeser kalau jumlah utas BERBEDA antar-run?",
+    "cara": "Run empat utas dibandingkan run satu utas, kode dan data sama",
+    "sel_bergeser": 392,
+    "n_sel": 450,
+    "mean_empat_utas": 1.0575,
+    "mean_satu_utas": 1.0525,
+    "kesimpulan": "urutan penjumlahan BLAS menggeser pencarian ordo"
+  },
+  "shap_lintas_lingkungan": {
+    "pertanyaan": "Apakah selisih SHAP C.b antar-mesin juga soal jumlah utas?",
+    "cara": "C.b dihitung ulang dengan utas dikunci dan utas bebas, lalu dibandingkan dengan angka mesin komputasi",
+    "ext_share_utas_terkunci": 8.59,
+    "ext_share_utas_bebas": 8.59,
+    "ext_share_mesin_komputasi": 14.6,
+    "kesimpulan": "BUKAN soal utas - jumlah utas tidak mengubahnya sama sekali; yang berbeda adalah versi pustaka",
+    "n_leaf_cocok": 13,
+    "n_leaf": 15,
+    "leaf_berbeda": ["B.a", "C.b"]
+  }
+}
