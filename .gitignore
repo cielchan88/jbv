@@ -90,3 +90,7 @@ data/**/*.bak
 
 # Keluaran komputasi ulang untuk panel alternatif (JBV_PANEL).
 scripts/paper/revisi/hasil_*/
+
+# Keluaran penyusunan naskah: tables.json memuat kolom actual/pred per leaf
+# (arus valas dalam juta USD) dan repo ini publik.
+scripts/paper/naskah/keluaran/
