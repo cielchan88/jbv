@@ -70,7 +70,21 @@ NROLL = 30
 # 9 jam hanya untuk menyetel. Sepuluh origin menahan biayanya di sepertiga
 # tanpa mengubah hal yang dipersoalkan pengulas: setelan tetap dipilih pada
 # blok yang MENDAHULUI blok uji, jadi tidak ada kebocoran.
-NVAL = 10
+# Panjang blok validasi. Sepuluh origin TIDAK memadai, dan hasilnya sendiri
+# yang membuktikan: setelan terpilih justru lebih buruk 1,18% daripada bawaan
+# library. Sepuluh galat satu langkah tidak cukup memisahkan empat kandidat,
+# jadi yang terpilih sebagian besar derau.
+#
+# JBV_NVAL melebarkannya tanpa menyentuh blok uji, yang tetap 30 origin
+# terakhir - blok validasi hanya memanjang MUNDUR, jadi tidak ada kebocoran.
+# Biayanya linear: 3 model x 4 kandidat x NVAL fit per leaf, sekitar 8,75 detik
+# per fit, jadi NVAL=60 berarti sekitar 105 menit per leaf untuk tahap
+# penyetelan saja.
+#
+# Mengubah NVAL mengubah setelan terpilih, dan setelan itu dipakai Tabel 5, 6,
+# 8, 9 dan 10 - jadi seluruh tahap harus dijalankan ulang di folder hasil yang
+# BERSIH, bukan ditumpuk di atas yang lama.
+NVAL = int(os.environ.get('JBV_NVAL', '10'))
 TOP_K = 25              # sama dengan naskah, supaya hanya SATU hal berubah
 MRMR_BETA = 1.0
 SEASONAL = 'SeasonalDecomp'

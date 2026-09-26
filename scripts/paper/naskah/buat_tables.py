@@ -73,7 +73,12 @@ e2r = pd.Series({m: v['mean'] for m, v in U['tabel6'].items()}).sort_values()
 rho, p = spearmanr(e1r.rank(), e2r.reindex(e1r.index).rank())
 T['rank_corr'] = {'rho': float(rho), 'p': float(p)}
 T['champion_tests'] = [dict(model=m, wins=v['menang'], n=v['n'], p=v['p'],
-                            sig=v['p'] < 0.05) for m, v in U['tabel6_uji'].items()]
+                            p_holm=v.get('p_holm'), p_bh=v.get('p_bh'),
+                            sig=v['p'] < 0.05,
+                            sig_holm=(v.get('p_holm') is not None
+                                      and v['p_holm'] < 0.05))
+                       for m, v in U['tabel6_uji'].items()]
+T['champion_koreksi'] = U.get('tabel6_koreksi')
 T['champion_juara'] = U['tabel6_juara']
 
 # ---------------------------------------------------------- pemenang per seri

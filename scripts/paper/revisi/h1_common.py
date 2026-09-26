@@ -71,6 +71,11 @@ def _sidik_konfigurasi():
         'lag_pasar': list(FC['cross_series_features']['lags']),
         'rata_pasar': FC['cross_series_features']['rolling_mean_window'],
         'panel': os.path.basename(PANEL),
+        # Panjang blok validasi ikut di sini karena ia menentukan setelan
+        # terpilih, dan setelan itu dipakai SELURUH tahap lanjutan. Menjalankan
+        # NVAL yang berbeda ke folder yang sama akan mencampur dua penyetelan
+        # tanpa satu pun pesan.
+        'nval': int(os.environ.get('JBV_NVAL', '10')),
     }
 
 
@@ -83,6 +88,14 @@ def periksa_konfigurasi():
         _json.dump(kini, open(jalan, 'w'), indent=1)
         return
     lama = _json.load(open(jalan))
+    # Folder hasil yang dibuat sebelum 'nval' ada di sidik jari pasti memakai
+    # NVAL=10, karena itu satu-satunya nilai yang mungkin saat itu. Isi
+    # mundur nilainya alih-alih menolak folder yang sebenarnya cocok - tapi
+    # HANYA kalau yang diminta sekarang juga 10. Kalau tidak, ia memang beda
+    # dan harus berhenti.
+    if 'nval' not in lama and kini.get('nval') == 10:
+        lama['nval'] = 10
+        _json.dump(lama, open(jalan, 'w'), indent=1)
     if lama == kini:
         return
     beda = [k for k in kini if lama.get(k) != kini[k]]

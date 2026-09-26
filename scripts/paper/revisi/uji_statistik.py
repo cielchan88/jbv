@@ -112,6 +112,47 @@ if roll is not None:
               f"p={r['p']:.4g}  {tanda}")
     hasil['tabel6_juara'] = juara
 
+    # ---- koreksi uji ganda -------------------------------------------------
+    # Sembilan uji berpasangan terhadap juara yang sama dijalankan sekaligus,
+    # jadi peluang setidaknya satu p kecil karena kebetulan jauh lebih besar
+    # daripada 5%. Holm mengendalikan peluang SATU PUN kesalahan jenis I
+    # (FWER) dan itu yang relevan di sini, karena klaim naskah adalah bahwa
+    # dua perbandingan tertentu TIDAK signifikan; Benjamini-Hochberg (FDR)
+    # dilaporkan berdampingan sebagai pembanding yang lebih longgar.
+    #
+    # Arah koreksinya menguntungkan klaim grup seri: mengoreksi ke atas hanya
+    # membuat yang tidak signifikan makin tidak signifikan. Yang benar-benar
+    # diuji di sini adalah apakah tujuh perbandingan LAIN bertahan.
+    nm = list(hasil['tabel6_uji'])
+    pp = np.array([hasil['tabel6_uji'][m]['p'] for m in nm], dtype=float)
+    k = len(pp)
+    urut = np.argsort(pp)
+    holm = np.empty(k); jalan = 0.0
+    for i, idx in enumerate(urut):
+        jalan = max(jalan, (k - i) * pp[idx])
+        holm[idx] = min(1.0, jalan)
+    bh = np.empty(k); mini = 1.0
+    for i in range(k - 1, -1, -1):
+        idx = urut[i]
+        mini = min(mini, pp[idx] * k / (i + 1))
+        bh[idx] = min(1.0, mini)
+    for i, m in enumerate(nm):
+        hasil['tabel6_uji'][m]['p_holm'] = float(holm[i])
+        hasil['tabel6_uji'][m]['p_bh'] = float(bh[i])
+    hasil['tabel6_koreksi'] = {
+        'n_uji': k, 'metode': 'Holm-Bonferroni (FWER) dan Benjamini-Hochberg (FDR)',
+        'tak_signifikan_holm': [m for i, m in enumerate(nm) if holm[i] >= 0.05],
+        'signifikan_holm': [m for i, m in enumerate(nm) if holm[i] < 0.05],
+        'holm_terbesar_yang_masih_signifikan': float(
+            max([holm[i] for i in range(k) if holm[i] < 0.05], default=float('nan'))),
+    }
+    print(f"\n  koreksi uji ganda atas {k} perbandingan (Holm / BH):")
+    for i, m in enumerate(nm):
+        print(f"    vs {m:15s} p={pp[i]:.4g}  Holm={holm[i]:.4f}  BH={bh[i]:.4f}"
+              + ('' if holm[i] < 0.05 else '   TIDAK signifikan'))
+    print(f"    grup tak terbedakan dari {juara} sesudah Holm: "
+          f"{hasil['tabel6_koreksi']['tak_signifikan_holm']}")
+
     # median gabungan TANPA leaf uji-nol, untuk catatan ketahanan di naskah
     tanpa = roll[roll.leaf != 'A.1.b']
     g2 = tanpa.groupby('model')['mase'].agg(['mean', 'median']).sort_values('mean')

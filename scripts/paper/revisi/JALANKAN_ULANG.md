@@ -108,6 +108,51 @@ Jalur lama **tidak berubah**: parameter barunya opsional dan bawaan `None`,
 jadi Tabel 5, 6, 7 dan 9 tetap apa adanya. Sudah diuji A/B di kode yang sama —
 selisih maksimum 2×10⁻¹⁶.
 
+## 2c. Blok validasi lebar — menjawab kritik pengulas
+
+Pengulas menilai blok validasi 10 origin tidak memadai, dan hasilnya sendiri
+yang membuktikan: setelan terpilih justru **1,18% lebih buruk** daripada bawaan
+library. Sepuluh galat satu langkah tidak cukup memisahkan empat kandidat.
+
+`JBV_NVAL` melebarkannya. Blok uji tetap 30 origin terakhir — blok validasi
+hanya memanjang **mundur**, jadi tidak ada kebocoran.
+
+```bash
+cd /opt/jbv && git pull
+P=data/processed/sdv-wide-gabung.csv
+export JBV_NVAL=60
+export JBV_HASIL=hasil_nval60          # WAJIB folder baru
+
+for T in rerun_optimal.py rerun_headline.py rerun_ablasi.py rerun_sisa.py; do
+  venv/bin/python scripts/paper/revisi/jalankan_paralel.py $T 4 gabung || break
+  JBV_PANEL=$P venv/bin/python scripts/paper/revisi/gabung_shard.py --ya || break
+done
+env -u JBV_SHARD -u JBV_LEAF JBV_PANEL=$P venv/bin/python scripts/paper/revisi/shap_baru.py
+env -u JBV_SHARD -u JBV_LEAF JBV_PANEL=$P venv/bin/python scripts/paper/revisi/uji_statistik.py
+```
+
+**Folder hasil harus baru.** `NVAL` sekarang ikut di sidik jari konfigurasi,
+jadi menjalankannya ke folder lama akan berhenti dengan exit 2 — bukan
+mencampur dua penyetelan diam-diam. Sudah diuji: `JBV_NVAL=60` ditolak di
+folder yang ada, dan folder lama tetap diterima pada nilai bawaan 10.
+
+**Biayanya linear pada NVAL.** Penyetelan = 3 model × 4 kandidat × NVAL fit per
+leaf, sekitar 8,75 detik per fit:
+
+| NVAL | penyetelan per leaf | `rerun_optimal` dengan 4 shard | seluruh 4 tahap |
+|---|---|---|---|
+| 10 (sekarang) | ~18 menit | ~2,5 jam | ~5–7 jam |
+| 40 | ~70 menit | ~6 jam | ~9–11 jam |
+| 60 | ~105 menit | ~8,5 jam | ~12–14 jam |
+
+Saya sarankan **NVAL=60**: dua kali blok uji, cukup untuk menjadikan
+pembalikan tanda sebagai temuan dan bukan derau. Kalau waktunya tidak ada,
+NVAL=40 sudah empat kali lipat dari sekarang.
+
+Setelan lama **tidak dibuang** — folder `hasil_sdv-wide-gabung` tetap utuh,
+jadi naskah bisa melaporkan keduanya berdampingan: itu justru jawaban yang
+lebih kuat kepada pengulas daripada sekadar mengganti angkanya.
+
 ## 3. Tahap 5–6, seluruh panel
 
 Kedua tahap ini **tidak boleh dibagi** — keduanya menulis satu berkas
