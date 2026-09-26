@@ -42,6 +42,7 @@ KUNCI = {
     'opt_ablasi.csv':     ['leaf', 'model', 'arm', 'origin'],
     'sisa_kablasi.csv':   ['leaf', 'model', 'top_k', 'origin'],
     'sisa_eksternal.csv': ['leaf', 'model', 'top_k', 'ext', 'beta', 'origin'],
+    'sisa_pasar_benar.csv': ['leaf', 'model', 'top_k', 'beta', 'origin'],
 }
 # Dua bentuk penanda: JBV_SHARD=2/4 -> ".shard-2-of-4", JBV_LEAF -> ".shard-leaf-A-2-d"
 POLA = re.compile(r'^(.*)\.shard-(?:\d+-of-\d+|leaf-[A-Za-z0-9-]*)(\.csv)$')
@@ -105,8 +106,16 @@ def kelompok():
 def satukan(nama, shard_paths, tulis):
     kunci = KUNCI.get(nama)
     if kunci is None:
-        print(f'  {nama:22s} DILEWATI - kuncinya belum terdaftar di KUNCI')
-        return False
+        # BERHENTI, jangan sekadar melewati. Keluaran baru yang lupa
+        # didaftarkan pernah lolos diam-diam di sini: berkas shard-nya ada -
+        # 39 menit komputasi - tapi berkas kanoniknya tidak pernah ditulis,
+        # dan tahap berikutnya melapor "belum ada" seolah tidak pernah
+        # dijalankan. Melewatkan satu keluaran adalah kegagalan, bukan catatan.
+        print(f'  {nama:22s} BERHENTI - kuncinya belum terdaftar di KUNCI.')
+        print(f'      Berkas shard-nya ADA dan isinya utuh; yang kurang hanya '
+              f'daftar kunci.')
+        print(f'      Tambahkan di gabung_shard.py:  KUNCI[{nama!r}] = [...]')
+        return None                    # None = masalah, hentikan dengan kode 1
 
     kanonik = os.path.join(H, nama)
     bagian, asal = [], []

@@ -58,13 +58,23 @@ def uji(a, b):
     a, b = a[ok], b[ok]
     n = int(len(a))
     menang = int((a < b).sum())
+    # Hari SERI dihitung terpisah. Pada uji data pasar, sebagian besar pasangan
+    # memang seri: kalau tidak ada fitur pasar yang terpilih untuk satu leaf,
+    # kedua lengan identik. Membagi 'menang' dengan n yang memuat seri membuat
+    # lengan yang sebenarnya kalah tampak menang - persis yang terjadi di
+    # Tabel 8, di mana 80% pasangan seri dan lengan pasar dilaporkan
+    # 'memihak on' padahal kalah 109 lawan 161.
+    seri = int((a == b).sum())
+    kalah = n - menang - seri
     p = float('nan')
     if n and np.any(a != b):
         try:
             p = float(wilcoxon(a, b).pvalue)
         except Exception as e:
             print(f'    (wilcoxon gagal: {type(e).__name__})')
-    return {'menang': menang, 'n': n, 'p': p,
+    return {'menang': menang, 'kalah': kalah, 'seri': seri, 'n': n, 'p': p,
+            'persen_menang_tanpa_seri': (100.0 * menang / (menang + kalah)
+                                         if (menang + kalah) else float('nan')),
             'mean_a': float(a.mean()) if n else float('nan'),
             'mean_b': float(b.mean()) if n else float('nan')}
 
@@ -142,13 +152,19 @@ if ext is not None:
         rec = {'beta': float(b), 'top_k': int(k),
                'mean_off': r['mean_a'], 'mean_on': r['mean_b'],
                'delta_pct': 100 * (r['mean_b'] - r['mean_a']) / r['mean_a'],
-               'menang_off': r['menang'], 'n': r['n'], 'p': r['p'],
-               'rank_favours': 'off' if r['menang'] * 2 > r['n'] else 'on'}
+               'menang_off': r['menang'], 'kalah_off': r['kalah'],
+               'seri': r['seri'], 'n': r['n'], 'p': r['p'],
+               'persen_menang_off': r['persen_menang_tanpa_seri'],
+               'rank_favours': ('off' if r['persen_menang_tanpa_seri'] > 50
+                                else 'on')}
         hasil['tabel8'].append(rec)
         print(f"  beta={b:.1f} k={int(k):2d}  mati {rec['mean_off']:.4f}  "
               f"hidup {rec['mean_on']:.4f}  delta {rec['delta_pct']:+6.2f}%  "
-              f"menang(mati) {rec['menang_off']:4d}/{rec['n']}  p={rec['p']:.4g}  "
-              f"-> hitungan memihak {rec['rank_favours']}")
+              f"menang(mati) {rec['menang_off']:4d} kalah {rec['kalah_off']:4d} "
+              f"seri {rec['seri']:4d}/{rec['n']}  p={rec['p']:.4g}")
+        print(f"{'':16s}di luar hari seri, mati menang "
+              f"{rec['persen_menang_off']:.1f}% -> hitungan memihak "
+              f"{rec['rank_favours']}")
 
     # ------------------------------------------------------------ Gambar 10
     bagian('GAMBAR 10  mRMR lawan univariat, pada kondisi tanpa data pasar')
