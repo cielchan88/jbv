@@ -136,18 +136,27 @@ jadi menjalankannya ke folder lama akan berhenti dengan exit 2 — bukan
 mencampur dua penyetelan diam-diam. Sudah diuji: `JBV_NVAL=60` ditolak di
 folder yang ada, dan folder lama tetap diterima pada nilai bawaan 10.
 
-**Biayanya linear pada NVAL.** Penyetelan = 3 model × 4 kandidat × NVAL fit per
-leaf, sekitar 8,75 detik per fit:
+**Biayanya linear pada NVAL, dan RandomForest yang mendominasi.** Diukur per
+fit pada panel ini, satu utas: RandomForest setelan terberat **13,2 detik**,
+XGBoost 0,9 detik, LightGBM 0,4 detik, seleksi mRMR 1,1 detik. Pembangunan
+fitur sudah nol berkat cache.
 
-| NVAL | penyetelan per leaf | `rerun_optimal` dengan 4 shard | seluruh 4 tahap |
+| NVAL | penyetelan per leaf | `rerun_optimal` 4 shard | seluruh 4 tahap |
 |---|---|---|---|
-| 10 (sekarang) | ~18 menit | ~2,5 jam | ~5–7 jam |
-| 40 | ~70 menit | ~6 jam | ~9–11 jam |
-| 60 | ~105 menit | ~8,5 jam | ~12–14 jam |
+| 10 (sekarang) | ~8 menit | ~2,5 jam | ~5–7 jam |
+| 40 | ~33 menit | ~3,5 jam | ~6–7 jam |
+| 60 | ~50 menit | ~4,5 jam | **~8 jam** |
 
 Saya sarankan **NVAL=60**: dua kali blok uji, cukup untuk menjadikan
 pembalikan tanda sebagai temuan dan bukan derau. Kalau waktunya tidak ada,
 NVAL=40 sudah empat kali lipat dari sekarang.
+
+> **Cache seleksi.** Di tahap penyetelan, satu origin diselesaikan 4 kandidat
+> setelan × 3 model = 12 kali, dan keduabelasnya menyeleksi himpunan fitur
+> yang sama persis — seleksi tidak bergantung hyperparameter. Hasil seleksi
+> kini dipakai ulang dalam origin yang sama, yang memangkas sekitar 12 menit
+> per leaf pada NVAL=60. Ini **bukan** mengunci seleksi: begitu datanya
+> bertambah satu baris, kuncinya meleset dan seleksi dijalankan lagi.
 
 Setelan lama **tidak dibuang** — folder `hasil_sdv-wide-gabung` tetap utuh,
 jadi naskah bisa melaporkan keduanya berdampingan: itu justru jawaban yang

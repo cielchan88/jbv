@@ -177,3 +177,64 @@ def pasang_cache(*moduls, laporkan=True):
     statistik.bersihkan = bersihkan
     statistik.siapkan = siapkan
     return statistik
+
+
+def pasang_cache_seleksi(*moduls, laporkan=True):
+    """Cache seleksi fitur per origin. Pasangan pasang_cache, untuk tahap setelan.
+
+    KENAPA ADA YANG BISA DIHEMAT. Himpunan fitur terpilih bergantung pada data,
+    jumlah fitur, dan aturan seleksinya - TIDAK pada hyperparameter model. Di
+    tahap penyetelan, satu origin diselesaikan 4 kandidat setelan x 3 model =
+    12 kali, dan keduabelasnya menyeleksi ulang himpunan yang sama persis.
+    Diukur: seleksi 1,1 detik, jadi pada NVAL=60 terbuang 12 menit per leaf.
+
+    KENAPA INI TIDAK SAMA DENGAN MENGUNCI SELEKSI. cache_fitur sengaja TIDAK
+    menyimpan hasil seleksi, karena himpunan terpilih memang harus berubah saat
+    data bertambah. Yang di-cache di sini hanya pemakaian ULANG dalam origin
+    yang SAMA. Begitu datanya berubah satu baris pun, kuncinya meleset dan
+    seleksi dijalankan lagi.
+
+    PENJAGA KEBENARAN. Kuncinya memuat panjang bingkai, daftar kolomnya, dan
+    parameter seleksi; nilai kolom target ikut disimpan dan dibandingkan, jadi
+    bingkai dengan bentuk sama tapi isi berbeda tidak akan memakai hasil yang
+    salah.
+    """
+    simpan = {}
+    hit = [0, 0]
+
+    def bungkus(asli):
+        def dipanggil(df, top_k=None, **kw):
+            try:
+                y = np.asarray(df['value'].values, dtype=float)
+            except Exception:
+                return asli(df, top_k=top_k, **kw) if top_k is not None else asli(df, **kw)
+            kunci = (id(asli), len(df), tuple(df.columns), top_k,
+                     tuple(sorted(kw.items())))
+            simpanan = simpan.get(kunci)
+            if simpanan is not None:
+                y_lama, hasil = simpanan
+                if len(y_lama) == len(y) and np.array_equal(y_lama, y):
+                    hit[0] += 1
+                    return hasil
+            out = asli(df, top_k=top_k, **kw) if top_k is not None else asli(df, **kw)
+            hit[1] += 1
+            simpan[kunci] = (y, out)
+            return out
+        return dipanggil
+
+    for m in moduls:
+        m.select_top_features = bungkus(m.select_top_features)
+
+    def statistik():
+        total = hit[0] + hit[1]
+        return {'kena_cache': hit[0], 'bangun_ulang': hit[1],
+                'persen_kena': 100 * hit[0] / total if total else 0.0}
+
+    def bersihkan():
+        simpan.clear()
+
+    if laporkan:
+        print(f'[cache_fitur] cache seleksi aktif untuk {len(moduls)} modul',
+              flush=True)
+    statistik.bersihkan = bersihkan
+    return statistik

@@ -34,13 +34,16 @@ from utils.forecasting import (ARIMAForecaster, APUVAForecaster,
                                NaiveForecaster, ProphetForecaster,
                                RandomForestForecaster, XGBoostForecaster)
 from utils.feature_engineering_optimized import select_top_features_optimized
-from cache_fitur import pasang_cache
+from cache_fitur import pasang_cache, pasang_cache_seleksi
 
 # Cache bingkai fitur. Protokol refit harian membangun ulang seluruh bingkai
 # di setiap origin padahal baris lama tidak berubah; lihat cache_fitur.py.
 # JBV_CACHE=0 mematikannya kalau perlu membandingkan.
 CACHE = (pasang_cache(rfm, lgm, xgm)
          if os.environ.get('JBV_CACHE', '1') != '0' else None)
+# Diisi main() SESUDAH pasang_mrmr(), karena ia membungkus select_top_features
+# yang baru dipasang di sana.
+CACHE_SEL = None
 
 
 def panaskan(d, y, external_series=None):
@@ -50,6 +53,8 @@ def panaskan(d, y, external_series=None):
     5.000 x 225 sekitar 9 MB, dan menyimpannya untuk 15 leaf sekaligus tidak
     ada gunanya karena leaf diproses satu per satu.
     """
+    if CACHE_SEL is not None:
+        CACHE_SEL.bersihkan()      # seleksi leaf sebelumnya tidak akan diminta lagi
     if CACHE is None:
         return
     CACHE.bersihkan()
@@ -213,6 +218,11 @@ def main():
     print(f'  panel  : {len(dcols):,} hari, {dcols[0]} s/d {dcols[-1]}', flush=True)
     print(f'  leaf   : {len(lv)}', flush=True)
     pasang_mrmr()
+    # Cache seleksi HANYA berguna di tahap penyetelan, tempat satu origin
+    # diselesaikan 12 kali dengan setelan berbeda tapi seleksi yang sama.
+    global CACHE_SEL
+    if os.environ.get('JBV_CACHE', '1') != '0':
+        CACHE_SEL = pasang_cache_seleksi(rfm, lgm, xgm)
 
     # ---- tahap 1: setelan per leaf/model dari blok validasi ----
     # Hitungan sisa disaring ke leaf milik shard ini. sudah() sengaja membaca
@@ -229,6 +239,10 @@ def main():
         panaskan(d, y)
         pilih_setelan(r, d, y, t0)
     print(f'\nTAHAP 1 SELESAI ({time.time()-t0:.0f}s)', flush=True)
+    if CACHE_SEL is not None:
+        ss = CACHE_SEL()
+        print(f'  cache seleksi: kena {ss["kena_cache"]}, hitung '
+              f'{ss["bangun_ulang"]} ({ss["persen_kena"]:.0f}% kena)', flush=True)
 
     tuned = (baca(TUNE).drop_duplicates(['leaf', 'model'], keep='last')
              .set_index(['leaf', 'model'])['cfg'].to_dict())
