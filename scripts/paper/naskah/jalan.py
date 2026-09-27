@@ -44,6 +44,11 @@ KERJA = _ambil('JBV_NASKAH_KERJA', 'scripts', 'paper', 'naskah',
 LAMA = os.environ.get('JBV_NASKAH_LAMA')
 LAMA = (os.path.abspath(LAMA) + os.sep) if LAMA else None
 
+# Folder hasil dengan blok validasi PENDEK, untuk perbandingan panjang blok.
+# Opsional: tanpa itu bagian perbandingannya dilewati, bukan gagal.
+BANDING = os.environ.get('JBV_NASKAH_BANDING')
+BANDING = (os.path.abspath(BANDING) + os.sep) if BANDING else None
+
 TABLES = KERJA + 'tables.json'
 GAMBAR = KERJA + 'gambar' + os.sep
 DOCX = KERJA + 'FX_15seri.docx'

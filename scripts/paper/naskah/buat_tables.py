@@ -13,13 +13,28 @@ import pandas as pd, numpy as np
 from scipy.stats import spearmanr, skew, kurtosis, wilcoxon
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from jalan import HASIL, SLOT, LAMA, TABLES, siapkan, periksa_hasil, REPO
+import jalan                                  # lewat modul, JANGAN from-import
+from jalan import SLOT, LAMA, BANDING, TABLES, siapkan, periksa_hasil, REPO
+
+# HASIL sengaja diambil lewat jalan.HASIL, bukan di-from-import. h1_common
+# JUGA mendefinisikan HASIL, dan `from h1_common import *` di bawah akan
+# menimpanya - bug yang tidak terlihat selama kedua folder kebetulan sama,
+# lalu diam-diam membaca folder yang salah begitu keduanya berbeda.
+HASIL = jalan.HASIL
 
 sys.path.insert(0, os.path.join(REPO, 'scripts', 'paper', 'revisi'))
 os.environ.setdefault('JBV_PANEL', 'data/processed/sdv-wide-gabung.csv')
-os.environ.setdefault('JBV_HASIL', 'hasil_sdv-wide-gabung')
+# Samakan folder dan panjang blok validasi h1_common dengan folder yang
+# benar-benar dibaca, supaya pemeriksa sidik jarinya tidak menolak folder
+# lain yang sah.
+os.environ['JBV_HASIL'] = os.path.basename(HASIL.rstrip(os.sep))
+import json as _json
+_cfg = HASIL + 'konfigurasi.json'
+if os.path.exists(_cfg):
+    os.environ['JBV_NVAL'] = str(_json.load(open(_cfg)).get('nval', 10))
 os.environ['JBV_DIAM'] = '1'
-from h1_common import *                      # ber-chdir ke akar repo
+from h1_common import *                      # ber-chdir ke akar repo; menimpa HASIL
+HASIL = jalan.HASIL                          # kembalikan milik jalan.py
 warnings.filterwarnings('ignore')
 
 siapkan()
@@ -255,6 +270,33 @@ if LAMA and os.path.exists(LAMA + 'opt_rolling.csv'):
         'mean_baru': float(roll[roll.model == 'ARIMA'].mase.mean()),
         'p_lama': float(p_lama) if p_lama is not None else None,
         'p_baru': float(U['tabel6_uji']['ARIMA']['p']),
+    }
+
+# ------------------------- perbandingan panjang blok validasi
+# Menjawab langsung kritik pengulas: apakah tanda negatif penyetelan bertahan
+# kalau bloknya dilebarkan? Hanya bisa dihitung kalau kedua folder hasil ada.
+T['blok_validasi'] = None
+if BANDING and os.path.exists(BANDING + 'uji_statistik.json'):
+    Ub = json.load(open(BANDING + 'uji_statistik.json'))
+    tb = pd.read_csv(BANDING + 'opt_tuned.csv').set_index(['leaf', 'model'])
+    tk = pd.read_csv(HASIL + 'opt_tuned.csv').set_index(['leaf', 'model'])
+    gab = tb.join(tk, lsuffix='_pendek', rsuffix='_panjang')
+    lama_arm = {r['komponen']: r for r in Ub['tabel9']}
+    T['blok_validasi'] = {
+        'nval_pendek': int(json.load(open(BANDING + 'konfigurasi.json'))
+                           .get('nval', 10)),
+        'nval_panjang': int(json.load(open(HASIL + 'konfigurasi.json'))
+                            .get('nval', 60)),
+        'n_cfg_berubah': int((gab.cfg_pendek != gab.cfg_panjang).sum()),
+        'n_cfg': int(len(gab)),
+        'lengan': [dict(komponen=r['komponen'],
+                        delta_pendek=lama_arm[r['komponen']]['delta_pct'],
+                        p_pendek=lama_arm[r['komponen']]['p'],
+                        delta_panjang=r['delta_pct'], p_panjang=r['p'],
+                        holm_panjang=r.get('p_holm'))
+                   for r in U['tabel9']],
+        'mean_pendek': {m: v['mean'] for m, v in Ub['tabel6'].items()},
+        'mean_panjang': {m: v['mean'] for m, v in U['tabel6'].items()},
     }
 
 out = TABLES

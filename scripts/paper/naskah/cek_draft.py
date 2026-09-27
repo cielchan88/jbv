@@ -59,11 +59,22 @@ cek('slot pasar rata', f"{T['mean_ext_slots']:.1f}")
 cek('kandidat internal', str(T['pool_internal']))
 cek('kandidat total', str(T['pool_total']))
 cek('jumlah leaf', str(T['n_leaf']))
-if T.get('arima_repro'):
-    a = T['arima_repro']
-    cek('ARIMA sel berbeda', str(a['sel_berbeda'].get('ARIMA', '')))
-    cek('ARIMA mean lama', nf(a['mean_lama'], 4))
-    cek('ARIMA mean baru', nf(a['mean_baru'], 4))
+# Naskah memakai repro.json, bukan arima_repro. Memeriksa yang tidak dipakai
+# naskah membuat pemeriksa ini melaporkan cocok atas angka yang tidak pernah
+# dicetak - dan melewatkan yang benar-benar dicetak.
+if T.get('repro'):
+    a = T['repro']['arima_utas_berbeda']
+    cek('ARIMA sel bergeser', str(a['sel_bergeser']))
+    cek('ARIMA mean 4 utas', nf(a['mean_empat_utas'], 4))
+    cek('ARIMA mean 1 utas', nf(a['mean_satu_utas'], 4))
+    s = T['repro']['shap_lintas_lingkungan']
+    cek('SHAP C.b lingkungan lain', f"{s['ext_share_utas_terkunci']:.1f}")
+    cek('SHAP C.b mesin komputasi', f"{s['ext_share_mesin_komputasi']:.1f}")
+if T.get('blok_validasi'):
+    b = T['blok_validasi']
+    cek('blok validasi pendek', str(b['nval_pendek']))
+    cek('blok validasi panjang', str(b['nval_panjang']))
+    cek('setelan berubah', str(b['n_cfg_berubah']))
 for nm in ('python', 'numpy', 'pandas', 'sklearn', 'lightgbm', 'xgboost'):
     if T['versi'].get(nm):
         cek(f'versi {nm}', T['versi'][nm])

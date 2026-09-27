@@ -292,6 +292,32 @@ if abl is not None and roll is not None:
         print(f"      leaf yang lebih baik TANPA komponen ini: "
               f"{lebih_baik_tanpa}/{rec['n_leaf']}")
 
+    # Koreksi uji ganda untuk ketiga lengan, dengan standar yang SAMA seperti
+    # Tabel 6. Menerapkannya di satu tabel dan tidak di tabel lain akan
+    # mengundang pertanyaan yang tepat dari pengulas, dan di sini koreksinya
+    # memang mengubah bacaan: refit harian lolos p<0,05 mentah tapi tidak
+    # lolos sesudah dikoreksi.
+    pp = np.array([r['p'] for r in hasil['tabel9']], dtype=float)
+    k = len(pp)
+    urut = np.argsort(pp)
+    holm = np.empty(k); jalan = 0.0
+    for i, idx in enumerate(urut):
+        jalan = max(jalan, (k - i) * pp[idx])
+        holm[idx] = min(1.0, jalan)
+    for i, rec in enumerate(hasil['tabel9']):
+        rec['p_holm'] = float(holm[i])
+    hasil['tabel9_koreksi'] = {
+        'n_uji': k,
+        'metode': 'Holm-Bonferroni atas ketiga lengan',
+        'signifikan_holm': [r['komponen'] for r in hasil['tabel9']
+                            if r['p_holm'] < 0.05],
+    }
+    print(f"\n  koreksi uji ganda atas {k} lengan (Holm):")
+    for rec in hasil['tabel9']:
+        print(f"    {rec['komponen']:30s} p={rec['p']:.4f}  "
+              f"Holm={rec['p_holm']:.4f}"
+              + ('' if rec['p_holm'] < 0.05 else '   tidak signifikan'))
+
 # ------------------------------------------------------------------ simpan
 if hasil:
     with open(OUT, 'w') as f:

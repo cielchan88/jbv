@@ -686,6 +686,7 @@ function build() {
     'Bars above zero mean the optimal configuration is better. ' +
     'The dashed line is the pooled effect with its paired test.'));
   c.push(...reverseAblationProse());
+  c.push(...blokValidasiProse());
 
   c.push(H3('Is the market-data loss the data, or the selector?'));
   c.push(P('A univariate rule that ranks features one at a time by absolute Spearman correlation with the target ' +
@@ -732,7 +733,7 @@ function build() {
   c.push(H2('5.4. Research Limitations and Constraints'));
   c.push(...BUL([
     'The headline design has one test date. It is reported because it is the operational setting, but it supports description only, and every inferential claim here rests on the 30-origin design.',
-    `Hyperparameters are selected on a validation block of only ten origins, which cannot separate four candidates reliably; on this configuration that selection is worse than using library defaults, by ${n(Math.abs(T.reverse_ablation[2].delta), 2)} per cent. Ten one-step errors are too few to choose among four candidates, so what the block selects is mostly noise, and the negative sign should be read as a statement about the block rather than about tuning. The validation length is a parameter of the released code and widening it costs time linearly — at sixty origins the tuning stage alone is roughly six times as long — so the question is answerable, and we report the reversal at ten rather than widening the block until the sign turns.`,
+    `Hyperparameter selection is sensitive to the length of the validation block, which is why we report it at sixty origins rather than the ten we began with. Section 4.3 gives the comparison; the short block chose a different configuration in ${T.blok_validasi ? T.blok_validasi.n_cfg_berubah : 24} of ${T.blok_validasi ? T.blok_validasi.n_cfg : 45} cells and made tuning look actively harmful. Sixty origins removes that artefact but does not make tuning useful, so the null result stands on the longer block rather than resting on the shorter one.`,
     'The panel has 15 series and each paired test rests on 1,350 points. That is enough to separate the leading learner from the classical methods and not enough to separate effects of one or two per cent, which is the size of every configuration effect reported in Section 4.3. Absence of significance there is a statement about the resolution of this study, not a demonstration that the components do nothing.',
     `The three leading methods are statistically indistinguishable, so the order within that group in Table 6 carries no weight. The ${T.champion_koreksi ? T.champion_koreksi.n_uji : 9} pairwise tests against the leading method are corrected for multiplicity by Holm-Bonferroni; the correction widens the tie group in principle but changes nothing here, because the two non-significant comparisons were already far from the threshold and the seven significant ones all survive.`,
     'Only one horizon is studied, and the panel comes from one jurisdiction and one reporting framework. Three features of that setting bound the results and each cuts in a specific direction. Under a managed float the central bank is itself a counterparty and its reaction is part of the data-generating process, so the flow-to-rate relationship this paper measures is partly a policy artefact rather than a pure market one. A shallow onshore market means a single large corporate settlement can move a daily cell, which raises the weight of counterparty composition — the thing being forecast — and inflates the tails that make the maximum-error columns move. And the administrative reporting framework fixes both the counterparty categories and the declared purposes, so the grid itself is an institutional choice, not a natural one. In a deep free-floating market with a different reporting taxonomy we would expect the disaggregation to buy less, the tails to be thinner, and the market-data question to be worth re-asking rather than settled by these numbers.',
@@ -1073,6 +1074,39 @@ function famProse() {
     `${n(T.slot_uptake_new.k25_mrmr, 2)} market features on average against ` +
     `${n(T.slot_uptake_new.k25_univ, 2)} under the univariate rule. ` +
     `It halves the market variables' foothold, and the ones it keeps still carry little.`));
+  return c;
+}
+
+function blokValidasiProse() {
+  const B = T.blok_validasi;
+  if (!B) return [];
+  const tun = B.lengan.find(l => l.komponen === 'Tuned hyperparameters');
+  const ref = B.lengan.find(l => l.komponen === 'Daily re-fitting');
+  const sel = B.lengan.find(l => l.komponen === 'Redundancy-aware selection');
+  const c = [];
+  c.push(H3('How long the validation block has to be'));
+  c.push(P(`The tuning result above depends on a choice that is easy to overlook: how many origins the ` +
+    `validation block contains. We began with ${B.nval_pendek}, and on that block tuning did not merely ` +
+    `fail to help — it came out ${n(Math.abs(tun.delta_pendek), 2)} per cent worse than library defaults. ` +
+    `A component that hurts is a stronger claim than a component that does nothing, and it deserved a ` +
+    `check rather than a footnote.`));
+  c.push(P(`We repeated the whole study with ${B.nval_panjang} validation origins, twice the length of the ` +
+    `test block, changing nothing else. The selected configuration differs in ` +
+    `${B.n_cfg_berubah} of ${B.n_cfg} cells — more than half — which is itself the finding: with ` +
+    `${B.nval_pendek} one-step errors the choice among four candidates is largely noise. ` +
+    `The sign reverses. Tuning moves from ${pct(tun.delta_pendek, 2)} to ${pct(tun.delta_panjang, 2)}, ` +
+    `and the claim that it actively harms accuracy does not survive a validation block of adequate length.`));
+  c.push(P(`What does survive is the null. At ${B.nval_panjang} origins tuning is worth ` +
+    `${pct(tun.delta_panjang, 2)} with p = ${pv(tun.p_panjang)}, which is no more separable from noise than ` +
+    `it was before. The other two components move in the same modest way: redundancy-aware selection from ` +
+    `${pct(sel.delta_pendek, 2)} to ${pct(sel.delta_panjang, 2)} and daily re-fitting from ` +
+    `${pct(ref.delta_pendek, 2)} to ${pct(ref.delta_panjang, 2)}. ` +
+    `Daily re-fitting is the only one of the three to reach p < 0.05 on its own ` +
+    `(p = ${pv(ref.p_panjang)}), and it does not survive the correction for testing three components ` +
+    `against the same data (Holm-adjusted p = ${pv(ref.holm_panjang)}).`));
+  c.push(NOTE('The two runs are kept separately rather than overwritten, and the configuration fingerprint ' +
+    'stored with each result folder records the validation length, so the two cannot be mixed by accident. ' +
+    'All results reported in this paper use the longer block.'));
   return c;
 }
 
