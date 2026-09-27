@@ -15,6 +15,7 @@ Berbeda dari ringkas.py: ringkas.py menjawab "sudah sampai mana hasilnya",
 skrip ini menjawab "apakah masih ada yang mengerjakannya".
 """
 import glob
+import re
 import os
 import sys
 import time
@@ -138,7 +139,19 @@ def main():
     print()
 
     # ---- 4. verdikt ----
-    shard = glob.glob(os.path.join(H, '*.shard-*.csv'))
+    # Shard yang BENAR-BENAR menggantung: berkas kanoniknya belum ada, atau
+    # shard-nya lebih baru daripada kanonik. Versi pertama menghitung semua
+    # berkas shard, jadi sesudah penyatuan yang sukses ia tetap berteriak
+    # "25 berkas belum disatukan" - dan pengguna wajar saja menjalankan
+    # penyatuan lagi. Penjaga yang berteriak saat tidak ada apa-apa membuat
+    # orang berhenti mendengarkannya.
+    shard = []
+    for s in glob.glob(os.path.join(H, '*.shard-*.csv')):
+        kanonik = re.sub(r'\.shard-(?:\d+-of-\d+|leaf-[A-Za-z0-9-]*)\.csv$',
+                         '.csv', s)
+        if (not os.path.exists(kanonik)
+                or os.path.getmtime(s) > os.path.getmtime(kanonik) + 1):
+            shard.append(s)
     print('=' * 66)
     if ps:
         diam_min = min((sek - os.path.getmtime(p) for p in log), default=0)
@@ -151,9 +164,17 @@ def main():
             print(f'BERJALAN - {len(ps)} proses, log masih bertambah.')
     elif shard:
         print(f'BERHENTI, DAN {len(shard)} BERKAS SHARD BELUM DISATUKAN.')
-        print(f'  {sys.executable} scripts/paper/revisi/gabung_shard.py --ya')
+        # Perintahnya menyertakan env folder hasil. Tanpa itu ia menunjuk
+        # folder bawaan, melapor "tidak ada berkas shard", dan tampak seperti
+        # tidak ada yang perlu dikerjakan - padahal ia melihat folder lain.
+        env = ''
+        if os.environ.get('JBV_HASIL'):
+            env += f'JBV_HASIL={os.environ["JBV_HASIL"]} '
+        if os.environ.get('JBV_PANEL'):
+            env += f'JBV_PANEL={os.environ["JBV_PANEL"]} '
+        print(f'  {env}{sys.executable} scripts/paper/revisi/gabung_shard.py --ya')
     elif csv:
-        print('BERHENTI. Tidak ada shard yang menggantung.')
+        print('BERHENTI. Seluruh shard sudah disatukan.')
         print(f'  Periksa kelengkapannya: {sys.executable} scripts/paper/revisi/ringkas.py')
     else:
         print('BELUM ADA APA-APA di folder ini.')
