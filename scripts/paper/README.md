@@ -104,6 +104,21 @@ Yang **tidak** memanggil `fix()`: `Rich()` dan `P()`. Jadi prosa yang ditulis
 baru di sana aman dari penomoran ulang — tapi juga tidak tersentuh `PHRASE`,
 sehingga penggantian nama metode di situ harus disunting langsung.
 
+## Bukti build bersih
+
+`build_bersih.json` merekam satu jalannya pipeline dari nol — `keluaran/` dan
+`fig_baru/` dihapus lebih dulu — berisi **checksum, ukuran, jumlah, dan putusan
+keempat pemeriksa**. Tidak ada satu pun nilai data di dalamnya; diperiksa, nol
+angka desimal.
+
+Berkas keluarannya sendiri **tidak** di-commit dan tidak boleh:
+`FX_15seri.docx` Lampiran A memuat kolom `Actual` dan `Forecast` per sel dalam
+juta USD, dan Tabel 5 naskah pendamping memuat statistik deskriptif per seri.
+Repo ini publik.
+
+Gunanya manifes: membandingkan build berikutnya dengan yang ini tanpa
+menerbitkan apa pun.
+
 ## Berkas yang tidak ikut di-commit
 
 `doc_items.json`, `fig/`, dan berkas `.docx` memuat statistik deskriptif per

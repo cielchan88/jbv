@@ -1,0 +1,57 @@
+{
+  "_catatan": [
+    "Manifes build BERSIH: keluaran/ dan fig_baru/ dihapus lebih dulu, lalu",
+    "seluruh pipeline dijalankan dari nol. Berkas keluarannya SENGAJA tidak",
+    "di-commit - FX_15seri.docx Lampiran A memuat kolom actual dan forecast per",
+    "sel dalam juta USD, dan Tabel 5 naskah pendamping memuat statistik",
+    "deskriptif per seri. Repo ini publik.",
+    "",
+    "Yang direkam di sini hanya checksum, ukuran, jumlah, dan putusan pemeriksa.",
+    "Tidak ada satu pun nilai data. Gunanya: membuktikan build bersih pernah",
+    "dijalankan dan bisa dibandingkan dengan build berikutnya."
+  ],
+  "commit": "ebf9f9f167a1c349aaef4fcae9efe59a08234af5",
+  "berkas": {
+    "FX_15seri.docx": {
+      "sha256": "cfd40916ad871787274ed49b99e2e73dc437a4d818188b73b252e9a41ad0bf14",
+      "bita": 2544636,
+      "paragraf": 269,
+      "tabel": 11,
+      "sel": 698
+    },
+    "FX_Training_Protocols_v2.docx": {
+      "sha256": "6fa0f5544bf35860ee15d1ab9c479f508d6174493c6a8e48260b9a9aaec38cb1",
+      "bita": 647690,
+      "paragraf": 231,
+      "tabel": 19,
+      "sel": 1159
+    },
+    "fig1_stage1.png": {
+      "sha256": "f2cd91a5aba7e3cf5fb962a4e93bca311589c6e049951c85ac7bdfa749d69bbb",
+      "bita": 143711
+    },
+    "fig4_bymethod.png": {
+      "sha256": "4dc0331636905b4db12e9924f8acce0a607b0214436a73d93e208ef8a2a8dd98",
+      "bita": 77251
+    }
+  },
+  "tables_json": {
+    "n_kunci": 61,
+    "n_leaf": 15,
+    "n_hari": 5032,
+    "pool_internal": 104,
+    "pool_pasar": 120,
+    "pool_total": 224,
+    "nval": 60
+  },
+  "gambar_utama": 12,
+  "beeswarm": 15,
+  "pemeriksa": {
+    "cek_draft": "28 klaim kunci cocok, 106 sel tabel nol tidak cocok, Lampiran B 15/15, 7 angka yatim (sitasi/halaman)",
+    "cek_naskah_pendamping": "aritmetika dan penomoran nol masalah, 1 catatan manusia",
+    "cek_pendamping_docx": "konsistensi internal nol masalah, nol catatan",
+    "cek_antar_naskah": "nol masalah, 3 catatan keputusan manusia"
+  },
+  "phrase": "26 entri, semuanya cocok",
+  "determinisme": "dua build berturut-turut: prosa dan tabel identik di kedua naskah"
+}
