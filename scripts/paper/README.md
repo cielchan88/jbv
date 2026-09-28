@@ -165,7 +165,7 @@ rho = -0,915 yang diklaim naskah pendamping.
    | prosa beku di `doc_items.json` | entri `PHRASE`, **di akhir** daftar |
    | prosa yang diketik di `build_paper.js` | disunting langsung |
    | kolom Method Tabel satu langkah, dari `h1_facts2.json` | `NAMA_METODE` saat menampilkan — kolom ini **tidak** lewat `fix()` |
-   | label di dalam berkas gambar `fig/*.png` | **tidak bisa** — gambarnya hasil ekstraksi DOCX lama; perlu dibangun ulang, dan masukannya tidak ada |
+   | label di dalam berkas gambar `fig/*.png` | **belum** — lihat di bawah |
 
    Entri `PHRASE` **harus tetap di akhir**: daftar itu dijalankan berurutan, dan
    beberapa entri di atasnya bersisi-kiri teks yang memuat `AutoARIMA`. Kalau
@@ -181,6 +181,31 @@ rho = -0,915 yang diklaim naskah pendamping.
    — judul dibangun dari `IT[0].text` **mentah**, satu-satunya potong teks beku
    yang tidak lewat `fix()`, sehingga penomoran tabel pun tak akan terkoreksi di
    situ. Sudah ditutup.
+
+   **Dua gambar masih memakai label lama.** Gambar tertanam di DOCX diperiksa
+   satu per satu:
+
+   | gambar | memuat `AutoARIMA`? | di mana |
+   | --- | --- | --- |
+   | Gambar 1 — hasil Tahap I | **ya** | kategori sumbu-x panel (a) **dan** label titik panel (b) |
+   | Gambar 2 — kepentingan fitur | tidak | kategorinya keluarga fitur |
+   | Gambar 3 — hasil Tahap II | tidak | protokol dan tiga model pohon |
+   | Gambar 4 — MASE per metode | **ya** | kategori sumbu-y |
+   | Gambar 5 — robustness inversi | tidak | distribusi |
+   | Gambar A1 — MASE per seri | tidak | tiga model pohon |
+
+   Teks di dalamnya sudah ter-raster, jadi tidak bisa diganti dari sini: **Gambar
+   1 dan Gambar 4 harus dibuat ulang** dengan label `ARIMA`. Sampai itu
+   dikerjakan, naskah akan menulis ARIMA di prosa dan tabel sementara dua
+   gambarnya menulis AutoARIMA — justru jenis ketidakcocokan yang rename ini
+   dimaksudkan untuk menghilangkan.
+
+   Pemeriksaan gambar itu sekalian **menutup satu celah** yang sebelumnya hanya
+   bisa dilaporkan: judul panel (b) Gambar 1 berbunyi `rho=-1.000, p=0.00139,
+   excl. Naive`, dan panel (a) memuat tepat **tujuh** metode — yaitu yang punya
+   fit dalam-sampel. Tujuh dikurangi random walk sama dengan **enam**, dan
+   1/6! = 0,001389. Jadi jumlah itu bukan tebakan dari p-nya; ia terbaca dari
+   gambarnya sendiri, dan abstrak sekarang menyebutnya.
 4. **Hari libur dikonfigurasi berbeda:** `run_one_step.py` meneruskan
    `load_holidays()` ke setiap peramal, `rerun_optimal.py` tidak. Sekarang
    **inert** karena `holiday_features` dan `ENABLE_HOLIDAY_FEATURES` sama-sama
@@ -238,12 +263,14 @@ Yang ditemukan dan diperbaiki:
 Yang ditemukan tapi **tidak** diperbaiki, karena memperbaikinya butuh angka yang
 tidak ada di repo:
 
-- **`p = 0.00139` memaksa tepat ENAM item yang diperingkat**, karena uji
-  permutasi eksak untuk rho = -1 memberi 1/n! dan 1/6! = 0,001389. Abstraknya
-  menyebut "ten methods" lalu "once the random walk is set aside", yang terbaca
-  sembilan; 1/9! = 3e-6. Jumlah metode dalam pemeringkatan itu tidak pernah
-  disebut. Naskah harus menyebutnya, dan angkanya harus datang dari yang
-  menjalankan ujinya - bukan ditebak dari p-nya.
+- ~~`p = 0.00139` memaksa tepat ENAM item yang diperingkat~~ — **sudah
+  diselesaikan**, dan sumbernya gambar, bukan tebakan dari p-nya. Abstraknya
+  dulu menyebut "ten methods" lalu "once the random walk is set aside", yang
+  terbaca sembilan (1/9! = 3e-6), tanpa pernah menyebut jumlah yang diperingkat.
+  Gambar 1 panel (a) memuat tepat tujuh metode — yang punya fit dalam-sampel —
+  dan judul panel (b) berbunyi `excl. Naive`, jadi enam, dan 1/6! = 0,001389.
+  Abstrak sekarang menulis "in-sample fit is defined for seven of the ten
+  methods ... exact across the remaining six methods ... p = 1/6! = 0.00139".
 - **Ada celah antara h = 23 dan h = 30.** "negligible to h = 23 and reaches 29
   per cent beyond h = 30" tidak mengatakan apa yang terjadi di antaranya.
 

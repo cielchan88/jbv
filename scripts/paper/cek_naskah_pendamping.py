@@ -110,14 +110,22 @@ if m and m2:
         fail('jarak', f'{red}% TIDAK lebih dari separuh ({separuh:.1f}%)')
 
 # Uji permutasi eksak: p untuk rho = -1 adalah 1/n!, jadi p memaksa n.
-m = re.search(r'exact permutation p = ([\d.]+)', src)
+# Naskah boleh menulis "p = 0.00139" atau "p = 1/6! = 0.00139"; bentuk kedua
+# membuat regex yang hanya mencari angka pertama menangkap "1" dari "1/6!".
+m = re.search(r'exact permutation p = (?:1/\d+!\s*=\s*)?([\d.]+)', src)
 if m:
     p = float(m.group(1))
     n = next((k for k in range(2, 15)
               if abs(1 / math.factorial(k) - p) < 0.5 * p / 100), None)
     if n:
         print(f'   permutasi eksak p={p} -> 1/{n}! , jadi {n} item diperingkat')
-        if not re.search(rf'\b{n}\b[^.]{{0,80}}methods', src):
+        # Jumlahnya boleh ditulis angka atau huruf; versi pertama pemeriksa ini
+        # hanya mencari digit, jadi ia akan tetap mengeluh setelah naskah
+        # menyebutnya dengan kata ("six methods").
+        EJA = {2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven',
+               8: 'eight', 9: 'nine', 10: 'ten', 11: 'eleven', 12: 'twelve'}
+        bentuk = rf'(?:{n}|{EJA.get(n, n)})'
+        if not re.search(rf'\b{bentuk}\b[^.]{{0,80}}methods', src, re.I):
             catatan.append(
                 f'p = {p} memaksa TEPAT {n} item yang diperingkat (1/{n}! = '
                 f'{1/math.factorial(n):.6f}), tapi jumlah metode dalam '
