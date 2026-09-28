@@ -30,9 +30,16 @@ const OUT = process.argv[3] || path.join(S, 'paper.docx');
 // lainnya keluaran langkah yang tidak di-commit. Sebelumnya readFileSync
 // langsung melempar ENOENT tanpa menyebut langkah mana yang belum dijalankan,
 // jadi di checkout bersih naskah ini gagal disusun tanpa petunjuk.
+// CATATAN: run_one_step.py menulis h1_facts.json - BUKAN h1_facts2.json - dan
+// skemanya berbeda (kunci 'table' bukan 'rows', 'median' bukan 'med', 'lag_based'
+// bukan 'family'; dan tanpa rows[].r1/r60/best, rho, rho_p, proto_mase, rec_tf_*,
+// dir_*, n_methods, n_below_one_mean/med). Tidak ada apa pun di repo ini yang
+// menulis h1_facts2.json, jadi petunjuknya tidak boleh menjanjikan sebaliknya.
 const WAJIB = [
   ['doc_items.json', 'python3 scripts/paper/extract.py naskah-lama.docx -o ' + S],
-  ['h1_facts2.json', 'python3 scripts/paper/run_one_step.py'],
+  ['h1_facts2.json', 'TIDAK ADA skrip di repo ini yang menulisnya. run_one_step.py ' +
+                     'menulis h1_facts.json dengan skema BERBEDA; berkas ini datang ' +
+                     'dari langkah yang tidak ikut di-commit. Lihat README.'],
 ];
 const kurang = WAJIB.filter(([f]) => !fs.existsSync(path.join(S, f)));
 if (kurang.length) {
@@ -86,7 +93,16 @@ const PHRASE = [
   ['We estimate nine methods, grouped into two families',
    'We estimate ten methods, grouped into two families'],
   ['three tree ensembles — bagged regression trees and two gradient-boosting implementations — estimated on ninety engineered features from which twenty-five are retained by absolute Spearman correlation with the target',
-   'three tree ensembles — bagged regression trees and two gradient-boosting implementations — estimated on ninety engineered features from which twenty-five are retained by absolute Spearman correlation with the target, together with a stacked ensemble combining them']
+   'three tree ensembles — bagged regression trees and two gradient-boosting implementations — estimated on ninety engineered features from which twenty-five are retained by absolute Spearman correlation with the target, together with a stacked ensemble combining them'],
+  // Samakan nama metode dengan naskah utama, yang menulis ARIMA dan menyatakan
+  // di catatannya bahwa ordonya dipilih otomatis lewat kriteria informasi.
+  // Keduanya ARIMAForecaster yang sama; dua nama untuk satu metode di dua naskah
+  // yang dibaca bersama hanya mengundang pertanyaan apakah ia metode berbeda.
+  //
+  // HARUS DI AKHIR. PHRASE dijalankan berurutan, jadi entri di atas yang sisi
+  // kirinya memuat "AutoARIMA" masih cocok dengan teks beku sebelum penggantian
+  // ini berjalan. Kalau dipindah ke atas, entri-entri itu tidak akan pernah cocok.
+  ['AutoARIMA', 'ARIMA'],
 ];
 function fix(t) {
   // Urutan penting: petakan nomor tabel lama -> baru dulu, baru ganti frasa.
@@ -95,6 +111,15 @@ function fix(t) {
   for (const [a, b] of PHRASE) t = t.split(a).join(b);
   return t;
 }
+
+/* Nama metode untuk DITAMPILKAN. Tabel satu langkah dibangun langsung dari
+   h1_facts2.json lewat cell(r.model, ...), yang TIDAK lewat fix() - jadi entri
+   PHRASE tidak menyentuhnya dan kolom Method-nya tetap memakai kunci internal
+   run_one_step.py. Kuncinya sengaja dibiarkan 'AutoARIMA' di sana: mengubahnya
+   akan membuat h1_facts2.json yang sudah ada tidak terbaca lagi. Penggantian
+   namanya dilakukan di sini, pada saat menampilkan. */
+const NAMA_METODE = { AutoARIMA: 'ARIMA' };
+const metode = m => NAMA_METODE[m] || m;
 
 // ---------- pembentuk ----------
 function P(t, o = {}) {
@@ -205,7 +230,11 @@ const b = [];
 
 // ============ JUDUL ============
 b.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 120 },
-  children: [new TextRun({ text: IT[0].text, font: SERIF, size: 30, bold: true })] }));
+  // Judul pun lewat fix(). Sebelumnya IT[0].text dipakai mentah, jadi satu-satunya
+  // potong teks beku yang TIDAK terkena penomoran tabel maupun penggantian frasa.
+  // Judul aslinya tidak memuat nama metode, jadi tidak ada akibatnya sekarang -
+  // tapi lubangnya nyata, dan terlihat saat uji rename memakai masukan sintetis.
+  children: [new TextRun({ text: fix(IT[0].text), font: SERIF, size: 30, bold: true })] }));
 b.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 300 },
   children: [new TextRun({ text: 'This version: ' + new Date().toISOString().slice(0, 10),
     font: SERIF, size: 20, italics: true })] }));
@@ -354,7 +383,7 @@ b.push(p(35));
 b.push(Rich([
   { t: `The comparison can be made sharper. On the Ljung–Box criterion the three ensembles pass in ` },
   { t: 'none', b: true },
-  { t: ` of the 54 estimations — precisely the record of the random walk, which estimates nothing at all. The only method that removes any residual autocorrelation is AutoARIMA, at seven of 54, and it is the most parsimonious estimated model in the comparison. A procedure that fits the training sample roughly forty per cent more closely than the random walk while leaving the dependence structure of its residuals exactly as the random walk leaves it has not identified the conditional mean; it has interpolated the estimation sample. That is what overfitting denotes in this setting, and the diagnostics permit it to be stated as a measurement rather than offered as an interpretation.` }
+  { t: ` of the 54 estimations — precisely the record of the random walk, which estimates nothing at all. The only method that removes any residual autocorrelation is ARIMA, at seven of 54, and it is the most parsimonious estimated model in the comparison. A procedure that fits the training sample roughly forty per cent more closely than the random walk while leaving the dependence structure of its residuals exactly as the random walk leaves it has not identified the conditional mean; it has interpolated the estimation sample. That is what overfitting denotes in this setting, and the diagnostics permit it to be stated as a measurement rather than offered as an interpretation.` }
 ]));
 b.push(p(36));
 b.push(im(37));
@@ -423,7 +452,7 @@ const t1s = [new TableRow({ tableHeader: true, children: [
   cell('MAE', w1s[4], { head: 1, num: 1 }), cell('Bias', w1s[5], { head: 1, num: 1 }),
   cell('Best in', w1s[6], { head: 1, num: 1 }), cell('Rank h=60', w1s[7], { head: 1, num: 1 })] })];
 H1.rows.forEach(r => t1s.push(new TableRow({ children: [
-  cell(r.model, w1s[0]), cell(r.family === 'ML' ? 'Machine learning' : 'Traditional', w1s[1]),
+  cell(metode(r.model), w1s[0]), cell(r.family === 'ML' ? 'Machine learning' : 'Traditional', w1s[1]),
   cell(r.mase.toFixed(3), w1s[2], { num: 1, bold: r.r1 === 1 }),
   cell(r.med.toFixed(3), w1s[3], { num: 1 }),
   cell(r.mae.toFixed(1), w1s[4], { num: 1 }),

@@ -15,8 +15,10 @@ tabel, dan gambar diambil apa adanya dari `.docx` masukan.
 # 1. bongkar naskah lama -> doc_items.json + fig/
 python3 scripts/paper/extract.py naskah-lama.docx -o kerja/
 
-# 2. evaluasi satu langkah -> h1_results.csv + h1_facts2.json
-#    (butuh data/processed/sdv-wide.csv dan worktree kode yang menghasilkan naskah)
+# 2. evaluasi satu langkah -> h1_results.csv + h1_facts.json
+#    (butuh data/processed/sdv-wide.csv dan worktree kode di scripts/paper/paperwt)
+#    PERHATIAN: langkah ini TIDAK menghasilkan h1_facts2.json yang dibaca
+#    build_paper.js. Lihat "Langkah yang hilang" di bawah.
 python3 scripts/paper/run_one_step.py
 
 # 3. pasang dependensi sekali saja
@@ -76,6 +78,30 @@ ia juga tidak ada di `.gitignore`, sehingga tidak ada satu pun tanda bahwa ia
 dibutuhkan. Sekarang tercatat, dan `run_one_step.py` menyebutnya beserta perintah
 `git worktree add`-nya kalau tidak ada.
 
+## Langkah yang hilang
+
+Alur di atas **tidak lengkap**, dan ini lebih dari sekadar berkas yang tidak
+di-commit: `build_paper.js` membaca `h1_facts2.json`, sementara `run_one_step.py`
+menulis `h1_facts.json` dengan **skema yang berbeda** —
+
+| dibutuhkan `build_paper.js` | ditulis `run_one_step.py` |
+| --- | --- |
+| `rows` | `table` |
+| `rows[].med` | `table[].median` |
+| `rows[].family` | `table[].lag_based` |
+| `rows[].r1`, `.r60`, `.best` | — |
+| `rho`, `rho_p` | — |
+| `proto_mase` | — |
+| `rec_tf_identical`, `rec_tf_pairs`, `rec_tf_max` | — |
+| `dir_diff`, `dir_pairs`, `dir_median_pct`, `dir_max_pct` | — |
+| `n_methods`, `n_below_one_mean`, `n_below_one_med` | `n_below_one` |
+
+**Tidak ada apa pun di repo ini yang menulis `h1_facts2.json`.** Angka "2" pada
+namanya menyiratkan ada langkah kedua yang mengolah keluaran `run_one_step.py`
+menjadi bentuk yang dibaca naskah, dan langkah itu tidak ikut di-commit. Jadi
+walaupun `paperwt`, `doc_items.json` dan `fig/` dilengkapi, mengikuti alur di
+atas tetap **tidak** menghasilkan masukan yang bisa dibangun.
+
 ## Di checkout bersih naskah ini TIDAK bisa dibangun
 
 Keempat masukannya tidak ada di repo: `doc_items.json` (ter-gitignore),
@@ -130,7 +156,31 @@ rho = -0,915 yang diklaim naskah pendamping.
 2. **Kedua naskah menyebut "ten methods"** padahal himpunannya berbeda: irisan
    tujuh, hanya-utama `Croston`, `NaiveDrift`, `SeasonalDecomp`, hanya-pendamping
    `APUVA`, `Stacking`, `VAR`.
-3. **`AutoARIMA` lawan `ARIMA`** untuk `ARIMAForecaster` yang sama.
+3. ~~`AutoARIMA` lawan `ARIMA`~~ — **sudah disamakan.** Naskah pendamping kini
+   menulis `ARIMA`, seperti naskah utama. Nama itu sampai ke DOCX lewat **empat**
+   kanal, dan ketiganya yang bisa diubah sudah ditutup:
+
+   | kanal | mekanisme |
+   | --- | --- |
+   | prosa beku di `doc_items.json` | entri `PHRASE`, **di akhir** daftar |
+   | prosa yang diketik di `build_paper.js` | disunting langsung |
+   | kolom Method Tabel satu langkah, dari `h1_facts2.json` | `NAMA_METODE` saat menampilkan — kolom ini **tidak** lewat `fix()` |
+   | label di dalam berkas gambar `fig/*.png` | **tidak bisa** — gambarnya hasil ekstraksi DOCX lama; perlu dibangun ulang, dan masukannya tidak ada |
+
+   Entri `PHRASE` **harus tetap di akhir**: daftar itu dijalankan berurutan, dan
+   beberapa entri di atasnya bersisi-kiri teks yang memuat `AutoARIMA`. Kalau
+   renamenya dipindah ke atas, entri-entri itu tidak akan pernah cocok lagi.
+
+   Kunci internal `run_one_step.py` sengaja **dibiarkan** `AutoARIMA`: mengubahnya
+   membuat `h1_facts2.json` yang sudah ada tidak terbaca. Penggantiannya dilakukan
+   saat menampilkan.
+
+   Renamenya diuji dengan **build sungguhan** memakai masukan sintetis (setiap
+   paragraf, sel tabel, keterangan dan judul beku sengaja diisi `AutoARIMA`), lalu
+   DOCX-nya dibaca kembali: nol kemunculan. Uji itu menemukan satu kebocoran nyata
+   — judul dibangun dari `IT[0].text` **mentah**, satu-satunya potong teks beku
+   yang tidak lewat `fix()`, sehingga penomoran tabel pun tak akan terkoreksi di
+   situ. Sudah ditutup.
 4. **Hari libur dikonfigurasi berbeda:** `run_one_step.py` meneruskan
    `load_holidays()` ke setiap peramal, `rerun_optimal.py` tidak. Sekarang
    **inert** karena `holiday_features` dan `ENABLE_HOLIDAY_FEATURES` sama-sama

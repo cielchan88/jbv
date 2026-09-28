@@ -122,10 +122,46 @@ print(f'   pendamping (dari run_one_step.py): {len(pend_set)} metode')
 print(f'   irisan (setelah alias): {sorted(utama_set & pend_set)}')
 print(f'   hanya utama           : {sorted(utama_set - pend_set)}')
 print(f'   hanya pendamping      : {sorted(pend_set - utama_set)}')
-if 'AutoARIMA' in src and not re.search(r'\bAutoARIMA\b', utama_js):
-    catatan.append('pendamping menulis "AutoARIMA", utama menulis "ARIMA" untuk '
-                   'ARIMAForecaster yang SAMA. Samakan namanya, atau sebutkan '
-                   'aliasnya, sebelum keduanya dibaca bersama.')
+# Nama metode disamakan lewat DUA mekanisme, dan keduanya harus ada: entri
+# PHRASE mengurus teks beku dari doc_items.json, NAMA_METODE mengurus kolom
+# Method tabel satu langkah yang dibangun langsung dari h1_facts2.json dan tidak
+# lewat fix(). Memeriksa sekadar "apakah kata AutoARIMA ada di build_paper.js"
+# akan salah: sisi KIRI aturan renamenya sendiri memuat kata itu.
+for mek, pola in (('PHRASE', r"\['AutoARIMA',\s*'ARIMA'\]"),
+                  ('NAMA_METODE', r'NAMA_METODE\s*=\s*\{[^}]*AutoARIMA:\s*.ARIMA.')):
+    if not re.search(pola, src):
+        fail('nama/AutoARIMA',
+             f'aturan rename {mek} tidak ada, jadi nama metode kedua naskah '
+             f'berbeda untuk ARIMAForecaster yang SAMA')
+# Prosa yang DIKETIK di build_paper.js tidak boleh lagi memuat nama lama: ia
+# memang lewat fix(), tapi membiarkannya berarti sumbernya dan keluarannya beda.
+#
+# Komentar dibuang lebih dulu. Versi pertama pemeriksa ini hanya melewati baris
+# yang diawali "//", sehingga ia menandai penjelasan di dalam komentar BLOK yang
+# memang harus menyebut nama lamanya - positif palsu atas dokumentasinya sendiri.
+tanpa_komentar = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+tanpa_komentar = re.sub(r'^\s*//.*$', '', tanpa_komentar, flags=re.M)
+hard = [ln for ln in tanpa_komentar.split('\n')
+        if 'AutoARIMA' in ln and not re.search(r"NAMA_METODE|\['AutoARIMA'", ln)]
+if hard:
+    fail('nama/AutoARIMA', f'{len(hard)} baris prosa yang diketik masih memakai '
+                           f'"AutoARIMA": {hard[0].strip()[:90]}')
+# Judul dibangun dari IT[0] dan pernah memakainya MENTAH, satu-satunya potong
+# teks beku yang tidak lewat fix() - artinya rename dan penomoran tabel akan
+# terlewat di situ.
+if re.search(r'text:\s*IT\[0\]\.text', src):
+    fail('nama/judul', 'judul memakai IT[0].text mentah, tidak lewat fix() - '
+                       'rename maupun penomoran tabel akan terlewat di judul')
+# APUVA punya cacat yang sama, tapi naskah utama MENYATAKAN aliasnya, jadi
+# pembaca kedua naskah bisa menghubungkannya. Dilaporkan, tidak digagalkan.
+if re.search(r'\bAPUVA\b', _ros) and 'SeasonalDecomp' in utama_set:
+    if re.search(r'known internally as the APUVA algorithm', utama_js):
+        print('   APUVA: pendamping memakai "APUVA", utama "SeasonalDecomp" - '
+              'tapi utama MENYATAKAN aliasnya')
+    else:
+        catatan.append('pendamping memakai "APUVA", utama "SeasonalDecomp" untuk '
+                       'APUVAForecaster yang sama, dan aliasnya tidak dinyatakan '
+                       'di mana pun.')
 
 # ------------------------------------------------- 4 jumlah fitur dan kodenya
 print('\n4. jumlah fitur yang dipertahankan')
