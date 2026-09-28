@@ -137,11 +137,23 @@ function H(t, lvl) {
     children: [new TextRun({ text: t, font: SERIF, bold: true,
       size: lvl === HeadingLevel.HEADING_1 ? 26 : 23, color: '1a1a1a' })] });
 }
+/* o.raw = teksnya SUDAH final; jangan lewatkan fix() lagi.
+   Dipakai dua kasus, dan keduanya pernah salah:
+   - teks yang DITULIS BARU dan sudah memuat nomor tabel skema BARU. Regex
+     nomor memetakan lama->baru tanpa tahu asal angkanya, jadi "Table 11" yang
+     benar berubah jadi TMAP[11] = "Table 1". Terlihat di keluaran build
+     sebelumnya: keterangan tabel satu langkah menulis "the method's position
+     in Table 1" padahal maksudnya Tabel 11.
+   - teks beku yang sudah di-fix oleh note(), yang lalu menyerahkannya ke cap()
+     dan kena fix KEDUA kalinya. Pemetaan dua kali merusak 11 dari 13 nomor
+     (1->5->3, 9->11->1, ...), dan penggantian PHRASE yang sisi kanannya memuat
+     sisi kirinya akan menempel dua kali. Belum menggigit karena tidak ada
+     catatan beku yang menyebut tabel - tapi itu keberuntungan, bukan desain. */
 function cap(label, t, o = {}) {
   return new Paragraph({ alignment: AlignmentType.LEFT,
     spacing: { before: o.before === undefined ? 60 : o.before, after: o.after === undefined ? 180 : o.after, line: 240 },
     children: [new TextRun({ text: label + ' ', font: SERIF, size: 19, bold: true }),
-               new TextRun({ text: fix(t), font: SERIF, size: 19 })] });
+               new TextRun({ text: o.raw ? t : fix(t), font: SERIF, size: 19 })] });
 }
 function cell(t, w, o = {}) {
   return new TableCell({ width: { size: w, type: WidthType.DXA },
@@ -183,7 +195,7 @@ function note(i) {                                // paragraf "Note. ..." di baw
   const x = IT[i];
   const t = fix(x.text);
   const m = t.match(/^(Note\.)\s*([\s\S]*)$/);
-  return cap(m ? m[1] : 'Note.', m ? m[2] : t);
+  return cap(m ? m[1] : 'Note.', m ? m[2] : t, { raw: true });   // sudah di-fix di atas
 }
 function capOf(i, label) {                        // caption tabel/gambar dari item lama
   const t = fix(IT[i].text);
@@ -461,7 +473,7 @@ H1.rows.forEach(r => t1s.push(new TableRow({ children: [
   cell(String(r.r60), w1s[7], { num: 1 })] })));
 b.push(cap(`Table ${T.onestep}.`, `One-step accuracy with maximal training: all ${wd(H1.n_methods)} methods trained on ${H1.n_train} business days and tested on ${H1.test_date}, ranked by MASE.`, { before: 160, after: 60 }));
 b.push(table(w1s, t1s));
-b.push(cap('Note.', `Each figure is computed across the ${H1.n_series} terminal series from a single test observation per series; MASE is scaled by the mean absolute first difference of that series' training sample. "Best in" counts the series on which the method attains the lowest absolute error, and sums to ${H1.n_series}. "Rank h=60" is the method's position in Table ${T.allten}, which evaluates the full sixty-step horizon under the recursive protocol. Directional accuracy is not reported: the random walk and the trailing mean predict zero and near-zero change respectively, so the statistic is determined by their functional form rather than by their performance.`));
+b.push(cap('Note.', `Each figure is computed across the ${H1.n_series} terminal series from a single test observation per series; MASE is scaled by the mean absolute first difference of that series' training sample. "Best in" counts the series on which the method attains the lowest absolute error, and sums to ${H1.n_series}. "Rank h=60" is the method's position in Table ${T.allten}, which evaluates the full sixty-step horizon under the recursive protocol. Directional accuracy is not reported: the random walk and the trailing mean predict zero and near-zero change respectively, so the statistic is determined by their functional form rather than by their performance.`, { raw: true }));
 b.push(Rich([
   { t: `Two descriptive results follow. First, favourable as the setting is, no method attains a mean MASE below unity — ${wd(H1.n_below_one_mean)} of ${wd(H1.n_methods)} do so — although ${wd(H1.n_below_one_med)} of ${wd(H1.n_methods)} achieve a median below unity. The typical series is therefore forecast more accurately than its own random-walk scale even at one step, while the mean is carried by a small number of large errors. This is the same tail-dominated structure documented for the sixty-step results, and it reinforces the conclusion that these flows are close to unforecastable in the mean rather than merely difficult.` }
 ]));

@@ -58,6 +58,30 @@ Setelah menyusun ulang, periksa dua hal: tidak ada nomor tabel atau gambar yang
 ganda, dan setiap rujukan dalam teks menunjuk keterangan yang benar. Keduanya
 bisa dicek dengan membaca hasilnya lewat `python-docx`.
 
+### `fix()` hanya boleh jalan SEKALI, dan hanya atas teks LAMA
+
+Regex nomor tabel memetakan lama → baru tanpa tahu dari mana angkanya datang.
+Dua akibatnya, dan keduanya pernah terjadi:
+
+- **Teks yang ditulis baru** dan sudah memuat nomor skema baru ikut dipetakan.
+  Keterangan tabel satu langkah menulis ``Table ${T.allten}`` = "Table 11",
+  lalu `fix()` mengubahnya jadi `TMAP[11]` = **"Table 1"**. Terlihat di keluaran
+  build sebelumnya: *"the method's position in Table 1"*, padahal maksudnya
+  Tabel 11.
+- **`note()` memetakan dua kali** — ia memanggil `fix()` lalu menyerahkan
+  hasilnya ke `cap()` yang memanggilnya lagi. Pemetaan ganda merusak **11 dari
+  13** nomor (1→5→3, 9→11→1, …), dan entri `PHRASE` yang sisi kanannya memuat
+  sisi kirinya akan menempel dua kali. Belum menggigit karena tidak ada catatan
+  beku yang menyebut tabel — keberuntungan, bukan desain.
+
+Keduanya ditutup dengan `cap(label, t, { raw: true })`, yang berarti "teks ini
+sudah final, jangan di-`fix()` lagi". Pakai `raw` untuk **setiap** keterangan
+yang ditulis baru dan memuat nomor tabel.
+
+Yang **tidak** memanggil `fix()`: `Rich()` dan `P()`. Jadi prosa yang ditulis
+baru di sana aman dari penomoran ulang — tapi juga tidak tersentuh `PHRASE`,
+sehingga penggantian nama metode di situ harus disunting langsung.
+
 ## Berkas yang tidak ikut di-commit
 
 `doc_items.json`, `fig/`, dan berkas `.docx` memuat statistik deskriptif per
@@ -101,6 +125,25 @@ namanya menyiratkan ada langkah kedua yang mengolah keluaran `run_one_step.py`
 menjadi bentuk yang dibaca naskah, dan langkah itu tidak ikut di-commit. Jadi
 walaupun `paperwt`, `doc_items.json` dan `fig/` dilengkapi, mengikuti alur di
 atas tetap **tidak** menghasilkan masukan yang bisa dibangun.
+
+### Jalan memutar: pulihkan dari keluaran
+
+```bash
+python3 scripts/paper/pulihkan_h1_facts.py <docx-hasil-build> -o kerja/
+```
+
+Seluruh isi `H1` **sudah tercetak** di DOCX hasil build sebelumnya — tabel satu
+langkah memuat `rows`, prosanya memuat setiap skalar — jadi masukannya bisa
+dibaca kembali dari keluarannya. Batasnya harus dinyatakan: yang dipulihkan
+adalah nilai yang **sudah dibulatkan** saat dicetak. Untuk menyusun ulang naskah
+itu cukup, karena `build_paper.js` mencetak dengan pembulatan yang sama; ia
+**bukan** pengganti menjalankan ulang `run_one_step.py` dan tidak boleh dipakai
+sebagai sumber angka baru.
+
+Setiap medan wajib harus ketemu, kalau tidak skrip berhenti dan menyebut medan
+mana — bukan menulis JSON separuh kosong yang membuat build gagal jauh di
+kemudian. Diuji dengan memberinya naskah **asli**: *"tabel satu langkah tidak
+ketemu di DOCX itu. Yakin ini hasil build_paper.js, bukan naskah aslinya?"*
 
 ## Di checkout bersih naskah ini TIDAK bisa dibangun
 
