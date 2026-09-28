@@ -5,14 +5,48 @@ sudah dicek terhadap sumbernya.
 
 ```bash
 cd /opt/jbv
-python scripts/paper/naskah/buat_tables.py    # 1. angka  -> keluaran/tables.json
-python scripts/paper/naskah/figs.py           # 2. gambar -> keluaran/gambar/
-node   scripts/paper/naskah/build.js          # 3. naskah -> keluaran/FX_15seri.docx
-python scripts/paper/naskah/cek_draft.py      # 4. verifikasi
+export JBV_NASKAH_HASIL=$PWD/scripts/paper/revisi/hasil_nval60 \
+       JBV_NASKAH_BANDING=$PWD/scripts/paper/revisi/hasil_sdv-wide-gabung
+venv/bin/python scripts/paper/naskah/buat_tables.py   # 1. angka  -> keluaran/tables.json
+venv/bin/python scripts/paper/naskah/figs.py          # 2. gambar -> keluaran/gambar/
+node            scripts/paper/naskah/build.js         # 3. naskah -> keluaran/FX_15seri.docx
+venv/bin/python scripts/paper/naskah/cek_draft.py     # 4. verifikasi
 ```
 
-Langkah 3 butuh paket `docx`; ia sudah terdaftar di `scripts/paper/package.json`,
-jadi `npm install` di folder itu sekali saja sudah cukup.
+Kedua env itu **wajib**: tanpa `JBV_NASKAH_HASIL` pipeline membaca folder hasil
+bawaan dan diam-diam menghasilkan angka blok validasi 10 origin, bukan 60.
+Tanpa `JBV_NASKAH_BANDING` bagian perbandingan panjang blok dilewati.
+
+## Pasang dulu, sekali saja
+
+```bash
+cd /opt/jbv
+python3 -m venv venv                       # kalau belum ada
+venv/bin/pip install pandas numpy scipy matplotlib python-docx openpyxl
+cd scripts/paper && npm install && cd -    # paket npm `docx` untuk langkah 3
+```
+
+Sesudah itu pakai `venv/bin/python`, bukan `python3` sistem.
+
+**Pipeline ini TIDAK butuh `pip install -r requirements.txt`.** Berkas itu
+memasang streamlit, torch, transformers, prophet, shap dan lainnya untuk
+aplikasinya — ratusan megabita yang tidak satu pun diimpor keempat langkah di
+atas. Enam paket di perintah itu sudah cukup.
+
+**Ada DUA paket bernama `docx`, dan keduanya dibutuhkan.** `python-docx`
+(modulnya `docx`) untuk MEMBACA .docx di langkah 4; paket npm `docx` untuk
+MENULISNYA di langkah 3. Memasang salah satunya tidak menggantikan yang lain,
+dan galatnya berbunyi mirip:
+
+| galat | yang kurang | perbaikannya |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'pandas'` | venv belum dipakai atau belum diisi | `venv/bin/pip install …` di atas, lalu jalankan dengan `venv/bin/python` |
+| `ModuleNotFoundError: No module named 'docx'` | **python-docx** | `venv/bin/pip install python-docx` |
+| `Error: Cannot find module 'docx'` | **npm docx** | `cd scripts/paper && npm install` |
+
+`npm install` cukup dijalankan di `scripts/paper/`, bukan di `naskah/`: Node
+menelusuri folder induk, jadi `scripts/paper/node_modules` sudah terjangkau dari
+`scripts/paper/naskah/build.js`.
 
 ---
 

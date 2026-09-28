@@ -25,6 +25,15 @@ lightgbm>=4.0.0
 # Menarik numba + llvmlite; di VPS pastikan wheel-nya cocok dengan Python 3.12.
 shap>=0.44.0
 openpyxl>=3.1.0
+
+# Dipakai LANGSUNG oleh penyusun naskah: cek_draft.py, extract.py,
+# cek_pendamping_docx.py dan pulihkan_h1_facts.py semuanya `from docx import
+# Document`. Selama ini tidak pernah dideklarasikan - keempatnya melempar
+# ModuleNotFoundError di lingkungan bersih, dan itu tidak terlihat dari halaman
+# Streamlit mana pun karena aplikasinya tidak mengimpornya. Catatan: paket pip-nya
+# bernama python-docx, modulnya docx, dan ia BERBEDA dari paket npm `docx` yang
+# dipakai build.js untuk MENULIS .docx.
+python-docx>=1.1.0
 xmltodict>=0.13.0
 requests>=2.31.0
 urllib3>=2.0.0,<3.0.0

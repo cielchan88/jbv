@@ -155,8 +155,28 @@ def catat_versi():
     versi pustaka ikut di sana, memperbarui satu paket akan memblokir
     kelanjutan komputasi yang sudah berjam-jam jalan - padahal yang benar
     adalah mencatatnya, lalu manusia yang memutuskan.
+
+    JANGAN MENIMPA CATATAN YANG SUDAH ADA. Fungsi ini dipanggil di tingkat
+    modul, jadi SETIAP `import h1_common` menjalankannya - termasuk dari
+    buat_tables.py, yang hanya MENYUSUN naskah dan sering berjalan di mesin lain
+    dengan tumpukan pustaka lain. Versi pertamanya menimpa tanpa syarat, jadi
+    membangun naskah di venv yang tidak punya sklearn/lightgbm/xgboost menulis
+    ulang versi.json menjadi null bertiga - menghapus justru catatan yang
+    fungsi ini ada untuk menjaganya, tanpa satu pun tanda. Terjadi sungguhan:
+    naskah lalu kehilangan tiga versi di 5.4 dan cek_draft turun dari 28 ke 25
+    klaim, dan satu-satunya jejak yang tersisa adalah salinan di tables.json.
+
+    Sekarang ia hanya menulis kalau berkasnya BELUM ADA. Untuk sengaja
+    memperbaruinya - misalnya sesudah komputasi diulang di folder yang sama
+    dengan pustaka baru - setel JBV_VERSI_PAKSA=1.
     """
     import json as _json
+    jalan_versi = HASIL + 'versi.json'
+    if os.path.exists(jalan_versi) and os.environ.get('JBV_VERSI_PAKSA') != '1':
+        try:
+            return _json.load(open(jalan_versi))
+        except Exception:
+            pass                          # rusak; tulis ulang di bawah
     catatan = {'python': sys.version.split()[0]}
     for nama in ('numpy', 'pandas', 'scipy', 'sklearn', 'lightgbm', 'xgboost',
                  'statsmodels', 'prophet', 'shap'):
@@ -165,7 +185,7 @@ def catat_versi():
         except Exception:
             catatan[nama] = None          # tidak terpasang, dan itu bukan galat
     os.makedirs(HASIL, exist_ok=True)
-    _json.dump(catatan, open(HASIL + 'versi.json', 'w'), indent=1)
+    _json.dump(catatan, open(jalan_versi, 'w'), indent=1)
     return catatan
 
 
