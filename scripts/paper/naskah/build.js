@@ -71,6 +71,23 @@ const KATA = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'ei
   'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
   'seventeen', 'eighteen', 'nineteen', 'twenty'];
 const kata = v => (Number.isInteger(v) && v >= 0 && v < KATA.length ? KATA[v] : String(v));
+
+/* Arah sebuah komponen DITURUNKAN dari tanda deltanya, tidak diketik.
+   Konvensi: delta = (tanpa komponen - dengan komponen) / dengan komponen, jadi
+   POSITIF berarti membuangnya memperburuk, yaitu komponennya MEMBANTU.
+
+   Kenapa perlu fungsi. Kalimat "tuning is the wrong sign" ditulis saat blok
+   validasi masih 10 origin dan penyetelan memang -1,18 persen. Sesudah blok
+   dilebarkan ke 60 ia menjadi +0,10 persen - membantu, meski tipis - tapi
+   kalimatnya tertinggal, dan mencetak "wrong sign" tepat di sebelah angka yang
+   membantahnya. Pemeriksa tidak bisa menangkapnya: angkanya benar, kata-kata di
+   sekitarnyalah yang salah. */
+const komponenMembantu = d => d > 0;
+// jamak: subjeknya jamak ("Tuned hyperparameters help", bukan "helps").
+const arahKomponen = (d, jamak = false) =>
+  d > 0 ? (jamak ? 'help' : 'helps')
+        : (jamak ? 'carry the wrong sign' : 'carries the wrong sign');
+const matikanJadi = d => (d > 0 ? 'worse' : 'better');
 const Kata = v => { const s = kata(v); return s[0].toUpperCase() + s.slice(1); };
 
 /* Sebaran relatif ketiga ensemble pohon di Tabel 6, dalam persen. Dipakai di
@@ -278,9 +295,20 @@ function build() {
     `Nor does any part of the configuration earn its place. Removing redundancy-aware selection, daily ` +
     `re-fitting or hyperparameter tuning moves the pooled mean by ` +
     `${pct(T.reverse_ablation[0].delta)}, ${pct(T.reverse_ablation[1].delta)} and ` +
-    `${pct(T.reverse_ablation[2].delta)} respectively, and not one of the three reaches significance; ` +
-    `tuning is the wrong sign, and switching it off improves ` +
-    `${T.reverse_leaf_worse['Tuned hyperparameters']} of the ${T.n_leaf} series. ` +
+    `${pct(T.reverse_ablation[2].delta)} respectively, and not one of the three reaches significance. ` +
+    // Komponen mana yang bertanda salah DITURUNKAN, tidak diketik: pada blok
+    // 10 origin itu penyetelan, pada 60 origin itu seleksi sadar-redundansi.
+    (() => {
+      const salah = T.reverse_ablation.filter(r => !komponenMembantu(r.delta));
+      if (!salah.length) {
+        return 'All three point the right way, and all three are too small to separate from noise. ';
+      }
+      return `${salah.map(r => r.component).join(' and ')} ` +
+             `${salah.length > 1 ? 'carry' : 'carries'} the wrong sign, and switching ` +
+             `${salah.length > 1 ? 'them' : 'it'} off improves ` +
+             `${salah.map(r => T.reverse_leaf_worse[r.component]).join(' and ')} of the ` +
+             `${T.n_leaf} series. `;
+    })() +
     `The feature count is a null too: no count between ${kAblasi.lo} and ${kAblasi.hi} beats the usual ` +
     `${kAblasi.acuan}. ` +
     `Market data are the one factor that moves anything decisively, and the result there is mostly a ` +
@@ -1259,15 +1287,35 @@ function reverseAblationProse() {
     `(p = ${n(ref.p, 4)}). ` +
     `Redundancy-aware selection is worth ${pct(sel.delta)}, which is indistinguishable from nothing ` +
     `(p = ${n(sel.p, 3)}). ` +
-    `Tuned hyperparameters carry the wrong sign: switching them off makes the pooled result ` +
-    `${Math.abs(tun.delta).toFixed(2)} per cent better.`));
+    // Arah dan kata "better"/"worse" DITURUNKAN dari tanda deltanya. Versi
+    // sebelumnya mengeja keduanya: ia menulis "carry the wrong sign" dan
+    // "0.10 per cent better" untuk delta yang bernilai +0,10 - yang artinya
+    // justru penyetelan MEMBANTU sebesar itu. Dua kesalahan dalam satu kalimat,
+    // keduanya sisa dari blok validasi 10 origin.
+    `Tuned hyperparameters ${arahKomponen(tun.delta, true)}: switching them off makes the pooled result ` +
+    `${Math.abs(tun.delta).toFixed(2)} per cent ${matikanJadi(tun.delta)}, which is also ` +
+    `indistinguishable from nothing (p = ${n(tun.p, 3)}).`));
 
   out.push(P(`The per-model breakdown shows why the pooled figures are so small. ` +
     `The three components do not agree across learners. ` +
     `Daily re-fitting is worth ${bm['Daily re-fitting'][0].toFixed(2)} per cent to LightGBM and ` +
     `${bm['Daily re-fitting'][2].toFixed(2)} to XGBoost; redundancy-aware selection helps random forest ` +
     `(${bm['Redundancy-aware selection'][1].toFixed(2)} per cent) and hurts XGBoost ` +
-    `(${bm['Redundancy-aware selection'][2].toFixed(2)}); tuning helps only random forest. ` +
+    // "tuning helps only random forest" adalah sisa ketiga dari blok 10 origin.
+    // Pada blok 60 origin penyetelan membantu DUA dari tiga: LightGBM +0,54 dan
+    // random forest +1,91, dan hanya XGBoost yang dirugikan. Daftarnya sekarang
+    // diturunkan dari reverse_by_model, yang urutannya [LightGBM, RandomForest,
+    // XGBoost] - lihat buat_tables.py.
+    `(${bm['Redundancy-aware selection'][2].toFixed(2)}); ` +
+    (() => {
+      const NM = ['LightGBM', 'random forest', 'XGBoost'];
+      const t = bm['Tuned hyperparameters'];
+      const bantu = NM.filter((_, i) => t[i] > 0);
+      const rugi = NM.filter((_, i) => t[i] <= 0);
+      if (!bantu.length) return 'tuning helps none of the three. ';
+      if (!rugi.length) return 'tuning helps all three. ';
+      return `tuning helps ${bantu.join(' and ')} but not ${rugi.join(' or ')}. `;
+    })() +
     `Every component is positive for at least one learner and negative for at least one other, so the ` +
     `pooled mean is a cancellation rather than a consensus.`));
 
