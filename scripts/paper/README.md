@@ -328,6 +328,37 @@ tabel robustness disebut prosa; kolom `Rank h=60` cocok dengan urutan tabel
 h=60; `Best in` berjumlah sesuai; kosakata kolom Family seragam antar-tabel; dan
 nol `AutoARIMA`.
 
+### Tabel keluarga fitur lawan Gambar 2
+
+Keduanya mencetak **rasio yang sama** dan pernah berbeda di tiga baris:
+
+| keluarga | tabel (lama) | gambar | dipakai |
+| --- | --- | --- | --- |
+| Technical indicators | 0,61× | **0,62×** | 0,62× |
+| Interaction | 0,62× | **0,63×** | 0,63× |
+| Extreme and jump | 0,40× | **0,39×** | 0,39× |
+
+Angka **gambar** yang dipakai, dan alasannya bisa diperiksa. Rasio sebenarnya
+lahir dari pangsa tak-terbulat, jadi membagi kolom pangsa yang tercetak tidak
+menghasilkannya persis — tapi selisihnya menunjukkan mana yang lebih dekat. Pada
+empat baris yang **keduanya sepakat**, deviasinya 0,06–1,17 persen. Pada tiga
+baris yang berbeda, gambar menyimpang **0,06 / 1,24 / 2,82** persen dan tabel
+**1,67 / 2,81 / 5,45** persen — kira-kira dua kali lipat, dan deviasi tabel pada
+*Extreme and jump* jauh di luar rentang baris yang sepakat.
+
+Ini kesimpulan dari bukti, **bukan kepastian**: pangsa tak-terbulat tidak ada di
+repo, jadi tidak ada yang bisa diperiksa terhadapnya.
+
+Angka gambarnya sekarang **direkam** di `gambar_pendamping.json`, dan
+`cek_pendamping_docx.py` membandingkan ketiga kolom tabel terhadapnya — jadi
+perbedaan semacam ini menggagalkan pemeriksaan, bukan menunggu ditemukan mata.
+
+Penggantiannya **berantai**: sisi kanan satu entri (`0.62×`) sama dengan sisi
+kiri entri lain. Kalau urutannya terbalik, sel *Technical* jadi 0,62 lalu
+tertangkap aturan berikutnya dan berakhir 0,63 — **tanpa galat**. Karena itu
+`build_paper.js` memeriksa jumlah kena tiap entri berantai, dan berhenti kalau
+meleset: *"0.62× diharap 1x, kena 2x"*.
+
 **Pemeriksa ini langsung menemukan satu kesalahan yang lolos dari audit sumber.**
 Prosa beku di 5.4 memuat dekomposisi protokol yang sama salahnya dengan abstrak
 — *"decomposes into 10.1 percentage points … and 7.3 points"* — dan itulah

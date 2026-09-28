@@ -109,6 +109,26 @@ const PHRASE = [
    '10.1 per cent of genuine error accumulation (recursion against direct)'],
   ['7.3 points of leakage',
    '7.3 per cent of leakage (direct against teacher-forcing), and the two compound rather than add'],
+  /* Tabel keluarga fitur dan Gambar 2 mencetak RASIO YANG SAMA dengan angka
+     berbeda di tiga baris. Yang dipakai adalah angka GAMBAR, karena buktinya
+     searah: rasio sebenarnya lahir dari pangsa tak-terbulat, dan kalau
+     dibandingkan dengan importance/slot dari pangsa yang TERCETAK, empat baris
+     yang keduanya sepakat menyimpang 0,06-1,17 persen - sementara di tiga baris
+     yang berbeda, gambar menyimpang 0,06 / 1,24 / 2,82 persen dan tabel
+     1,67 / 2,81 / 5,45 persen, kira-kira dua kali lipat. Deviasi tabel pada
+     "Extreme and jump" jauh di luar rentang baris yang sepakat.
+
+     Tidak ada yang bisa diperiksa terhadap pangsa tak-terbulat - pangsanya
+     tidak ada di repo - jadi ini kesimpulan dari bukti, bukan kepastian.
+
+     URUTANNYA PENTING dan tidak boleh dibalik. PHRASE dijalankan berurutan atas
+     tiap sel, jadi kalau 0.61->0.62 berjalan LEBIH DULU, sel Technical menjadi
+     0.62 lalu tertangkap aturan 0.62->0.63 dan berakhir 0.63. Penjaga HARAP di
+     bawah memastikan masing-masing kena TEPAT sekali, sehingga perantaian
+     semacam itu ketahuan, bukan diam. */
+  ['0.62×', '0.63×'],          // Interaction  - harus SEBELUM baris berikutnya
+  ['0.61×', '0.62×'],          // Technical indicators
+  ['0.40×', '0.39×'],          // Extreme and jump
   // Samakan nama metode dengan naskah utama, yang menulis ARIMA dan menyatakan
   // di catatannya bahwa ordonya dipilih otomatis lewat kriteria informasi.
   // Keduanya ARIMAForecaster yang sama; dua nama untuk satu metode di dua naskah
@@ -125,6 +145,10 @@ const PHRASE = [
    jadi perbaikannya tidak pernah masuk naskah dan tidak ada yang memberi tahu.
    Sekarang dihitung, dan yang nol dilaporkan di akhir build. */
 const KENA = new Map(PHRASE.map(([a]) => [a, 0]));
+/* Entri yang harus kena TEPAT sekian kali. Dipakai untuk penggantian yang bisa
+   BERANTAI - sisi kanan satu entri sama dengan sisi kiri entri lain - di mana
+   urutan salah menghasilkan angka yang salah tanpa galat. */
+const HARAP = new Map([['0.62×', 1], ['0.61×', 1], ['0.40×', 1]]);
 function fix(t) {
   // Urutan penting: petakan nomor tabel lama -> baru dulu, baru ganti frasa.
   // Dengan begitu sisi kanan PHRASE boleh menyebut nomor tabel versi BARU.
@@ -664,5 +688,14 @@ Packer.toBuffer(doc).then(buf => {
                  'ditebalkan memecah paragraf jadi beberapa run).');
   } else {
     console.log(`${PHRASE.length} entri PHRASE semuanya cocok.`);
+  }
+
+  const meleset = [...HARAP].filter(([a, n]) => KENA.get(a) !== n);
+  if (meleset.length) {
+    console.error('\nBERHENTI: entri PHRASE berantai kena dengan jumlah yang salah. ' +
+      'Kemungkinan besar urutannya terbalik sehingga satu penggantian menangkap ' +
+      'hasil penggantian lain:');
+    meleset.forEach(([a, n]) => console.error(`  - "${a}" diharap ${n}x, kena ${KENA.get(a)}x`));
+    process.exit(1);
   }
 });

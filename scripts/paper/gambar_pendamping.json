@@ -40,6 +40,29 @@
       {"metode": "Prophet",      "keluarga": "Traditional", "in_mase": 1.037, "out_mase": 1.441, "rank_in": 7, "rank_out": 1}
     ]
   },
+  "keluarga_fitur": {
+    "_catatan": [
+      "Panel (a) Gambar 2: pangsa slot, pangsa kepentingan, dan RASIO seperti",
+      "TERCETAK DI GAMBAR. Direkam karena gambar dan tabel pernah mencetak rasio",
+      "yang sama dengan angka berbeda di tiga baris, dan tanpa rekaman ini",
+      "perbedaan itu hanya bisa dilihat dengan membuka gambarnya satu per satu.",
+      "cek_pendamping_docx.py membandingkan tabel terhadap angka di sini.",
+      "",
+      "Rasionya lahir dari pangsa TAK-TERBULAT, jadi membagi kolom pangsa yang",
+      "tercetak tidak akan menghasilkannya persis. Itu wajar, dan bukan alasan",
+      "mengubah rasionya."
+    ],
+    "sumber": "Gambar 2 panel (a) di DOCX naskah pendamping",
+    "baris": [
+      {"keluarga": "EWM and differences",  "slot": 8.7,  "kepentingan": 38.6, "rasio": 4.45},
+      {"keluarga": "Rolling moments",      "slot": 50.5, "kepentingan": 31.7, "rasio": 0.63},
+      {"keluarga": "Lag",                  "slot": 11.6, "kepentingan": 13.0, "rasio": 1.12},
+      {"keluarga": "Technical indicators", "slot": 10.8, "kepentingan": 6.7,  "rasio": 0.62},
+      {"keluarga": "Volatility",           "slot": 9.7,  "kepentingan": 5.3,  "rasio": 0.54},
+      {"keluarga": "Interaction",          "slot": 5.8,  "kepentingan": 3.7,  "rasio": 0.63},
+      {"keluarga": "Extreme and jump",     "slot": 2.9,  "kepentingan": 1.1,  "rasio": 0.39}
+    ]
+  },
   "sepuluh": {
     "n_seri": 18,
     "sumbu_x": "MASE (mean across 18 series; lower is better)",

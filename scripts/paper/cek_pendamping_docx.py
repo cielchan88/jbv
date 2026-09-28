@@ -211,20 +211,38 @@ def main():
             catatan.append('label keluarga tidak seragam antar-tabel: '
                            + '; '.join(f'Table {n}: {sorted(v)}' for n, v in kel.items()))
 
-    # Rasio di tabel keluarga fitur harus bisa dilahirkan kolomnya sendiri.
+    # Tabel keluarga fitur dan Gambar 2 panel (a) mencetak angka YANG SAMA.
+    # Keduanya pernah berbeda di tiga baris, dan itu hanya terlihat dengan
+    # membuka gambarnya; sekarang angka gambarnya direkam supaya perbedaan itu
+    # menggagalkan pemeriksaan, bukan menunggu ditemukan mata.
     n8, t8 = cari_tabel(['Feature family'])
-    if t8:
-        meleset = []
-        for r in t8[1:]:
-            a, b, c = angka(r[1]), angka(r[2]), angka(r[3])
-            if None in (a, b, c):
-                continue
-            if abs(b / a - c) > 0.015:
-                meleset.append(f'{r[0]}: {b}/{a} = {b/a:.3f}, tercetak {c}')
-        if meleset:
-            catatan.append(f'Table {n8}: rasio tidak persis lahir dari kolom '
-                           'pangsanya (pangsanya dibulatkan satu desimal) - '
-                           + '; '.join(meleset))
+    GBR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       'gambar_pendamping.json')
+    if t8 and os.path.exists(GBR):
+        import json
+        G = json.load(open(GBR, encoding='utf-8')).get('keluarga_fitur')
+        if G:
+            gb = {r['keluarga']: r for r in G['baris']}
+            beda = []
+            for r in t8[1:]:
+                g = gb.get(r[0])
+                if not g:
+                    beda.append(f'{r[0]}: tidak ada di rekaman gambar')
+                    continue
+                for kol, kunci, label in ((1, 'slot', 'pangsa slot'),
+                                          (2, 'kepentingan', 'pangsa kepentingan'),
+                                          (3, 'rasio', 'rasio')):
+                    v = angka(r[kol])
+                    if v is not None and abs(v - g[kunci]) > 1e-9:
+                        beda.append(f'{r[0]} {label}: tabel {v}, gambar {g[kunci]}')
+            if beda:
+                fail('Table 8 vs Gambar 2', '; '.join(beda))
+            else:
+                print(f'   Table {n8} cocok dengan rekaman Gambar 2 panel (a) '
+                      f'pada {len(t8)-1} baris x 3 kolom')
+    elif t8:
+        catatan.append('gambar_pendamping.json tidak ada - Table 8 tidak '
+                       'dibandingkan dengan Gambar 2')
 
     # --------------------------------------------------------- 4 nama metode
     print('\n4. nama metode')
