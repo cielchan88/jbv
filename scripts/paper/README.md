@@ -93,7 +93,57 @@ punya `cek_draft.py` untuk memeriksanya. Angka di sini hanya bisa diaudit secara
 internal: aritmetikanya, pemakaian ulang angka yang sama untuk dua hal berbeda,
 dan penomoran tabelnya.
 
-### Audit internal
+## Konsistensi ANTAR kedua naskah
+
+```bash
+JBV_NASKAH_HASIL=$PWD/scripts/paper/revisi/hasil_nval60 \
+JBV_NASKAH_BANDING=$PWD/scripts/paper/revisi/hasil_sdv-wide-gabung \
+python3 scripts/paper/cek_antar_naskah.py
+```
+
+Keduanya memakai data yang sama, sebagian metode yang sama, dan sejak naskah
+utama mengutip angka horizon 60 hari di 5.2 mereka saling merujuk. Kalau dikirim
+berpasangan, pengulas akan membandingkannya. Yang diperiksa: panel dan rentang
+tanggal, definisi penyebut MASE, himpunan metode (dengan alias
+`AutoARIMA` = `ARIMA`), jumlah fitur yang dipertahankan versus default kode,
+arah inversi peringkat h=1 lawan h=60, desain ablasi h=60 lawan desain naskah
+pendamping, pangsa nol sel degenerat, dan penanganan hari libur.
+
+**Cocok:** 5032 hari dan rentang tanggal identik; penyebut MASE sama
+(rata-rata |selisih pertama| sampel latih), jadi persentase kedua naskah
+sebanding; 18 lawan 15 sel memang beda tiga pasang yang digabung, dan naskah
+utama menjelaskannya; A.1.b nol pada 95,93 persen hari, cocok dengan yang
+dicetak naskah utama; ablasi h=60 memakai 18 sel x 3 jendela, sama dengan desain
+naskah pendamping; **inversinya searah** — di h=1 RandomForest peringkat 1 dan
+Prophet 6, di h=60 RandomForest terburuk dan Prophet terbaik, yang mendukung
+rho = -0,915 yang diklaim naskah pendamping.
+
+**Empat hal yang perlu diputuskan, bukan bug:**
+
+1. **Default kode tidak cocok dengan naskah mana pun yang berlaku di horizonnya.**
+   `TOP_K_FEATURES` kini **12**, diambil dari ablasi horizon 60 hari. Naskah utama
+   melaporkan k=25 dan menemukan k=12 **+1,36 persen lebih buruk** di h=1 (tidak
+   signifikan, p=0,214). Siapa pun yang menjalankan kode ini apa adanya untuk
+   ramalan satu hari memakai setelan yang tidak didukung naskah utama. Ini justru
+   contoh "tune at the horizon you will run" pada kode sendiri, dan pemeriksa
+   menyebutnya setiap kali dijalankan.
+2. **Kedua naskah menyebut "ten methods"** padahal himpunannya berbeda: irisan
+   tujuh, hanya-utama `Croston`, `NaiveDrift`, `SeasonalDecomp`, hanya-pendamping
+   `APUVA`, `Stacking`, `VAR`.
+3. **`AutoARIMA` lawan `ARIMA`** untuk `ARIMAForecaster` yang sama.
+4. **Hari libur dikonfigurasi berbeda:** `run_one_step.py` meneruskan
+   `load_holidays()` ke setiap peramal, `rerun_optimal.py` tidak. Sekarang
+   **inert** karena `holiday_features` dan `ENABLE_HOLIDAY_FEATURES` sama-sama
+   `False`, dan `p1()` mengambil nilai pertama tanpa melihat label tanggal.
+   Jangan menyamakan salah satu skrip tanpa menjalankan ulang: menyalakan flag
+   itu akan menggeser angka di satu naskah saja.
+
+Ketiga kelas penjaganya diuji menyala: jumlah hari panel dibuat beda memberi
+*"pendamping 5000 vs utama 5032"*; ablasi h=60 dibuat memilih k yang sama dengan
+h=1 memberi *"klaim ketergantungan horizon di 5.2 tidak lagi berdasar"*; jumlah
+sel ablasi dibuat tidak cocok memberi *"ablasi memakai 15 sel, pendamping 18"*.
+
+## Audit internal
 
 ```bash
 python3 scripts/paper/cek_naskah_pendamping.py
