@@ -285,6 +285,34 @@ T['versi'] = V
 # diturunkan dari berkas hasil mana pun. Disimpan tercatat di repro.json.
 _repro = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'repro.json')
 T['repro'] = json.load(open(_repro)) if os.path.exists(_repro) else None
+
+# Ablasi jumlah fitur pada horizon 60 hari - PEMBANDING, bukan hasil naskah ini.
+# Dipakai di 5.2 untuk mendukung klaim bahwa titik balik bias-ragam terlihat di
+# horizon panjang. Angkanya datang dari ablation_topk.py dan tercatat di komentar
+# TOP_K_FEATURES pada utils/feature_config.py; tidak bisa diturunkan dari berkas
+# hasil naskah ini, jadi disimpan tercatat seperti repro.json. Tanpa berkasnya
+# naskah memakai kalimat yang tidak menyebut angka - bukan galat.
+_ab60 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ablasi_h60.json')
+T['ablasi_h60'] = json.load(open(_ab60)) if os.path.exists(_ab60) else None
+if T['ablasi_h60']:
+    _a = T['ablasi_h60']
+    # Penjaga: kalau tabel arm-nya diperbarui tapi ringkasannya tidak, naskah
+    # akan mencetak angka yang tidak ada di tabelnya sendiri.
+    _terbaik = min(_a['arm'], key=lambda r: r['delta_pct'])
+    if _terbaik['k'] != _a['terbaik_k'] or abs(_terbaik['delta_pct'] - _a['terbaik_delta_pct']) > 1e-9:
+        raise SystemExit(
+            f"BERHENTI: ablasi_h60.json tidak konsisten - arm terbaik adalah "
+            f"k={_terbaik['k']} ({_terbaik['delta_pct']}%) tapi terbaik_k={_a['terbaik_k']} "
+            f"({_a['terbaik_delta_pct']}%). Perbarui ringkasannya.")
+    if _a['n_leaf'] * _a['n_jendela'] * _a['n_model'] != _a['n_unit']:
+        raise SystemExit(
+            f"BERHENTI: ablasi_h60.json tidak konsisten - {_a['n_leaf']} x "
+            f"{_a['n_jendela']} x {_a['n_model']} != {_a['n_unit']} unit.")
+    print(f"  ablasi h={_a['horizon']}: k={_a['terbaik_k']} mengalahkan k={_a['acuan_k']} "
+          f"sebesar {abs(_a['terbaik_delta_pct'])}% pada {_a['n_unit']} unit "
+          f"({_a['n_leaf']} sel pra-penggabungan)")
+else:
+    print('  ablasi h=60: ablasi_h60.json tidak ada - klaim horizon dilewati')
 # Catatan reprodusibilitas ARIMA hanya bisa dihitung kalau ada run PEMBANDING.
 # Tanpa itu naskah kehilangan satu butir batasan - bukan galat.
 T['arima_repro'] = None

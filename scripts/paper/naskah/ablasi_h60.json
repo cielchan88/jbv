@@ -1,0 +1,55 @@
+{
+  "_catatan": [
+    "Ablasi jumlah fitur pada HORIZON 60 HARI. Dipakai naskah ini hanya sebagai",
+    "PEMBANDING: ia menunjukkan bahwa titik balik bias-ragam yang tidak terdeteksi",
+    "pada horizon satu hari memang terlihat pada horizon panjang, di kerangka",
+    "pelaporan yang sama.",
+    "",
+    "KENAPA DISIMPAN DI SINI, BUKAN DITURUNKAN. Angka ini bukan hasil komputasi",
+    "naskah ini. Ia datang dari scripts/paper/ablation_topk.py, yang berjalan pada",
+    "horizon 60 hari dengan definisi sel SEBELUM penggabungan. CSV mentahnya tidak",
+    "ada di repo; yang tersimpan adalah tabel ringkasnya, tercatat di komentar",
+    "TOP_K_FEATURES pada utils/feature_config.py. Disalin ke sini supaya naskah",
+    "tidak mengetik angka orang lain ke dalam prosa, dan supaya sumbernya bisa",
+    "dilacak. Perbarui kalau ablasinya diulang.",
+    "",
+    "PERINGATAN SOAL PANELNYA. Ablasi ini memakai 18 sel, yaitu definisi sebelum",
+    "tiga pasang sel digabung - termasuk A.1.b yang nol pada 95,9 persen hari, sel",
+    "yang justru dibuang naskah ini lewat penggabungan. Jadi kerangka pelaporannya",
+    "sama, definisi selnya tidak. Naskah harus menyatakan itu, bukan menyembunyikannya."
+  ],
+  "sumber": "scripts/paper/ablation_topk.py",
+  "tercatat_di": "utils/feature_config.py, komentar TOP_K_FEATURES",
+  "horizon": 60,
+  "n_leaf": 18,
+  "n_jendela": 3,
+  "n_model": 3,
+  "n_unit": 162,
+  "uji": "Wilcoxon signed-rank berpasangan terhadap k=25",
+  "acuan_k": 25,
+  "acuan_mase": 2.114,
+  "arm": [
+    { "k": 10, "mase": 2.531, "delta_pct": 19.71, "menang": 106, "p": 0.0000, "catatan": "tebing tajam - lihat peringatan" },
+    { "k": 12, "mase": 1.915, "delta_pct": -9.39, "menang": 105, "p": 0.0000, "catatan": "terbaik" },
+    { "k": 15, "mase": 1.979, "delta_pct": -6.40, "menang": 98, "p": 0.0006 },
+    { "k": 18, "mase": 2.002, "delta_pct": -5.27, "menang": 91, "p": 0.0159 },
+    { "k": 20, "mase": 2.037, "delta_pct": -3.64, "menang": 87, "p": 0.1287 },
+    { "k": 40, "mase": 2.230, "delta_pct": 5.49, "menang": 66, "p": 0.0005 },
+    { "k": 60, "mase": 2.314, "delta_pct": 9.45, "menang": 55, "p": 0.0000 }
+  ],
+  "terbaik_k": 12,
+  "terbaik_delta_pct": -9.39,
+  "terbaik_p": 0.0000,
+  "per_model_di_terbaik": {
+    "RandomForest": -16.57,
+    "XGBoost": -6.67,
+    "LightGBM": -3.11
+  },
+  "monoton_searah_semua_model": true,
+  "tebing_bawah": {
+    "k": 10,
+    "leaf": "A.1.b",
+    "zero_pct": 95.9,
+    "kesimpulan": "satu leaf sangat jarang menyeret rata-rata k=10 dari 1,89 ke 2,53; uji berbasis peringkat tidak melihat besarnya kegagalan"
+  }
+}

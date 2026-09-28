@@ -116,6 +116,29 @@ memeriksanya dan **gagal membangun** kalau invariannya pecah:
 | `kAblasi` | ada tepat satu k acuan, dan **tidak ada** k lain yang mengalahkannya — kalau ada, klaim abstrak memang salah |
 | `sebaranPohon` | ketiga ensemble pohon ada di `e2_summary` |
 
+### Angka yang bukan hasil naskah ini
+
+Dua berkas menyimpan angka yang **tidak bisa** diturunkan dari folder hasil,
+supaya tetap terlacak dan tidak diketik ke prosa:
+
+| berkas | isinya | kalau tidak ada |
+| --- | --- | --- |
+| `repro.json` | percobaan yang membandingkan beberapa **run** (utas ARIMA, SHAP lintas lingkungan) | butir batasan hilang |
+| `ablasi_h60.json` | ablasi jumlah fitur pada **horizon 60 hari**, pembanding untuk klaim di 5.2 | kalimat tanpa angka |
+
+`ablasi_h60.json` berasal dari `scripts/paper/ablation_topk.py`, tercatat di
+komentar `TOP_K_FEATURES` pada `utils/feature_config.py`. CSV mentahnya tidak
+ada di repo. Dua hal penting: naskah pendamping di repo ini **tidak** melaporkan
+ablasi itu, jadi tidak ada yang bisa disitasi — angkanya harus dicetak di dalam
+naskah; dan ablasi itu memakai **18 sel pra-penggabungan**, termasuk sel
+degenerat yang naskah ini justru buang, jadi kerangka pelaporannya sama tapi
+definisi selnya tidak. Naskah menyatakan kedua hal itu terbuka.
+
+`buat_tables.py` memeriksa berkasnya: arm terbaik harus cocok dengan ringkasan,
+dan `n_leaf x n_jendela x n_model` harus sama dengan `n_unit`. Keduanya
+**berhenti** kalau tidak cocok, karena ringkasan yang basi akan mencetak angka
+yang tidak ada di tabelnya sendiri.
+
 Untuk mengaudit ulang setelah menambah prosa, cari untai di `build.js` yang
 memuat angka di luar `${...}`: yang bertetangga dengan kata seperti *lags*,
 *features*, *candidates*, *methods*, *series*, *origins* atau *per cent* adalah

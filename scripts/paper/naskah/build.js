@@ -795,10 +795,37 @@ function build() {
     '(Makridakis, Spiliotis and Assimakopoulos, 2018, 2020). ' +
     'The random walk is not the best method overall here, but it is still best on ' +
     `${Object.values(T.best_per_leaf).filter(m => m === 'Naive').length} of ${T.n_leaf} series, and it needs no estimation at all.`));
+  // Klaim horizon 60 hari sebelumnya berbunyi "at sixty days ahead, on the same
+  // reporting panel, it is clear and large" - tanpa angka dan tanpa sitasi.
+  // Pembacanya tidak bisa memeriksanya, dan naskah pendamping di repo ini
+  // (protokol multi-langkah) TIDAK melaporkan ablasi jumlah fitur, jadi tidak
+  // ada yang bisa disitasi. Sekarang angkanya dicetak beserta protokolnya dan
+  // dinyatakan sebagai ablasi kami sendiri, dengan bedanya definisi sel
+  // disebut terbuka - bukan disembunyikan di balik "the same panel".
   c.push(P('The feature-count result sits alongside bias-variance theory without confirming it. ' +
-    'Theory says accuracy must fall once added features stop carrying information; at one day ahead we cannot ' +
-    'detect that turning point in either direction, while at sixty days ahead, on the same reporting panel, it ' +
-    'is clear and large. The lever exists, and its strength depends on the horizon. ' +
+    'Theory says accuracy must fall once added features stop carrying information. ' +
+    'At one day ahead we cannot detect that turning point in either direction. ' +
+    (T.ablasi_h60
+      ? `At sixty days ahead it is clear and large: in our own earlier ablation on the same reporting ` +
+        `framework, over ${T.ablasi_h60.n_leaf} cells, ${T.ablasi_h60.n_jendela} rolling windows and the same ` +
+        `${T.ablasi_h60.n_model} tree models (${T.ablasi_h60.n_unit} paired units), keeping ` +
+        `${T.ablasi_h60.terbaik_k} features rather than ${T.ablasi_h60.acuan_k} lowered mean MASE by ` +
+        // Persentase untuk kedua ujung akan tercetak "9,4" dua kali: -9,39 dan
+        // +9,45, dan 9,45 tersimpan sebagai 9,4499... sehingga membulat ke
+        // bawah. Ujung atas disebut lewat MASE-nya supaya tidak terbaca seperti
+        // salah ketik, dan angkanya justru lebih informatif.
+        `${n(Math.abs(T.ablasi_h60.terbaik_delta_pct), 1)} per cent, in the same direction in all three models, ` +
+        `and every arm above ${T.ablasi_h60.acuan_k} was worse, rising from ${n(T.ablasi_h60.acuan_mase, 2)} ` +
+        `to ${n(T.ablasi_h60.arm[T.ablasi_h60.arm.length - 1].mase, 2)} at ` +
+        `${T.ablasi_h60.arm[T.ablasi_h60.arm.length - 1].k} features. ` +
+        `Two differences should be stated. That ablation predates the aggregation described in Section 3.2, so ` +
+        `its cells are the ${T.ablasi_h60.n_leaf} unmerged ones and include the degenerate series this paper ` +
+        `merges away; and it fixes the hyperparameters rather than tuning them. It is therefore a comparison of ` +
+        `horizons, not a like-for-like extension of Table 7. `
+      : 'At sixty days ahead, on the same reporting framework, our own earlier ablation finds it clear and large. ') +
+    'The lever exists, and its strength depends on the horizon, which is the same lesson the direct-versus-iterated ' +
+    'literature draws from a different angle (Marcellino, Stock and Watson, 2006): the configuration that is right ' +
+    'at one horizon is an untested assumption at another. ' +
     'The market-data result, meanwhile, contrasts with the microstructure literature (Evans and Lyons, 2002), ' +
     'which studies how flows move prices. ' +
     'We test the reverse direction, one day ahead, on top of the flow series own history, and in this panel ' +
@@ -811,7 +838,7 @@ function build() {
     // menang 3 dari 15. Bagian 4.1 sudah mencetak angka yang benar dari
     // bestCount, jadi rekomendasi ini membantah hasilnya sendiri.
     `**Model each counterparty and purpose cell on its own.** ${Kata(T.n_metode_menang)} methods win at least one cell and none wins more than ${kata(T.menang_terbanyak)}, so one pooled choice is worse for most of the grid.`,
-    '**Tune at the horizon you will run.** The feature count matters at sixty days and not at one. A setting copied from another horizon is an untested assumption, not a saving.',
+    `**Tune at the horizon you will run.** The feature count matters at sixty days${T.ablasi_h60 ? `, where ${T.ablasi_h60.terbaik_k} features beat ${T.ablasi_h60.acuan_k} by ${n(Math.abs(T.ablasi_h60.terbaik_delta_pct), 1)} per cent,` : ''} and not at one. A setting copied from another horizon is an untested assumption, not a saving.`,
     `**Check what your forecaster actually receives at prediction time, before concluding a predictor is useless.** Training on a feature and then withholding it at forecast time is silent, and here it accounted for ${n(T.tabel8b_gabungan.rusak_hilang_pct, 0)} per cent of an apparent ${n(T.tabel8b_gabungan.delta_nol, 1)} per cent penalty on market data. The diagnostic is cheap: if the damage scales with how much of the feature pool the predictor occupies, suspect the plumbing before the data.`,
     `**Then test market data on their merits, and expect a modest cost.** Handled correctly they still raise pooled error by ${n(T.tabel8b_gabungan.delta_benar, 1)} per cent here, but not uniformly: ${T.n_leaf_membaik} of ${T.n_leaf} series improve. Decide per series rather than for the panel.`,
     '**Prefer a redundancy-aware filter to a univariate one, but do not expect much.** It points the right way at both feature counts and at neither is the gain separable from noise. Its real value here is that it makes a wide lag pool usable at all.',
