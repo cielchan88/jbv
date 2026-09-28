@@ -1,6 +1,6 @@
 """Periksa angka naskah terhadap sumbernya, dan laporkan yang tidak terlacak.
 
-    python scripts/paper/naskah/cek_draft.py
+    venv/bin/python scripts/paper/naskah/cek_draft.py
 
 TIGA PEMERIKSAAN, dan yang kedua adalah yang paling berguna.
 

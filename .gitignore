@@ -102,6 +102,18 @@ data/**/*.bak
 
 # Keluaran komputasi ulang untuk panel alternatif (JBV_PANEL).
 scripts/paper/revisi/hasil_*/
+# KECUALI slot_pasar.json. Ia dibutuhkan buat_tables.py, isinya hanya tujuh
+# HITUNGAN BULAT per leaf - ukuran kolam kandidat dan berapa slot pasar yang
+# dipilih penyeleksi - tanpa satu pun nilai arus, MASE, atau actual. 2,4 KB.
+# Tanpa ini penyusunan naskah di mesin lain berhenti dan menuntut menjalankan
+# ulang cek_slot_pasar.py, yang butuh sklearn dan puluhan menit, padahal
+# keluarannya deterministik dan sekecil ini.
+# Folder harus dibuka dulu supaya git menelusurinya, lalu isinya ditutup lagi
+# dan hanya satu berkas dibuka. Tanpa baris tengah, konfigurasi.json dan
+# versi.json di folder itu ikut terbuka - keduanya bukan untuk repo publik.
+!scripts/paper/revisi/hasil_slot/
+scripts/paper/revisi/hasil_slot/*
+!scripts/paper/revisi/hasil_slot/slot_pasar.json
 
 # Keluaran penyusunan naskah: tables.json memuat kolom actual/pred per leaf
 # (arus valas dalam juta USD) dan repo ini publik.

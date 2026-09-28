@@ -4,7 +4,7 @@ Setiap angka di naskah berasal dari sini, dan sini membacanya dari CSV/JSON
 hasil komputasi - tidak ada yang disalin dengan tangan. Itulah yang membuat
 cek_draft.py bisa membandingkan naskah terhadap sumbernya.
 
-    python scripts/paper/naskah/buat_tables.py
+    venv/bin/python scripts/paper/naskah/buat_tables.py
 
 Jalan berkas diatur jalan.py; lihat docstring-nya untuk env yang tersedia.
 """
@@ -52,8 +52,18 @@ V = (json.load(open(H + 'versi.json')) if os.path.exists(H + 'versi.json')
      else {k: None for k in ('python', 'numpy', 'pandas', 'scipy', 'sklearn',
                              'lightgbm', 'xgboost', 'statsmodels')})
 if not os.path.exists(SLOT + 'slot_pasar.json'):
-    raise SystemExit(f'BERHENTI: {SLOT}slot_pasar.json tidak ada. Jalankan dulu:\n'
-                     f'  JBV_HASIL=hasil_slot python scripts/paper/revisi/cek_slot_pasar.py')
+    # Berkas ini SUDAH DI-COMMIT sejak ia hanya berisi tujuh hitungan bulat per
+    # leaf - 2,4 KB, tanpa nilai arus - jadi biasanya ia sudah ada. Kalau hilang,
+    # berarti folder hasil dialihkan lewat JBV_NASKAH_SLOT, atau checkout-nya
+    # tidak lengkap. Petunjuk lamanya menyebut `python`, yang di banyak VPS tidak
+    # ada sama sekali, dan tidak menyebut venv - jadi menjalankannya apa adanya
+    # gagal dengan ModuleNotFoundError, bukan dengan hasil.
+    raise SystemExit(
+        f'BERHENTI: slot_pasar.json tidak ada di\n  {SLOT}\n'
+        'Berkas ini ikut di-commit, jadi biasanya cukup:\n'
+        '  git checkout -- scripts/paper/revisi/hasil_slot/slot_pasar.json\n'
+        'Kalau memang perlu dihitung ulang (butuh sklearn, puluhan menit):\n'
+        '  JBV_HASIL=hasil_slot venv/bin/python scripts/paper/revisi/cek_slot_pasar.py')
 slot = json.load(open(SLOT + 'slot_pasar.json'))
 
 roll, head = BACA('opt_rolling.csv'), BACA('headline.csv')

@@ -1,6 +1,6 @@
 """Gambar naskah, dibangun dari tables.json dan berkas hasil mentah.
 
-    python scripts/paper/naskah/figs.py
+    venv/bin/python scripts/paper/naskah/figs.py
 
 Jalan berkas diatur jalan.py. Gambar yang bergantung data SELALU dibangun
 ulang di sini - memakai ulang gambar dari run sebelumnya pernah membuat
