@@ -194,11 +194,32 @@ rho = -0,915 yang diklaim naskah pendamping.
    | Gambar 5 — robustness inversi | tidak | distribusi |
    | Gambar A1 — MASE per seri | tidak | tiga model pohon |
 
-   Teks di dalamnya sudah ter-raster, jadi tidak bisa diganti dari sini: **Gambar
-   1 dan Gambar 4 harus dibuat ulang** dengan label `ARIMA`. Sampai itu
-   dikerjakan, naskah akan menulis ARIMA di prosa dan tabel sementara dua
-   gambarnya menulis AutoARIMA — justru jenis ketidakcocokan yang rename ini
-   dimaksudkan untuk menghilangkan.
+   Teks di dalamnya sudah ter-raster, jadi **Gambar 1 dan Gambar 4 dibuat
+   ulang**:
+
+   ```bash
+   python3 scripts/paper/figs_pendamping.py        # -> scripts/paper/fig_baru/
+   ```
+
+   Angkanya **disalin dari tabel naskah itu sendiri** — tabel Tahap I untuk
+   Gambar 1, tabel sepuluh metode untuk Gambar 4 — dan direkam di
+   `gambar_pendamping.json`, bukan ditaksir dari piksel gambar lama. Palet
+   aslinya diambil dari PNG-nya (`#c1666b` ML, `#3d5a80` tradisional, `#9aa8bd`
+   dalam-sampel), jadi keduanya menyatu dengan empat gambar lain yang tidak
+   diusik.
+
+   Nama metode diganti di **satu tempat** (`NAMA_METODE` di
+   `figs_pendamping.py`), persis seperti di `build_paper.js`; kunci di
+   JSON-nya sengaja tetap `AutoARIMA`.
+
+   Klaim yang tercetak di judul Gambar 1(b) — `rho = -1.000` dan `p = 1/6!` —
+   **dihitung ulang dari datanya**, tidak diketik, dan skripnya berhenti kalau
+   tidak cocok. Diuji: menggeser satu nilai memberi *"rho dari data -0.4286
+   tidak cocok dengan -1.0"*; membuang satu metode memberi *"1/5! = 0.008333
+   tidak cocok dengan p = 0.00139"*.
+
+   Keluarannya di-gitignore seperti `naskah/keluaran/` — skrip dan datanya yang
+   di-commit, gambarnya dibangun ulang kapan saja.
 
    Pemeriksaan gambar itu sekalian **menutup satu celah** yang sebelumnya hanya
    bisa dilaporkan: judul panel (b) Gambar 1 berbunyi `rho=-1.000, p=0.00139,

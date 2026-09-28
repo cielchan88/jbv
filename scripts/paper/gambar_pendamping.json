@@ -1,0 +1,60 @@
+{
+  "_catatan": [
+    "Angka untuk Gambar 1 dan Gambar 4 naskah pendamping, DISALIN DARI TABELNYA",
+    "SENDIRI di DOCX - bukan ditaksir dari piksel gambar lama.",
+    "",
+    "  stage1  <- tabel 'Method | Family | In MASE | In R2 | Rank (in) | Out MASE |",
+    "             Rank (out) | Gap', tujuh metode yang punya fit dalam-sampel.",
+    "  sepuluh <- tabel 'Method | Family | MASE | MAE | RMSE | sMAPE | R2 | DA % |",
+    "             Sec.', sepuluh metode di bawah protokol rekursif.",
+    "",
+    "KENAPA DIREKAM DI SINI. Gambar aslinya dibuat oleh skrip yang tidak ikut",
+    "di-commit, dari h1_facts2.json dan hasil h=60 yang juga tidak ada di repo.",
+    "Tanpa berkas ini gambar tidak bisa dibangun ulang sama sekali. Sumbernya",
+    "tabel naskah, jadi angkanya persis yang dibaca pengulas.",
+    "",
+    "NAMA METODE SENGAJA MASIH 'AutoARIMA' di sini, sama seperti kunci internal",
+    "run_one_step.py. Penggantiannya jadi ARIMA dilakukan saat menggambar, lewat",
+    "NAMA_METODE di figs_pendamping.py - satu tempat, sama seperti build_paper.js."
+  ],
+  "sumber": "tabel di dalam DOCX naskah pendamping",
+  "palet": {
+    "ml": "#c1666b",
+    "tradisional": "#3d5a80",
+    "dalam_sampel": "#9aa8bd",
+    "kisi": "#ebebeb"
+  },
+  "stage1": {
+    "judul_a": "(a) In-sample versus out-of-sample fit",
+    "dikecualikan": "Naive",
+    "alasan_dikecualikan": "MASE dalam-sampelnya satu menurut konstruksi",
+    "rho": -1.0,
+    "p": 0.00139,
+    "baris": [
+      {"metode": "RandomForest", "keluarga": "ML",          "in_mase": 0.611, "out_mase": 2.195, "rank_in": 1, "rank_out": 7},
+      {"metode": "XGBoost",      "keluarga": "ML",          "in_mase": 0.659, "out_mase": 1.800, "rank_in": 2, "rank_out": 5},
+      {"metode": "LightGBM",     "keluarga": "ML",          "in_mase": 0.715, "out_mase": 1.701, "rank_in": 3, "rank_out": 4},
+      {"metode": "AutoARIMA",    "keluarga": "Traditional", "in_mase": 0.835, "out_mase": 1.551, "rank_in": 4, "rank_out": 3},
+      {"metode": "NaiveMean",    "keluarga": "Traditional", "in_mase": 0.945, "out_mase": 1.477, "rank_in": 5, "rank_out": 2},
+      {"metode": "Naive",        "keluarga": "Traditional", "in_mase": 1.000, "out_mase": 2.086, "rank_in": 6, "rank_out": 6},
+      {"metode": "Prophet",      "keluarga": "Traditional", "in_mase": 1.037, "out_mase": 1.441, "rank_in": 7, "rank_out": 1}
+    ]
+  },
+  "sepuluh": {
+    "n_seri": 18,
+    "sumbu_x": "MASE (mean across 18 series; lower is better)",
+    "anotasi_acuan": "MASE = 1 (naive benchmark)",
+    "baris": [
+      {"metode": "Prophet",      "keluarga": "Traditional", "mase": 1.441},
+      {"metode": "NaiveMean",    "keluarga": "Traditional", "mase": 1.477},
+      {"metode": "AutoARIMA",    "keluarga": "Traditional", "mase": 1.551},
+      {"metode": "APUVA",        "keluarga": "Traditional", "mase": 1.652},
+      {"metode": "VAR",          "keluarga": "Traditional", "mase": 1.674},
+      {"metode": "LightGBM",     "keluarga": "ML",          "mase": 1.701},
+      {"metode": "XGBoost",      "keluarga": "ML",          "mase": 1.800},
+      {"metode": "Naive",        "keluarga": "Traditional", "mase": 2.086},
+      {"metode": "RandomForest", "keluarga": "ML",          "mase": 2.195},
+      {"metode": "Stacking",     "keluarga": "ML",          "mase": 3.130}
+    ]
+  }
+}

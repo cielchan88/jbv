@@ -77,6 +77,10 @@ node_modules/
 # Naskah: keluaran scripts/paper (memuat statistik deskriptif data pengawasan)
 scripts/paper/doc_items.json
 scripts/paper/fig/
+# Gambar pengganti Gambar 1 dan 4. Dibangun ulang kapan saja dari
+# figs_pendamping.py + gambar_pendamping.json, jadi tidak perlu disimpan -
+# sama seperti scripts/paper/naskah/keluaran/.
+scripts/paper/fig_baru/
 *.docx
 # Angka Tahap II naskah pendamping: metrik per seri, dan repo ini publik.
 scripts/paper/h1_facts2.json
