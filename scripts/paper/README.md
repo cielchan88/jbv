@@ -58,6 +58,28 @@ Setelah menyusun ulang, periksa dua hal: tidak ada nomor tabel atau gambar yang
 ganda, dan setiap rujukan dalam teks menunjuk keterangan yang benar. Keduanya
 bisa dicek dengan membaca hasilnya lewat `python-docx`.
 
+### `PHRASE` bekerja per RUN, bukan per paragraf
+
+`p()` menerapkan `fix()` ke **setiap run**, bukan ke teks paragraf. Kalimat yang
+angkanya ditebalkan terpecah jadi banyak run — satu kalimat di 5.4 terpecah jadi
+**tujuh** — sehingga entri `PHRASE` yang sisi kirinya melintasi batas run
+**tidak akan pernah cocok**, dan gagalnya **diam**: build tetap sukses,
+perbaikannya tidak masuk naskah, tidak ada yang memberi tahu.
+
+Itu benar-benar terjadi: perbaikan dekomposisi protokol ditulis atas kalimat
+utuh dan tidak pernah berlaku. Ketahuan hanya karena `cek_pendamping_docx.py`
+membaca DOCX hasilnya dan masih menemukan "percentage points".
+
+Sekarang `build_paper.js` **menghitung** berapa kali tiap entri kena dan
+melaporkan yang nol di akhir build:
+
+```
+PERINGATAN: 1 dari 23 entri PHRASE tidak pernah cocok, jadi penggantiannya
+TIDAK masuk naskah: …
+```
+
+Kalau muncul, pecah entrinya jadi beberapa yang masing-masing muat di satu run.
+
 ### `fix()` hanya boleh jalan SEKALI, dan hanya atas teks LAMA
 
 Regex nomor tabel memetakan lama → baru tanpa tahu dari mana angkanya datang.
@@ -281,6 +303,36 @@ Ketiga kelas penjaganya diuji menyala: jumlah hari panel dibuat beda memberi
 *"pendamping 5000 vs utama 5032"*; ablasi h=60 dibuat memilih k yang sama dengan
 h=1 memberi *"klaim ketergantungan horizon di 5.2 tidak lagi berdasar"*; jumlah
 sel ablasi dibuat tidak cocok memberi *"ablasi memakai 15 sel, pendamping 18"*.
+
+## Memeriksa DOCX yang sudah dibangun
+
+```bash
+python3 scripts/paper/cek_pendamping_docx.py <docx-hasil-build>
+```
+
+`cek_naskah_pendamping.py` mengaudit **sumber** `build_paper.js` secara statis.
+Yang ini membaca **hasilnya** dan mencocokkan prosa dengan sel tabel — baru
+mungkin setelah naskah bisa disusun ulang. Sepadan dengan `cek_draft.py` milik
+naskah utama, dengan satu beda yang harus dinyatakan: naskah utama mencocokkan
+angka dengan **hasil komputasi**, sedangkan di sini tidak ada hasil komputasi di
+repo. Yang diperiksa adalah apakah naskah **konsisten dengan dirinya sendiri**.
+Itu menangkap angka usang dan salah rujuk; itu **tidak** menangkap tabel yang
+seluruhnya salah.
+
+Yang diperiksa: setiap keterangan punya tabel dan nomornya tidak ganda; setiap
+`Table N`/`Figure N` yang dirujuk prosa benar-benar ada; nilai kunci Tahap I
+muncul di prosa; peringkat luar-sampel tanpa random walk benar-benar terbalik
+sempurna (yang mengesahkan rho = −1); baris Mean protokol dan ketiga
+persentasenya; persentase segmen horizon lahir dari barisnya; baris `n = 6` di
+tabel robustness disebut prosa; kolom `Rank h=60` cocok dengan urutan tabel
+h=60; `Best in` berjumlah sesuai; kosakata kolom Family seragam antar-tabel; dan
+nol `AutoARIMA`.
+
+**Pemeriksa ini langsung menemukan satu kesalahan yang lolos dari audit sumber.**
+Prosa beku di 5.4 memuat dekomposisi protokol yang sama salahnya dengan abstrak
+— *"decomposes into 10.1 percentage points … and 7.3 points"* — dan itulah
+sumber aslinya; abstrak hanya menyalinnya. Audit sumber tidak melihatnya karena
+kalimat itu datang dari `doc_items.json`, bukan dari kode.
 
 ## Audit internal
 

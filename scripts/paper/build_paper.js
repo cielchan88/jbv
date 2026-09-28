@@ -94,6 +94,21 @@ const PHRASE = [
    'We estimate ten methods, grouped into two families'],
   ['three tree ensembles — bagged regression trees and two gradient-boosting implementations — estimated on ninety engineered features from which twenty-five are retained by absolute Spearman correlation with the target',
    'three tree ensembles — bagged regression trees and two gradient-boosting implementations — estimated on ninety engineered features from which twenty-five are retained by absolute Spearman correlation with the target, together with a stacked ensemble combining them'],
+  // Dekomposisi protokol tidak menjumlah, dan INI sumbernya - abstrak hanya
+  // menyalin kalimat ini. Ketiga persentasenya diukur terhadap penyebut yang
+  // BERBEDA: 18,1% recursion vs teacher-forcing, 10,1% recursion vs direct,
+  // 7,3% direct vs teacher-forcing. Jadi 10,1 + 7,3 = 17,4, bukan 18,1;
+  // dekomposisinya berlipat (1,1010 x 1,0727 = 1,1810). Menyebut komponennya
+  // "percentage points" menyiratkan penjumlahan yang salah.
+  // PENTING: sisi kiri harus muat di SATU run. p() menerapkan fix() per run,
+  // bukan per paragraf, dan kalimat ini terpecah jadi tujuh run karena
+  // angka-angkanya ditebalkan terpisah. Entri yang melintasi batas run tidak
+  // akan pernah cocok - diam, bukan galat. Karena itu keduanya menyasar run
+  // masing-masing.
+  ['10.1 percentage points of genuine error accumulation',
+   '10.1 per cent of genuine error accumulation (recursion against direct)'],
+  ['7.3 points of leakage',
+   '7.3 per cent of leakage (direct against teacher-forcing), and the two compound rather than add'],
   // Samakan nama metode dengan naskah utama, yang menulis ARIMA dan menyatakan
   // di catatannya bahwa ordonya dipilih otomatis lewat kriteria informasi.
   // Keduanya ARIMAForecaster yang sama; dua nama untuk satu metode di dua naskah
@@ -104,11 +119,19 @@ const PHRASE = [
   // ini berjalan. Kalau dipindah ke atas, entri-entri itu tidak akan pernah cocok.
   ['AutoARIMA', 'ARIMA'],
 ];
+/* Entri PHRASE yang tidak pernah cocok GAGAL DALAM DIAM. Itu bukan hipotetis:
+   satu entri ditulis atas kalimat utuh padahal p() menerapkan fix() per RUN,
+   dan kalimatnya terpecah jadi tujuh run karena angkanya ditebalkan terpisah -
+   jadi perbaikannya tidak pernah masuk naskah dan tidak ada yang memberi tahu.
+   Sekarang dihitung, dan yang nol dilaporkan di akhir build. */
+const KENA = new Map(PHRASE.map(([a]) => [a, 0]));
 function fix(t) {
   // Urutan penting: petakan nomor tabel lama -> baru dulu, baru ganti frasa.
   // Dengan begitu sisi kanan PHRASE boleh menyebut nomor tabel versi BARU.
   t = t.replace(/\bTable (\d+)\b/g, (m, n) => 'Table ' + (TMAP[+n] || n));
-  for (const [a, b] of PHRASE) t = t.split(a).join(b);
+  for (const [a, b] of PHRASE) {
+    if (t.includes(a)) { KENA.set(a, KENA.get(a) + 1); t = t.split(a).join(b); }
+  }
   return t;
 }
 
@@ -464,7 +487,9 @@ const t1s = [new TableRow({ tableHeader: true, children: [
   cell('MAE', w1s[4], { head: 1, num: 1 }), cell('Bias', w1s[5], { head: 1, num: 1 }),
   cell('Best in', w1s[6], { head: 1, num: 1 }), cell('Rank h=60', w1s[7], { head: 1, num: 1 })] })];
 H1.rows.forEach(r => t1s.push(new TableRow({ children: [
-  cell(metode(r.model), w1s[0]), cell(r.family === 'ML' ? 'Machine learning' : 'Traditional', w1s[1]),
+  // Kosakata keluarga mengikuti tabel beku: Table 6 dan Table 11 menulis "ML",
+  // jadi tabel ini jangan sendirian menulis "Machine learning".
+  cell(metode(r.model), w1s[0]), cell(r.family === 'ML' ? 'ML' : 'Traditional', w1s[1]),
   cell(r.mase.toFixed(3), w1s[2], { num: 1, bold: r.r1 === 1 }),
   cell(r.med.toFixed(3), w1s[3], { num: 1 }),
   cell(r.mae.toFixed(1), w1s[4], { num: 1 }),
@@ -626,4 +651,18 @@ const doc = new Document({
 Packer.toBuffer(doc).then(buf => {
   fs.writeFileSync(OUT, buf);
   console.log('written', OUT, buf.length, 'bytes');
+
+  // Entri PHRASE yang nol kena adalah perbaikan yang TIDAK masuk naskah.
+  // Penyebab tersering: sisi kirinya melintasi batas run, karena p() menerapkan
+  // fix() per run. Pecah jadi beberapa entri yang masing-masing muat di satu run.
+  const mati = [...KENA].filter(([, n]) => n === 0).map(([a]) => a);
+  if (mati.length) {
+    console.warn(`\nPERINGATAN: ${mati.length} dari ${PHRASE.length} entri PHRASE ` +
+      `tidak pernah cocok, jadi penggantiannya TIDAK masuk naskah:`);
+    mati.forEach(a => console.warn(`  - "${a.slice(0, 96)}${a.length > 96 ? '…' : ''}"`));
+    console.warn('Cek apakah sisi kirinya melintasi batas run (angka yang ' +
+                 'ditebalkan memecah paragraf jadi beberapa run).');
+  } else {
+    console.log(`${PHRASE.length} entri PHRASE semuanya cocok.`);
+  }
 });
