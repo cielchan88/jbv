@@ -41,21 +41,36 @@ const pv = p => (p === null || p === undefined) ? '—' : (p < 0.0001 ? '< 0.000
 const pct = (v, d = 2) => `${v > 0 ? '+' : ''}${n(v, d)}%`;
 
 /* -------------------------------------------------------------- primitives */
-function runs(text) {
+/* Gaya dasar bisa diganti supaya NOTE ikut memakai pemroses ini. Sebelumnya
+   NOTE mengirim satu untai utuh ke TextRun, jadi **tebal** di TENGAH catatan
+   tercetak apa adanya beserta bintangnya - terlihat di 3.5 sebagai "does
+   **not** replace". Bold di awal untai memang jalan karena butir bernomor
+   memakai runs(); yang di tengah tidak pernah diproses. */
+function runs(text, gaya = {}) {
+  const dasar = { size: 21, color: INK, ...gaya };
   const out = [];
   const re = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
   let last = 0, m;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(new TextRun({ text: text.slice(last, m.index), size: 21, color: INK }));
+    if (m.index > last) out.push(new TextRun({ ...dasar, text: text.slice(last, m.index) }));
     const t = m[0];
-    if (t.startsWith('**')) out.push(new TextRun({ text: t.slice(2, -2), bold: true, size: 21, color: INK }));
-    else out.push(new TextRun({ text: t.slice(1, -1), italics: true, size: 21, color: INK }));
+    if (t.startsWith('**')) out.push(new TextRun({ ...dasar, text: t.slice(2, -2), bold: true }));
+    else out.push(new TextRun({ ...dasar, text: t.slice(1, -1), italics: true }));
     last = re.lastIndex;
   }
-  if (last < text.length) out.push(new TextRun({ text: text.slice(last), size: 21, color: INK }));
+  if (last < text.length) out.push(new TextRun({ ...dasar, text: text.slice(last) }));
   return out;
 }
 const P = t => new Paragraph({ spacing: { after: 150, line: 300 }, alignment: AlignmentType.JUSTIFIED, children: runs(t) });
+
+/* Angka kecil dieja huruf, mengikuti gaya prosa naskah ("every day from one to
+   fifteen"). Dipakai untuk angka yang DITURUNKAN dari konfigurasi, supaya
+   memperbaiki angkanya tidak sekaligus merusak gayanya. Di atas dua puluh
+   naskah memang memakai digit, jadi di situ dikembalikan apa adanya. */
+const KATA = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+  'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+  'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const kata = v => (Number.isInteger(v) && v >= 0 && v < KATA.length ? KATA[v] : String(v));
 
 /* Persamaan terpusat. Dipakai untuk rumus MASE di 3.4. Serif dan sedikit
    lebih besar supaya terbaca sebagai matematika, bukan kalimat. */
@@ -71,7 +86,7 @@ const LEAD = (l, t) => new Paragraph({
   spacing: { after: 140, line: 300 }, alignment: AlignmentType.JUSTIFIED,
   children: [new TextRun({ text: l + '. ', bold: true, size: 21, color: INK }), ...runs(t)],
 });
-const NOTE = t => new Paragraph({ spacing: { before: 40, after: 190 }, children: [new TextRun({ text: t, size: 17, italics: true, color: MUTED })] });
+const NOTE = t => new Paragraph({ spacing: { before: 40, after: 190 }, children: runs(t, { size: 17, italics: true, color: MUTED }) });
 const TCAP = (num, t) => new Paragraph({
   spacing: { before: 215, after: 80 },
   children: [new TextRun({ text: `Table ${num}. `, bold: true, size: 18, color: INK }), new TextRun({ text: t, size: 18, color: INK })],
@@ -474,12 +489,29 @@ function build() {
     'near-duplicates and crowd out features carrying different information. ' +
     'The redundancy-aware criterion below penalises exactly that overlap, which is what makes a pool of this ' +
     'width usable; neither choice is safe without the other.'));
-  c.push(P(`Adding the eight market variables extends the pool to ${T.pool_total} candidates. ` +
-    'Each market variable enters as three lags, of one, seven and fourteen days, and a seven-day rolling mean. ' +
+  // Angka fitur pasar DITURUNKAN dari konfigurasi, tidak diketik. Kolam pasar
+  // pernah berubah dari [1,7,14]+rata-rata (4 fitur per variabel, kolam 136)
+  // menjadi lag 1-14+rata-rata (15 per variabel, kolam 224), dan kalimat di
+  // blok ini tertinggal di angka lama sementara prosa Tabel 8 sudah benar -
+  // naskah bertentangan dengan dirinya sendiri. Penjaga di bawah membuat
+  // ketidakcocokan seperti itu menggagalkan build, bukan tercetak diam-diam.
+  const nLagPasar = T.lag_pasar.length;
+  const lagMaks = T.lag_pasar[nLagPasar - 1];
+  const perVariabel = nLagPasar + 1;                 // lag + satu rata-rata bergerak
+  const nVariabel = T.pool_pasar / perVariabel;
+  if (!Number.isInteger(nVariabel) ||
+      T.pool_internal + T.pool_pasar !== T.pool_total) {
+    throw new Error(`kolam fitur tidak konsisten: ${T.pool_internal} internal + ` +
+      `${T.pool_pasar} pasar != ${T.pool_total} total, atau ${T.pool_pasar} pasar ` +
+      `tidak habis dibagi ${perVariabel} fitur per variabel`);
+  }
+  c.push(P(`Adding the ${kata(nVariabel)} market variables extends the pool to ${T.pool_total} candidates. ` +
+    `Each market variable enters as ${kata(nLagPasar)} consecutive lags, every day from one to ${kata(lagMaks)}, ` +
+    `and a seven-day rolling mean: ${kata(perVariabel)} features per variable, ${T.pool_pasar} in all. ` +
     'Market variables are therefore lagged on the same principle as the target: no contemporaneous value of any ' +
     'market variable enters the model, because on the morning a forecast is made that day own market data do not yet exist.'));
   c.push(NOTE('One point is easy to get wrong. The "with market data" condition does **not** replace the ' +
-    `engineered features: it adds 32 market candidates to the same ${T.pool_internal} engineered ones, and all ` +
+    `engineered features: it adds ${T.pool_pasar} market candidates to the same ${T.pool_internal} engineered ones, and all ` +
     `${T.pool_total} then compete for the same fixed number of slots. ` +
     'That competition, not the market data alone, is what Section 4.2 measures.'));
   c.push(P('Selection scores each candidate by its absolute Spearman correlation with the target, minus its ' +
