@@ -78,6 +78,14 @@ node_modules/
 scripts/paper/doc_items.json
 scripts/paper/fig/
 *.docx
+# Angka Tahap II naskah pendamping: metrik per seri, dan repo ini publik.
+scripts/paper/h1_facts2.json
+scripts/paper/h1_results.csv
+# Worktree kode yang MENGHASILKAN naskah pendamping. Dipisah supaya angkanya
+# tidak bergeser saat kode utama berubah, jadi ia memang tidak boleh masuk repo -
+# tapi sebelumnya juga tidak tercatat di sini, sehingga tidak ada satu pun tanda
+# bahwa ia dibutuhkan. run_one_step.py sekarang menyebutnya kalau tidak ada.
+scripts/paper/paperwt/
 
 # Keluaran komputasi ulang naskah. Dibangun ulang dari skripnya; besar dan
 # berisi metrik per seri, sedangkan repo ini publik.

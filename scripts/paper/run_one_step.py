@@ -27,7 +27,20 @@ import sys, os, time, warnings, json, argparse
 import numpy as np
 import pandas as pd
 
+# paperwt adalah worktree kode YANG MENGHASILKAN naskah ini, dipisah supaya
+# angkanya tidak bergeser saat kode utama berubah. Ia TIDAK ada di repo dan
+# tidak tercatat di .gitignore, jadi di checkout bersih baris ini dulu mati
+# dengan FileNotFoundError dari os.chdir - galat yang tidak menyebut apa yang
+# kurang maupun cara membuatnya. Sekarang disebut.
 WT = os.path.dirname(os.path.abspath(__file__)) + '/paperwt'
+if not os.path.isdir(WT):
+    raise SystemExit(
+        f'BERHENTI: worktree kode tidak ada di\n  {WT}\n'
+        'Skrip ini harus berjalan pada kode YANG MENGHASILKAN naskah, bukan kode\n'
+        'terkini, supaya angkanya tetap sebanding. Buat dulu worktree-nya pada\n'
+        'commit yang dipakai naskah itu, misalnya:\n'
+        '  git worktree add scripts/paper/paperwt <commit-naskah>\n'
+        'Tanpa itu angka Tahap II tidak bisa dihitung ulang.')
 sys.path.insert(0, WT)
 os.chdir(WT)
 warnings.filterwarnings('ignore')

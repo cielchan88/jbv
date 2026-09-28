@@ -68,3 +68,96 @@ Perlu dicatat agar tidak salah paham: `build_paper.js` memuat bagian-bagian
 yang ditulis ulang (abstrak, tabel hipotesis, metodologi), dan di dalamnya ada
 angka hasil evaluasi agregat seperti nilai MASE dan koefisien korelasi. Yang
 tidak ikut ter-commit adalah deskriptif per seri di atas, bukan seluruh angka.
+
+Satu lagi yang sebelumnya tidak tercatat di mana pun: **`scripts/paper/paperwt`**,
+worktree kode yang menghasilkan naskah ini. Ia dipisah supaya angkanya tidak
+bergeser saat kode utama berubah, jadi ia memang tidak boleh masuk repo — tapi
+ia juga tidak ada di `.gitignore`, sehingga tidak ada satu pun tanda bahwa ia
+dibutuhkan. Sekarang tercatat, dan `run_one_step.py` menyebutnya beserta perintah
+`git worktree add`-nya kalau tidak ada.
+
+## Di checkout bersih naskah ini TIDAK bisa dibangun
+
+Keempat masukannya tidak ada di repo: `doc_items.json` (ter-gitignore),
+`h1_facts2.json`, `fig/`, dan `paperwt`. Dulu keduanya mati dengan jejak mentah —
+`os.chdir` melempar `FileNotFoundError` tanpa menyebut worktree, dan
+`readFileSync` melempar `ENOENT` tanpa menyebut langkah mana yang belum
+dijalankan. Sekarang keduanya berhenti dengan pesan yang menyebut berkasnya dan
+perintah untuk membuatnya.
+
+Konsekuensinya harus dinyatakan terbuka: **angka naskah ini tidak punya jalan
+kembali ke datanya di dalam repo ini.** Prosanya beku di `doc_items.json`, dan
+`build_paper.js` tidak menghitung apa pun — ia hanya menata ulang. Berbeda dengan
+`scripts/paper/naskah/`, yang menurunkan setiap angka dari `tables.json` dan
+punya `cek_draft.py` untuk memeriksanya. Angka di sini hanya bisa diaudit secara
+internal: aritmetikanya, pemakaian ulang angka yang sama untuk dua hal berbeda,
+dan penomoran tabelnya.
+
+### Audit internal
+
+```bash
+python3 scripts/paper/cek_naskah_pendamping.py
+```
+
+Memeriksa tiga hal tanpa masukan apa pun, dan keluar dengan kode 1 kalau dua
+yang pertama bermasalah:
+
+1. **Aritmetika** — rata-rata MASE ketiga protokol dibaca dari prosanya sendiri,
+   lalu ketiga persentasenya dihitung ulang; dekomposisi yang berlipat diuji
+   terhadap totalnya; pasangan MASE segmen horizon diuji terhadap persentasenya;
+   klaim "more than half the distance" dihitung; `p` uji permutasi eksak dipakai
+   untuk menyimpulkan jumlah item yang diperingkat; jumlah unit diuji terhadap
+   seri x jendela.
+2. **Penomoran** — target ganda di `TMAP`, lompatan atau nomor ganda di `T`,
+   sisi kiri `PHRASE` yang memuat nomor tabel, dan rujukan `Table N` di luar
+   rentang.
+3. **Angka yang dipakai ulang** di satu paragraf — dilaporkan untuk manusia,
+   tidak menggagalkan.
+
+Ketiga kelasnya diuji menyala: mengembalikan kalimat `percentage points` yang
+lama memberi *"komponennya tidak menjumlah (17.4 vs 18.1)"*; menggeser satu MASE
+memberi *"2.5 vs 1.681 memberi 48.72%, prosa menulis 29%"*; membuat `TMAP`
+bertabrakan memberi *"target ganda: {15: 2}"*.
+
+### Apa yang ditemukannya
+
+Yang ditemukan dan diperbaiki:
+
+- **Dekomposisi protokol tidak berjumlah.** Abstrak menulis "of the 18.1 per cent
+  apparent penalty of recursion, 10.1 percentage points are genuine error
+  accumulation and 7.3 points are information leakage". Ketiga persentase itu
+  diukur terhadap **penyebut yang berbeda** — 18,1% = recursion vs teacher-forcing,
+  10,1% = recursion vs direct, 7,3% = direct vs teacher-forcing — sehingga
+  10,1 + 7,3 = 17,4, bukan 18,1. Dekomposisinya **berlipat**, bukan menjumlah:
+  1,1010 x 1,0727 = 1,1810. Menyebutnya "percentage points" dari 18,1 salah, dan
+  kesalahannya muncul dua kali: di abstrak dan di 5.3.
+- **Angka 7,3 dipakai untuk dua hal berbeda** di paragraf yang sama — komponen
+  kebocoran, dan median selisih antar-ramalan individual di uji satu langkah.
+  Sekarang dinyatakan bahwa kemiripannya kebetulan.
+
+Yang ditemukan tapi **tidak** diperbaiki, karena memperbaikinya butuh angka yang
+tidak ada di repo:
+
+- **`p = 0.00139` memaksa tepat ENAM item yang diperingkat**, karena uji
+  permutasi eksak untuk rho = -1 memberi 1/n! dan 1/6! = 0,001389. Abstraknya
+  menyebut "ten methods" lalu "once the random walk is set aside", yang terbaca
+  sembilan; 1/9! = 3e-6. Jumlah metode dalam pemeringkatan itu tidak pernah
+  disebut. Naskah harus menyebutnya, dan angkanya harus datang dari yang
+  menjalankan ujinya - bukan ditebak dari p-nya.
+- **Ada celah antara h = 23 dan h = 30.** "negligible to h = 23 and reaches 29
+  per cent beyond h = 30" tidak mengatakan apa yang terjadi di antaranya.
+
+Yang diperiksa dan **benar**: 29% = (2,167 - 1,681)/1,681 = 28,91; "more than
+half the distance" (29 > 26,2, separuh dari 52,3); 54 = 18 seri x 3 jendela,
+konsisten di seluruh naskah; penggabungan panel "eighteen-fold"; sepuluh metode =
+enam tradisional + empat ML, cocok dengan `FUNCFORM`/`LAGBASED` di
+`run_one_step.py`; 5032 hari dan rentang tanggalnya cocok dengan naskah utama dan
+dengan `data/processed/sdv-wide.csv`; 25 fitur dipertahankan cocok dengan
+`TOP_K_FEATURES`.
+
+Penomoran tabel juga diperiksa secara statis, yang memang diminta di atas dan
+bisa dilakukan tanpa masukan mana pun: `TMAP` tidak punya target ganda, `T`
+memuat nomor 1-16 tepat sekali tanpa lompatan, tabel 2, 12 dan 16 memang ditulis
+baru (bukan dipetakan), tidak ada sisi kiri `PHRASE` yang memuat nomor tabel
+sehingga tidak ada yang terpetakan dua kali, dan tidak ada rujukan `Table N`
+dengan N di luar 1-16.
