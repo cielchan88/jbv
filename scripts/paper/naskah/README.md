@@ -87,6 +87,42 @@ pemeriksa ini melapor gagal, periksa dulu pemeriksanya sebelum mengubah naskah.
 
 ---
 
+## Lubang di `cek_draft.py`, dan apa yang menutupnya
+
+Pemeriksa itu **hanya melihat angka yang ada di `tables.json`**. Dua kelas
+kesalahan lewat begitu saja:
+
+- **angka yang dieja huruf** — "three lags", "none wins more than five";
+- **digit yang diketik langsung ke untai** di `build.js`, yang secara kebetulan
+  masih masuk akal.
+
+Keduanya sekaligus terjadi pada kalimat kolam fitur pasar: naskah menulis
+"three lags, of one, seven and fourteen days" dan "32 market candidates"
+padahal konfigurasinya sudah lama lag 1–14 ditambah satu rata-rata bergerak,
+120 fitur. Aritmetikanya membantah dirinya sendiri (104 + 32 = 136, bukan 224
+yang disebut satu kalimat sebelumnya) dan prosa Tabel 8 di 4.2 sudah benar.
+Audit satu kali menemukan lima lagi yang sejenis: jumlah seri berkurtosis di
+atas 200, "none wins more than five" (sebenarnya tiga), sampel uji metode yang
+diberi 1.350 padahal 450, sebaran ensemble pohon, dan butir riset lanjutan yang
+sudah dikerjakan.
+
+**Jadi aturannya: setiap angka yang mengaku fakta diturunkan dari
+`tables.json`, tidak diketik.** Di mana penurunannya punya invarian, `build.js`
+memeriksanya dan **gagal membangun** kalau invariannya pecah:
+
+| penjaga | yang diperiksa |
+| --- | --- |
+| kolam fitur | `pool_internal + pool_pasar == pool_total`, dan `pool_pasar` habis dibagi fitur per variabel |
+| `kAblasi` | ada tepat satu k acuan, dan **tidak ada** k lain yang mengalahkannya — kalau ada, klaim abstrak memang salah |
+| `sebaranPohon` | ketiga ensemble pohon ada di `e2_summary` |
+
+Untuk mengaudit ulang setelah menambah prosa, cari untai di `build.js` yang
+memuat angka di luar `${...}`: yang bertetangga dengan kata seperti *lags*,
+*features*, *candidates*, *methods*, *series*, *origins* atau *per cent* adalah
+kandidat klaim, dan harus diturunkan.
+
+---
+
 ## Lampiran B: beeswarm per seri
 
 `figs.py` **menyalin** beeswarm dari `<hasil>/fig/beeswarm/<leaf>.png`, tidak

@@ -71,6 +71,40 @@ const KATA = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'ei
   'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
   'seventeen', 'eighteen', 'nineteen', 'twenty'];
 const kata = v => (Number.isInteger(v) && v >= 0 && v < KATA.length ? KATA[v] : String(v));
+const Kata = v => { const s = kata(v); return s[0].toUpperCase() + s.slice(1); };
+
+/* Sebaran relatif ketiga ensemble pohon di Tabel 6, dalam persen. Dipakai di
+   abstrak. Diturunkan supaya klaim "within X per cent" tidak perlu diketik
+   ulang setiap kali angkanya bergerak. */
+/* Rentang jumlah fitur yang diuji ablasi, dan acuannya. Klaim abstrak bahwa
+   "tidak ada jumlah antara lo dan hi yang mengalahkan acuan" hanya sah kalau
+   SEMUA delta bertanda positif, jadi itu ikut diperiksa di sini - bukan
+   dipercaya. delta diukur relatif terhadap k acuan, jadi positif = lebih
+   buruk. */
+const kAblasi = (() => {
+  const acuan = T.ablation.find(r => r.delta === 0);
+  const lain = T.ablation.filter(r => r !== acuan);
+  const menang = lain.filter(r => r.delta < 0);
+  if (!acuan || !lain.length) {
+    throw new Error('kAblasi: tidak ketemu k acuan (delta 0) di T.ablation');
+  }
+  if (menang.length) {
+    throw new Error('kAblasi: klaim abstrak salah - k berikut MENGALAHKAN acuan: ' +
+      menang.map(r => `${r.k} (${r.delta.toFixed(3)}%)`).join(', '));
+  }
+  const ks = lain.map(r => r.k);
+  return { lo: Math.min(...ks), hi: Math.max(...ks), acuan: acuan.k };
+})();
+
+const POHON = ['RandomForest', 'LightGBM', 'XGBoost'];
+function sebaranPohon() {
+  const v = T.e2_summary.filter(r => POHON.includes(r.model)).map(r => r.mase);
+  if (v.length !== POHON.length) {
+    throw new Error(`sebaranPohon: ketemu ${v.length} dari ${POHON.length} ensemble pohon di e2_summary`);
+  }
+  const lo = Math.min(...v), hi = Math.max(...v);
+  return 100 * (hi - lo) / lo;
+}
 
 /* Persamaan terpusat. Dipakai untuk rumus MASE di 3.4. Serif dan sedikit
    lebih besar supaya terbaca sebagai matematika, bukan kalimat. */
@@ -231,10 +265,14 @@ function build() {
     'than taken from convention.'));
   c.push(LEAD('Findings',
     `The striking result is how little survives paired testing. ` +
-    `No method wins everywhere: eight of the ten are best on at least one series and none on more than ` +
-    `${bestCount[0][1]} of ${T.n_leaf}. ` +
-    `The aggregate ranking dissolves as well: the three tree ensembles finish within 4.5 per cent of each ` +
-    `other and signed-rank tests separate none of them ` +
+    `No method wins everywhere: ${kata(T.n_metode_menang)} of the ${kata(T.e2_summary.length)} are best on ` +
+    `at least one series and none on more than ${bestCount[0][1]} of ${T.n_leaf}. ` +
+    // Rentang ketiga ensemble pohon DITURUNKAN. Versi ketik tangan menulis
+    // "within 4.5 per cent" dan nyaris tidak lolos peralihan blok validasi:
+    // 4,46% pada NVAL=10, 4,38% pada NVAL=60. Angka sekecil itu tidak boleh
+    // bersandar pada keberuntungan pembulatan.
+    `The aggregate ranking dissolves as well: the three tree ensembles finish within ` +
+    `${n(sebaranPohon(), 1)} per cent of each other and signed-rank tests separate none of them ` +
     `(p = ${n(T.champion_tests[0].p, 3)} and ${n(T.champion_tests[1].p, 3)}); the first gap the data ` +
     `support is the one to ARIMA. ` +
     `Nor does any part of the configuration earn its place. Removing redundancy-aware selection, daily ` +
@@ -243,7 +281,8 @@ function build() {
     `${pct(T.reverse_ablation[2].delta)} respectively, and not one of the three reaches significance; ` +
     `tuning is the wrong sign, and switching it off improves ` +
     `${T.reverse_leaf_worse['Tuned hyperparameters']} of the ${T.n_leaf} series. ` +
-    `The feature count is a null too: no count between 6 and 20 beats the usual 25. ` +
+    `The feature count is a null too: no count between ${kAblasi.lo} and ${kAblasi.hi} beats the usual ` +
+    `${kAblasi.acuan}. ` +
     `Market data are the one factor that moves anything decisively, and the result there is mostly a ` +
     `methodological artefact that we found and corrected. ` +
     `Supplying the market series when the model is trained but not when it forecasts - the default behaviour ` +
@@ -417,11 +456,19 @@ function build() {
     'reading, which is what a longer version of this study did. ' +
     'Merging is preferable because it removes the exception rather than carrying it through every table, ' +
     'and because the merged cell is the unit a supervisor actually acts on.'));
-  c.push(P('The market data cover the same 5,032 dates, with no date missing on either side. ' +
-    'Eight variables are used: spot USD/IDR bid and ask, one-month forward bid and ask, the ten-year government ' +
+  c.push(P(`The market data cover the same ${T.n_hari.toLocaleString('en-US')} dates, with no date missing on either side. ` +
+    `${Kata(T.pasar ? T.pasar.n_var : 8)} variables are used: spot USD/IDR bid and ask, one-month forward bid and ask, the ten-year government ` +
     'bond yield, the dollar index, net non-resident equity flows, and the equity index. ' +
-    'Missing values are rare, between 0.1 and 0.7 per cent, and are carried forward; no value is carried ' +
-    'backwards by more than one date, so the training sample holds no future information.'));
+    // Batas bawah "0.1 per cent" yang diketik tangan menyesatkan: empat dari
+    // delapan variabel sama sekali tidak punya nilai hilang. Yang informatif
+    // adalah batas ATAS dan berapa variabel yang bersih.
+    (T.pasar
+      ? `Missing values are rare: no variable exceeds ${n(T.pasar.hilang_maks, 1)} per cent and ` +
+        `${kata(T.pasar.n_tanpa_hilang)} of the ${kata(T.pasar.n_var)} have none. ` +
+        `They are carried forward; no value is carried backwards by more than ` +
+        `${kata(T.pasar.bfill_maks)} date, so the training sample holds no future information.`
+      : 'Missing values are rare and are carried forward; no value is carried backwards by more than ' +
+        'one date, so the training sample holds no future information.')));
   c.push(TCAP(2, `Descriptive statistics for the ${T.n_leaf} series. Values in millions of US dollars.`));
   c.push(descTable());
   c.push(NOTE('Sparsity still varies a great deal after the aggregation: the zero share runs from 0.4 per ' +
@@ -573,8 +620,14 @@ function build() {
   c.push(H2('4.1. Data Presentation and Description'));
   c.push(P('Table 2 shows a panel that remains heterogeneous in every way that matters: means run from ' +
     `${n(Math.min(...T.desc.map(d => d.mean)), 0)} to +${n(Math.max(...T.desc.map(d => d.mean)), 0)} million ` +
-    'US dollars, excess kurtosis passes 200 in two series and sits below 1 in another, and the zero share runs ' +
-    'from 0.4 to 38.4 per cent.'));
+    // Ketiga rentang DITURUNKAN dari T.desc. Versi yang diketik tangan
+    // menyebut "passes 200 in two series" padahal hanya SATU yang lewat 200
+    // (241,0; berikutnya 101,8), dan catatan di 3.2 sudah menulis rentangnya
+    // 0,8 sampai 241 dengan benar - naskah membantah dirinya sendiri.
+    `US dollars, excess kurtosis passes 200 in ${kata(T.desc.filter(d => d.kurt > 200).length)} ` +
+    `series and sits below 1 in ${T.desc.filter(d => d.kurt < 1).length === 1 ? 'another' : kata(T.desc.filter(d => d.kurt < 1).length)}, and the zero share runs ` +
+    `from ${n(Math.min(...T.desc.map(d => d.zero)), 1)} to ` +
+    `${n(Math.max(...T.desc.map(d => d.zero)), 1)} per cent.`));
   c.push(P('Two features are shared by almost every series. ' +
     'Day-to-day autocorrelation of the level is positive everywhere, from 0.13 to 0.88, and — more useful — the ' +
     `autocorrelation of absolute changes is positive in all ${T.n_leaf} series, with a median near 0.49. ` +
@@ -754,7 +807,10 @@ function build() {
   c.push(H2('5.3. Theoretical and Practical Implications'));
   c.push(P('Five recommendations follow for an institution running a system like this.'));
   c.push(...BUL([
-    '**Model each counterparty and purpose cell on its own.** Eight methods win at least one cell and none wins more than five, so one pooled choice is worse for most of the grid.',
+    // "none wins more than five" diketik tangan dan SALAH: yang terbanyak
+    // menang 3 dari 15. Bagian 4.1 sudah mencetak angka yang benar dari
+    // bestCount, jadi rekomendasi ini membantah hasilnya sendiri.
+    `**Model each counterparty and purpose cell on its own.** ${Kata(T.n_metode_menang)} methods win at least one cell and none wins more than ${kata(T.menang_terbanyak)}, so one pooled choice is worse for most of the grid.`,
     '**Tune at the horizon you will run.** The feature count matters at sixty days and not at one. A setting copied from another horizon is an untested assumption, not a saving.',
     `**Check what your forecaster actually receives at prediction time, before concluding a predictor is useless.** Training on a feature and then withholding it at forecast time is silent, and here it accounted for ${n(T.tabel8b_gabungan.rusak_hilang_pct, 0)} per cent of an apparent ${n(T.tabel8b_gabungan.delta_nol, 1)} per cent penalty on market data. The diagnostic is cheap: if the damage scales with how much of the feature pool the predictor occupies, suspect the plumbing before the data.`,
     `**Then test market data on their merits, and expect a modest cost.** Handled correctly they still raise pooled error by ${n(T.tabel8b_gabungan.delta_benar, 1)} per cent here, but not uniformly: ${T.n_leaf_membaik} of ${T.n_leaf} series improve. Decide per series rather than for the panel.`,
@@ -766,7 +822,13 @@ function build() {
   c.push(...BUL([
     'The headline design has one test date. It is reported because it is the operational setting, but it supports description only, and every inferential claim here rests on the 30-origin design.',
     `Hyperparameter selection is sensitive to the length of the validation block, which is why we report it at sixty origins rather than the ten we began with. Section 4.3 gives the comparison; the short block chose a different configuration in ${T.blok_validasi ? T.blok_validasi.n_cfg_berubah : 24} of ${T.blok_validasi ? T.blok_validasi.n_cfg : 45} cells and made tuning look actively harmful. Sixty origins removes that artefact but does not make tuning useful, so the null result stands on the longer block rather than resting on the shorter one.`,
-    'The panel has 15 series and each paired test rests on 1,350 points. That is enough to separate the leading learner from the classical methods and not enough to separate effects of one or two per cent, which is the size of every configuration effect reported in Section 4.3. Absence of significance there is a statement about the resolution of this study, not a demonstration that the components do nothing.',
+    // DUA sampel berbeda, dan versi sebelumnya memberi keduanya angka yang
+    // sama. Perbandingan metode di Tabel 6 memasangkan 15 seri x 30 origin =
+    // 450 ramalan per metode; ablasi dan bongkar-pasang konfigurasi di 4.3
+    // menyatukan tiga model pohon, jadi 1.350. Menyebut 1.350 untuk kedua
+    // klaim melebihkan sampel uji metode tiga kali lipat, dan membantah
+    // keterangan Tabel 6 yang sudah menulis 450 dengan benar.
+    `The panel has ${T.n_leaf} series. The method comparison in Table 6 pairs ${T.e2_summary[0].n.toLocaleString('en-US')} forecasts per method, and the configuration tests in Section 4.3 pool the three tree models for ${T.reverse_ablation[0].n.toLocaleString('en-US')} points each. That is enough to separate the leading learner from the classical methods and not enough to separate effects of one or two per cent, which is the size of every configuration effect reported there. Absence of significance is a statement about the resolution of this study, not a demonstration that the components do nothing.`,
     `The three leading methods are statistically indistinguishable, so the order within that group in Table 6 carries no weight. The ${T.champion_koreksi ? T.champion_koreksi.n_uji : 9} pairwise tests against the leading method are corrected for multiplicity by Holm-Bonferroni; the correction widens the tie group in principle but changes nothing here, because the two non-significant comparisons were already far from the threshold and the seven significant ones all survive.`,
     'Only one horizon is studied, and the panel comes from one jurisdiction and one reporting framework. Three features of that setting bound the results and each cuts in a specific direction. Under a managed float the central bank is itself a counterparty and its reaction is part of the data-generating process, so the flow-to-rate relationship this paper measures is partly a policy artefact rather than a pure market one. A shallow onshore market means a single large corporate settlement can move a daily cell, which raises the weight of counterparty composition — the thing being forecast — and inflates the tails that make the maximum-error columns move. And the administrative reporting framework fixes both the counterparty categories and the declared purposes, so the grid itself is an institutional choice, not a natural one. In a deep free-floating market with a different reporting taxonomy we would expect the disaggregation to buy less, the tails to be thinner, and the market-data question to be worth re-asking rather than settled by these numbers.',
     'Three reported cells are aggregates of two reporting categories each, as Section 3.2 sets out. That removes a degenerate cell but also removes the possibility of saying anything about foreign-investment corporates separately, which a supervisor may want.',
@@ -790,7 +852,11 @@ function build() {
   c.push(...BUL([
     'Test market data at longer horizons, where their own future values must also be forecast, and measure how much of any gain survives that.',
     'Model the sparse cells with methods built for intermittent demand, scored with measures suited to them, and test whether sibling series help one day ahead, where yesterday value of every other cell is known.',
-    'Widen the validation block used for hyperparameter selection and check whether the configurations chosen stop reversing sign on the test block. Ten origins was affordable, not sufficient.',
+    // Butir ini SUDAH DIKERJAKAN dan hasilnya ada di 4.3 - blok validasi
+    // dilebarkan dari 10 ke 60 origin dan tanda pembalikannya hilang. Versi
+    // sebelumnya masih mencantumkannya sebagai riset lanjutan sambil
+    // membantah butir batasan di 5.4 yang menyebut sixty origins.
+    `Widen the validation block further still. Going from ${T.blok_validasi ? T.blok_validasi.nval_pendek : 10} origins to ${T.blok_validasi ? T.blok_validasi.nval_panjang : 60} removed the sign reversal reported in Section 4.3 but left the tuning effect indistinguishable from noise, so the block is now long enough to be trusted and still too short to resolve an effect of this size. Establishing where that resolution limit sits would tell an institution how much validation history a tuning decision actually requires.`,
     'Score selection rules on tail behaviour rather than average error, to establish why redundancy-aware selection moves the mean without moving the paired test, and re-run the comparison with a formal tie-group procedure across all ten methods rather than pairwise tests against the leader.',
   ]));
 
@@ -1221,7 +1287,7 @@ function synthProse() {
   c.push(P(`The first is that many methods win, not one. ` +
     `Eight of the ten are best on at least one series and none on more than ${bestCount[0][1]} of ` +
     `${T.n_leaf}, and no summary statistic we measured predicts which. ` +
-    `At the aggregate level the three tree ensembles are separated by less than five per cent and by no ` +
+    `At the aggregate level the three tree ensembles are separated by ${n(sebaranPohon(), 1)} per cent and by no ` +
     `test. An applied literature that reports a best learner on a single panel is reporting something ` +
     `this fragile, usually without the tests that would reveal it.`));
   c.push(P('The second is that the configuration around the learner matters even less than the learner. ' +

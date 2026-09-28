@@ -75,6 +75,41 @@ T['n_leaf'] = len(lv)
 T['n_hari'] = len(dcols)
 T['tgl_awal'], T['tgl_akhir'] = dcols[0], dcols[-1]
 
+# ------------------------------------------------- nilai hilang di data pasar
+# Naskah menyebut rentang nilai hilang di 3.3 dan menyatakan tidak ada nilai
+# yang dibawa MUNDUR lebih dari satu tanggal. Keduanya diturunkan di sini,
+# bukan diketik: versi ketik tangan menulis "between 0.1 and 0.7 per cent"
+# padahal EMPAT dari delapan variabel tidak punya nilai hilang sama sekali,
+# jadi batas bawahnya menyesatkan.
+#
+# load_external() memakai ffill lalu bfill, jadi hanya deretan NaN di AWAL
+# yang terisi mundur - itulah yang dihitung sebagai bfill_maks.
+T['pasar'] = None
+if os.path.exists(EXT):
+    _e = pd.read_excel(EXT)
+    _kol = [c for c in _e.columns if c != 'Tanggal']
+    _n = len(_e)
+    _hil = {c: float(100 * pd.to_numeric(_e[c], errors='coerce').isna().sum() / _n)
+            for c in _kol}
+    def _nan_awal(s):
+        v = pd.to_numeric(s, errors='coerce').isna().values
+        i = 0
+        while i < len(v) and v[i]:
+            i += 1
+        return i
+    T['pasar'] = {
+        'n_var': len(_kol),
+        'n_tanggal': _n,
+        'hilang_maks': max(_hil.values()),
+        'n_tanpa_hilang': sum(1 for v in _hil.values() if v == 0),
+        'bfill_maks': max(_nan_awal(_e[c]) for c in _kol),
+    }
+    print(f"  data pasar: {T['pasar']['n_var']} variabel, hilang maks "
+          f"{T['pasar']['hilang_maks']:.3f}%, {T['pasar']['n_tanpa_hilang']} tanpa "
+          f"hilang, bawa mundur maks {T['pasar']['bfill_maks']} tanggal")
+else:
+    print(f'  data pasar: {EXT} tidak ada - klaim nilai hilang dilewati')
+
 # ------------------------------------------------------------- Tabel 5 dan 6
 T['e1'] = [dict(leaf=r.leaf, model=r.model, actual=float(r.actual),
                 pred=float(r.pred), mase=float(r.mase)) for r in head.itertuples()]
