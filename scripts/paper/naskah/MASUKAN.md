@@ -1,6 +1,6 @@
 # Masukan revisi naskah utama — DIENDAPKAN
 
-Status: **daftar lengkap (1–17). Kode untuk komputasi ulang siap; menunggu
+Status: **daftar lengkap (1–18). Kode untuk komputasi ulang siap; menunggu
 hasil VPS (`hasil_w5`).** Penulisan ulang teks dikerjakan sesudah hasil
 masuk, karena hampir semua angka akan bergeser. Judul (no. 1, 15) terakhir,
 sesudah badan naskah disetujui.
@@ -31,6 +31,7 @@ Naskah yang dimaksud: `FX_15seri.docx`, dibangun dari `build.js` pada commit
 | 15 | Judul | Ditunda sampai badan naskah OK |
 | 16 | Rata-rata bergerak data pasar kelipatan 5 | **7 → 5.** Lag pasar ikut **1–14 → 1–15** |
 | 17 | Jendela lain kelipatan 5, cek seluruh kode | **Dikerjakan.** Peta lengkap di bawah. Semua ikut dikomputasi ulang |
+| 18 | Abstrak | Ditulis **terakhir**, sesudah Hasil dan Kesimpulan versi baru jadi, dan disusun dari keduanya dengan urutan: (1) mengapa studi ini penting, (2) bagaimana dilakukan, (3) temuan kunci, (4) implikasi ke depan. Semua angka di abstrak diturunkan dari `tables.json`, bukan ditulis tangan, dan diperiksa `cek_draft.py` |
 
 ### Peta nama leaf (no. 5)
 
@@ -214,6 +215,9 @@ diunggah, naskah disusun dengan `JBV_NASKAH_HASIL=.../hasil_w5` dan
 `JBV_NASKAH_SLOT=.../hasil_slot_w5`.
 
 ### Yang harus dikerjakan di teks sesudah hasil masuk
+
+Urutan penulisan: badan naskah (Metodologi, Bab 4-6) -> Kesimpulan -> Abstrak
+(no. 18) -> Judul (no. 1, 15).
 
 - Prosa yang masih menulis jendela lama ("seven, fourteen, thirty, sixty and
   ninety days", "seven-day rolling mean") diturunkan dari `T['jendela']` dan
