@@ -12,12 +12,34 @@
 const fs = require('fs');
 const D = require('docx');
 const {
-  Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
+  Document, Packer, Paragraph, HeadingLevel, AlignmentType,
   Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle,
   ImageRun, Footer, PageNumber,
 } = D;
 
 const path = require('path');
+
+/* Nama TAMPILAN leaf (A.2.a -> A.1, B.a -> B.1, C.e -> C.5), dari
+   ../nama_leaf.json - sumber yang sama dengan figs.py dan shap_baru.py.
+   Kode internal tetap dipakai di tables.json dan logika (ACTOROF, urutan).
+   Penggantian dilakukan di konstruktor TextRun, jadi SETIAP teks di naskah -
+   paragraf, sel tabel, judul, keterangan, catatan - lewat satu pintu dan
+   tidak ada tempat yang terlewat. Batas kata mencegah "A.2.a" di dalam kode
+   lain atau nama fitur ikut terganti. */
+const NAMA_LEAF = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'nama_leaf.json'), 'utf8')).peta;
+const KODE_LAMA = new RegExp('(?<![\\w.])(' + Object.keys(NAMA_LEAF).map(k => k.replace(/\./g, '\\.')).join('|') + ')(?!\\w|\\.\\w)', 'g');
+const tampil = t => t.replace(KODE_LAMA, k => NAMA_LEAF[k]);
+let nTampil = 0;
+class TextRun extends D.TextRun {
+  constructor(o) {
+    if (o && typeof o === 'object' && typeof o.text === 'string') {
+      const baru = tampil(o.text);
+      if (baru !== o.text) nTampil++;
+      o = { ...o, text: baru };
+    } else if (typeof o === 'string') o = tampil(o);
+    super(o);
+  }
+}
 
 /* Jalan berkas sejajar dengan jalan.py, termasuk env-nya, supaya rantai
    Python dan Node menunjuk folder yang sama. */
@@ -1497,4 +1519,5 @@ function refs() {
 }
 
 const OUTF = process.argv[2] || path.join(KERJA, 'FX_15seri.docx');
+console.log(`nama leaf tampilan: ${nTampil} potongan teks memakai nama baru (nama_leaf.json)`);
 Packer.toBuffer(doc).then(b => { fs.writeFileSync(OUTF, b); console.log('ditulis:', OUTF, (b.length / 1024).toFixed(0) + ' KB'); });

@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from h1_common import *          # noqa: F403
 import json as _json_nama
 _jn = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'nama_leaf.json')
-NAMA_LEAF = _json_nama.load(open(_jn))['peta'] if os.path.exists(_jn) else {}
+# Wajib ada: tanpa berkas ini judul beeswarm diam-diam kembali ke kode lama.
+NAMA_LEAF = _json_nama.load(open(_jn))['peta']
 warnings.filterwarnings('ignore')
 
 import matplotlib
@@ -67,6 +68,15 @@ FAMILY = [
     ('volatility', 'Volatility / range'), ('range', 'Volatility / range'),
     ('rsi', 'Technical'), ('bb_', 'Technical'), ('macd', 'Technical'),
     ('z_score', 'Extreme value'), ('is_extreme', 'Extreme value'),
+    # Sebelumnya 24 fitur jatuh ke 'Other': 16 rolling min/max, posisi harga,
+    # lonjakan dan batas perubahan. feature_config.py sendiri menggolongkan
+    # min/max dan posisi harga sebagai proksi volatilitas, dan lonjakan di
+    # extreme_detection. max/min_change ikut change_range yang sudah di
+    # 'Volatility / range'.
+    ('rolling_min', 'Volatility / range'), ('rolling_max', 'Volatility / range'),
+    ('price_position', 'Volatility / range'), ('max_change', 'Volatility / range'),
+    ('min_change', 'Volatility / range'),
+    ('jump', 'Extreme value'), ('week_of', 'Calendar'),
     ('diff', 'Change / trend'), ('pct_change', 'Change / trend'),
     ('fourier', 'Calendar'), ('day_of', 'Calendar'), ('month', 'Calendar'),
     ('is_weekend', 'Calendar'), ('quarter', 'Calendar'),
@@ -85,9 +95,14 @@ def pretty(fn):
         a, b = fn.split('_x_', 1)
         return f'{pretty(a)} x {b.replace("_", " ")}'
     if fn.startswith('ext_'):
+        # Jendela rata-rata dibaca dari namanya (ext_<var>_rolling_mean_<w>).
+        # Dulu tertulis '7d mean' dan nama variabelnya ikut membawa
+        # 'rolling mean 7', jadi labelnya dobel.
         p = fn[4:].split('_lag_')
-        nm = p[0].replace('_', ' ')
-        return f'{nm}, lag {p[1]}' if len(p) > 1 else f'{nm}, 7d mean'
+        if len(p) > 1:
+            return f'{p[0].replace("_", " ")}, lag {p[1]}'
+        var, _, w = fn[4:].rpartition('_rolling_mean_')
+        return f'{var.replace("_", " ")}, {w}d mean' if var else fn[4:].replace('_', ' ')
     if fn.startswith('lag_'):
         return f'Own lag {fn[4:]}'
     if fn.startswith('rolling_mean_'):
@@ -145,6 +160,11 @@ def main():
     RF_CFG = muat_setelan()
     panel, dcols, dall = load_panel()
     lv = leaves(panel)
+    # Diperiksa di awal, bukan saat menggambar: tahap ini berjam-jam, dan leaf
+    # tanpa nama tampilan akan tercetak dengan kode lama di judul beeswarm.
+    tanpa_nama = [r for r in lv['Row_ID'] if r not in NAMA_LEAF]
+    if tanpa_nama:
+        raise SystemExit(f'BERHENTI: leaf tanpa nama tampilan di nama_leaf.json: {tanpa_nama}')
     esd, edt = load_external()
     st = json.load(open(CKPT)) if os.path.exists(CKPT) else {'leaf': {}}
 
@@ -206,7 +226,7 @@ def main():
     ax = axes[1]
     ax.barh(range(len(shares))[::-1], [r['share'] for r in shares], color=ACC, zorder=3)
     ax.set_yticks(range(len(shares))[::-1])
-    ax.set_yticklabels([r['leaf'] for r in shares], fontsize=6.6)
+    ax.set_yticklabels([NAMA_LEAF.get(r['leaf'], r['leaf']) for r in shares], fontsize=6.6)
     ax.set_xlabel('external share of importance (%)')
     ax.grid(axis='x', color=GRID, lw=.6); ax.set_axisbelow(True)
     ax.set_title('By series', fontsize=8.4, loc='left', pad=6)

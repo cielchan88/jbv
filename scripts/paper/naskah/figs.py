@@ -28,8 +28,20 @@ PUR={'Ekspor':'Export','Impor':'Import','Investasi':'Investment','Repatriasi':'R
  'Lainnya':'Other'}
 LAB={d['leaf']:PUR.get(str(d['label']).split('. ',1)[-1],str(d['label']).split('. ',1)[-1])
      for d in T['desc']}
-def simpan(fig,nama):
-    fig.tight_layout(); fig.savefig(F+nama,dpi=200); plt.close(fig); print('  ',nama)
+# Nama TAMPILAN leaf (A.2.a -> A.1, ...), satu sumber dengan build.js dan
+# shap_baru.py. Kode internal tetap dipakai untuk data dan nama berkas.
+NAMA_LEAF = json.load(open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'nama_leaf.json')))['peta']
+nama = lambda l: NAMA_LEAF.get(l, l)
+import re, matplotlib.text
+KODE_LAMA = re.compile(r'(?<![\w.])(?:' + '|'.join(re.escape(k) for k in NAMA_LEAF) + r')(?!\w|\.\w)')
+def simpan(fig,nama_berkas):
+    # Penjaga: tidak boleh ada kode leaf lama di teks mana pun pada gambar -
+    # judul, label sumbu, anotasi, legenda.
+    for t in fig.findobj(matplotlib.text.Text):
+        if KODE_LAMA.search(t.get_text()):
+            raise SystemExit(f'BERHENTI: {nama_berkas} memuat kode leaf lama: {t.get_text()!r}')
+    fig.tight_layout(); fig.savefig(F+nama_berkas,dpi=200); plt.close(fig); print('  ',nama_berkas)
 
 # ---------------------------------------------------------------- Gambar 1
 KOL=['Export','Import','Investment','Repatriation','No underlying','Remittance','Trading','Other']
@@ -44,7 +56,7 @@ for i,(pre,nm) in enumerate(BARIS):
             ax.add_patch(plt.Rectangle((j-.45,i-.42),.9,.84,fill=False,ec=GRID,ls='--',lw=.8)); continue
         m=mean[leaf]; warna=BLUE if m>0 else ACC
         ax.add_patch(plt.Rectangle((j-.45,i-.42),.9,.84,fc=warna,alpha=.16,ec=warna,lw=1.1))
-        ax.text(j,i-.10,leaf,ha='center',va='center',fontsize=7.6,weight='bold',color=warna)
+        ax.text(j,i-.10,nama(leaf),ha='center',va='center',fontsize=7.6,weight='bold',color=warna)
         ax.text(j,i+.18,f'{m:,.0f}',ha='center',va='center',fontsize=6.8,color=MUTED)
 ax.set_xticks(range(len(KOL))); ax.set_xticklabels(KOL,fontsize=7.2,rotation=20,ha='right')
 ax.set_yticks(range(len(BARIS))); ax.set_yticklabels([n for _,n in BARIS],fontsize=8)
@@ -65,7 +77,7 @@ for i,l in enumerate(leafs):
     ax.plot([rw,rw],[i-.28,i+.28],c=BLUE,lw=1.4,zorder=3)
 ax.axvline(1,ls='--',c=MUTED,lw=.9)
 ax.set_yticks(range(len(leafs)))
-ax.set_yticklabels([f'{l}  {LAB[l]}' for l in leafs],fontsize=7)
+ax.set_yticklabels([f'{nama(l)}  {LAB[l]}' for l in leafs],fontsize=7)
 ax.set_xlabel('MASE (mean over 30 one-day origins)',fontsize=8)
 ax.set_xlim(0,max(3,g.mase.quantile(.97))); ax.grid(axis='x',color=GRID,lw=.6); ax.set_axisbelow(True)
 ax.invert_yaxis()
@@ -227,7 +239,7 @@ ax = axes[0]; yy = np.arange(len(lf))
 ax.barh(yy, n_ext, color=ACC, zorder=3, label='market')
 ax.barh(yy, n_lag, left=n_ext, color=BLUE, zorder=3, label='own lags')
 ax.barh(yy, n_sisa, left=np.add(n_ext, n_lag), color=GRID, zorder=3, label='other')
-ax.set_yticks(yy); ax.set_yticklabels([f'{l}  {LAB[l]}' for l in lf], fontsize=6.8)
+ax.set_yticks(yy); ax.set_yticklabels([f'{nama(l)}  {LAB[l]}' for l in lf], fontsize=6.8)
 ax.set_xlabel('composition of the 25 selected features', fontsize=8)
 ax.legend(fontsize=6.6, frameon=False, ncol=3, loc='lower center',
           bbox_to_anchor=(0.5, 1.005))   # di atas sumbu; di dalam ia menutupi batang terakhir

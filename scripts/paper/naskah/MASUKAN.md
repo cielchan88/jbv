@@ -124,6 +124,37 @@ Keempatnya memengaruhi hasil lama juga, jadi disebut di naskah bila relevan.
 Sesudah perbaikan: nol selisih fitur antara latih dan prediksi pada 116 fitur
 × 15 leaf, dan pemotongan awalan (cache) tetap bit-identik.
 
+### Temuan pemeriksaan ulang sebelum VPS (ikut diperbaiki)
+
+5. **Daftar prioritas volatilitas masih memakai jendela 7/14.** 16 dari 28
+   nama di `VOLATILITY_PRIORITY_FEATURES` tidak lagi dibangkitkan. Sekarang
+   diturunkan dari konfigurasi, 28 dari 28 ada. Daftar ini hanya aktif bila
+   `volatility_quota > 0` (bawaan 0, tanpa pemanggil), jadi hasil naskah tidak
+   terpengaruh.
+6. **Label SHAP rata-rata pasar tertulis "7d mean"** di `shap_baru.py`, dan
+   nama variabelnya ikut membawa "rolling mean 7" (label dobel). Sekarang
+   jendelanya dibaca dari nama fitur: "bid usdidr, 5d mean".
+7. **24 fitur jatuh ke keluarga SHAP "Other"**: 16 rolling min/max, posisi
+   harga, lonjakan, batas perubahan, minggu-dalam-tahun. Sekarang
+   dikelompokkan sesuai feature_config.py (min/max, posisi harga, batas
+   perubahan: Volatility / range; lonjakan: Extreme value; minggu: Calendar).
+   Seluruh 244 fitur punya keluarga, "Other" kosong. Pangsa per keluarga di
+   Gambar 7 dan prosa 4.x akan bergeser karena ini, bukan hanya karena jendela.
+
+### Nama leaf tampilan (no. 5) - sudah terpasang di seluruh keluaran
+
+- **Naskah (build.js):** konstruktor `TextRun` membungkus semua teks, jadi
+  paragraf, sel tabel, judul, keterangan gambar dan catatan lewat satu pintu.
+- **Gambar (figs.py):** Gambar 1, 3, 8 memakai nama baru; `simpan()` berhenti
+  kalau ada kode lama di teks gambar mana pun.
+- **SHAP (shap_baru.py):** judul 15 beeswarm dan grafik "By series".
+  Berhenti di awal kalau ada leaf tanpa nama; `vps.py periksa` mengecek
+  peta terhadap leaf panel sebelum apa pun dijalankan.
+- **Pemeriksa (cek_draft.py):** Tabel 8 dicocokkan lewat peta balik, dan
+  gagal kalau ada kode lama atau salah satu dari 15 nama baru tidak muncul.
+- Beeswarm di draf SEKARANG masih berjudul kode lama karena disalin dari
+  `hasil_nval60`. Hasil VPS membawa judul baru.
+
 ### Catatan terbuka
 
 - **MACD 10/25/10 menyimpang dari standar 12/26/9.** Konsekuensi aturan

@@ -35,6 +35,14 @@ tbs = [[[c.text.strip() for c in r.cells] for r in t.rows] for t in d.tables]
 teks = prosa + '\n' + '\n'.join(' | '.join(r) for t in tbs for r in t)
 teks = teks.replace('—', '-').replace('−', '-')
 
+# Nama tampilan leaf: naskah mencetak A.1 ... C.5, tables.json memakai kode
+# internal. BALIK memetakan nama di naskah kembali ke kode untuk pencocokan.
+NAMA_LEAF = json.load(open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'nama_leaf.json')))['peta']
+BALIK = {v: k for k, v in NAMA_LEAF.items()}
+KODE_LAMA = re.compile(r'(?<![\w.])(?:' + '|'.join(re.escape(k) for k in NAMA_LEAF)
+                       + r')(?!\w|\.\w)')
+
 ok, gagal = [], []
 nf = lambda v, dp=3: f'{v:.{dp}f}'
 
@@ -147,11 +155,18 @@ t = judul('Series', 'Purpose', 'FE only')
 if t:
     p25 = {r['leaf']: r for r in T['per_leaf_ext'] if r['k'] == 25}
     p12 = {r['leaf']: r for r in T['per_leaf_ext'] if r['k'] == 12}
+    n_t8 = 0
     for row in t[1:]:
-        if row[0] in p25:
-            banding(f'T8 {row[0]} fe12', num(row[2]), round(p12[row[0]]['fe'], 3))
-            banding(f'T8 {row[0]} fe25', num(row[5]), round(p25[row[0]]['fe'], 3))
-            banding(f'T8 {row[0]} slot', num(row[8]), p25[row[0]]['n_ext'], 0.5)
+        lf = BALIK.get(row[0], row[0])
+        if lf in p25:
+            n_t8 += 1
+            banding(f'T8 {row[0]} fe12', num(row[2]), round(p12[lf]['fe'], 3))
+            banding(f'T8 {row[0]} fe25', num(row[5]), round(p25[lf]['fe'], 3))
+            banding(f'T8 {row[0]} slot', num(row[8]), p25[lf]['n_ext'], 0.5)
+    # Tanpa ini, baris yang namanya tidak dikenali dilewati diam-diam dan
+    # "0 tidak cocok" tetap tercetak.
+    if n_t8 != len(p25):
+        beda.append(f'T8: hanya {n_t8} dari {len(p25)} baris seri dikenali')
 
 # ------------------------------------------- 2b. kelengkapan Lampiran B
 # Lampiran yang memuat sebagian seri tanpa mengatakan seri mana yang hilang
@@ -197,12 +212,22 @@ sah |= {str(i) for i in range(0, 2100)}          # tahun sitasi dan angka kecil
 angka = re.findall(r'(?<![\w.])\d+(?:\.\d+)?(?![\w])', prosa)
 yatim = sorted({a for a in angka if a not in sah}, key=float)
 
+# ------------------------------------------------ 4. nama leaf tampilan
+lama = sorted(set(KODE_LAMA.findall(teks)))
+if lama:
+    beda.append(f'kode leaf lama masih tercetak: {", ".join(lama)}')
+tak_muncul = sorted(v for v in NAMA_LEAF.values()
+                    if not re.search(r'(?<![\w.])' + re.escape(v) + r'(?!\w|\.\w)', teks))
+if tak_muncul:
+    beda.append(f'nama leaf baru tidak muncul: {", ".join(tak_muncul)}')
+
 print(f'1. klaim kunci : {len(ok)} cocok, {len(gagal)} tidak ketemu')
 for lbl, v in gagal:
     print(f'     {lbl:40s} {v}')
 print(f'2. sel tabel   : {n_sel} dibandingkan, {len(beda)} tidak cocok')
 for b in beda:
     print(f'     {b}')
+print(f'4. nama leaf   : {len(lama)} kode lama, {len(NAMA_LEAF) - len(tak_muncul)} dari {len(NAMA_LEAF)} nama baru tercetak')
 print(f'3. angka yatim : {len(yatim)} di prosa tidak terlacak ke tables.json')
 if yatim:
     print('     (tahun sitasi dan nomor halaman wajar muncul di sini)')

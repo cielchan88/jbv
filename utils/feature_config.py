@@ -604,51 +604,42 @@ COMPARISON TO ORIGINAL:
 # ============================================================================
 # VOLATILITY-FOCUSED FEATURES (Priority for selection)
 # ============================================================================
-VOLATILITY_PRIORITY_FEATURES = [
-    # Direct volatility measures (MUST KEEP)
-    "volatility_7",
-    "volatility_14",
-    "volatility_30",
+# Nama DITURUNKAN dari FEATURE_CONFIG, bukan ditulis langsung. Daftar lama
+# memakai jendela 7/14; sesudah jendela kelipatan 5, 16 dari 28 namanya tidak
+# lagi dibangkitkan dan kuota volatilitas akan diam-diam kehilangan separuh
+# kandidatnya. Daftar ini hanya dipakai bila volatility_quota > 0 (bawaan 0,
+# tidak ada pemanggil yang menyalakannya), jadi hasil naskah tidak terpengaruh.
+def _prioritas_volatilitas(fc):
+    vol = fc["volatility_features"]
+    ext = fc["extreme_detection"]
+    rw = sorted(fc["rolling_statistics"]["windows"])[:2]   # dua jendela terpendek, seperti dulu 7/14
+    vw = sorted(vol["windows"])
+    return (
+        # Direct volatility measures
+        [f"volatility_{w}" for w in vw]
+        # Volatility regime
+        + ["is_high_volatility_regime", f"volatility_ratio_{vw[0]}_{vw[-1]}"]
+        # Asymmetric volatility
+        + [f"{k}_{w}" for w in vol["asymmetric_windows"]
+           for k in ("downside_volatility", "upside_volatility", "volatility_skew")]
+        # Extreme detection
+        + [f"z_score_{w}" for w in ext["z_score_windows"]]
+        + [f"is_extreme_{k}_{min(ext['z_score_windows'])}" for k in ("high", "low")]
+        + ["jump_size", "is_jump"]
+        # Rolling range (volatility proxy)
+        + [f"rolling_{k}_{w}" for w in rw for k in ("min", "max")]
+        # Bollinger Bands
+        + [f"bb_{k}_{w}" for w in fc["technical_indicators"]["bollinger_bands"]["windows"]
+           for k in ("width", "percent")]
+        # Price position
+        + [f"price_position_{w}" for w in vol["price_position_windows"]]
+        # Change limits
+        + [f"{k}_{w}d" for w in ext["change_limits"]["windows"]
+           for k in ("max_change", "min_change", "change_range")]
+    )
 
-    # Volatility regime (MUST KEEP)
-    "is_high_volatility_regime",
-    "volatility_ratio_7_30",
 
-    # Asymmetric volatility (MUST KEEP)
-    "downside_volatility_14",
-    "upside_volatility_14",
-    "volatility_skew_14",
-    "downside_volatility_30",
-    "upside_volatility_30",
-    "volatility_skew_30",
-
-    # Extreme detection (MUST KEEP)
-    "z_score_14",
-    "z_score_30",
-    "is_extreme_high_14",
-    "is_extreme_low_14",
-    "jump_size",
-    "is_jump",
-
-    # Rolling range (volatility proxy)
-    "rolling_min_7",
-    "rolling_max_7",
-    "rolling_min_14",
-    "rolling_max_14",
-
-    # Bollinger Bands (volatility bands)
-    "bb_width_20",
-    "bb_percent_20",
-
-    # Price position (extremes)
-    "price_position_30",
-    "price_position_60",
-
-    # Change limits (volatility spikes)
-    "max_change_14d",
-    "min_change_14d",
-    "change_range_14d"
-]
+VOLATILITY_PRIORITY_FEATURES = _prioritas_volatilitas(FEATURE_CONFIG)
 
 # ============================================================================
 # FEATURE SELECTION OVERRIDE (Force-include volatility features)

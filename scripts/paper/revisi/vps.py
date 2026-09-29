@@ -291,6 +291,27 @@ def periksa(a, cetak=True):
         gagal(f'feature_config tidak terbaca: {e}')
     k = arms_k()
     (lulus if max(k) >= 40 else gagal)(f'lengan ablasi k = {k}')
+    # Nama tampilan leaf untuk judul beeswarm (shap_baru.py). Dicek terhadap
+    # leaf panel yang sebenarnya, supaya tahap SHAP tidak berhenti berjam-jam
+    # kemudian, atau mencetak kode lama.
+    try:
+        peta = json.load(open(os.path.join(os.path.dirname(DIR), 'nama_leaf.json')))['peta']
+        r = subprocess.run([sys.executable, '-c',
+                            'import sys, json; sys.path.insert(0, %r)\n'
+                            'from h1_common import load_panel, leaves\n'
+                            'print(json.dumps(list(leaves(load_panel()[0])["Row_ID"])))' % DIR],
+                           env=dict(env_tahap('_periksa_nama', a.nval), JBV_BACA_SAJA='1'),
+                           capture_output=True, text=True)
+        ids = json.loads(r.stdout.strip().splitlines()[-1])
+        kurang_nama = [x for x in ids if x not in peta]
+        (gagal if kurang_nama else lulus)(
+            f'nama leaf tampilan: {len(ids) - len(kurang_nama)} dari {len(ids)} leaf panel'
+            + (f' - TANPA NAMA: {kurang_nama}' if kurang_nama else
+               f' ({ids[0]} -> {peta[ids[0]]} ... {ids[-1]} -> {peta[ids[-1]]})'))
+    except Exception as e:
+        gagal(f'nama_leaf.json / leaf panel tidak terbaca: {e}')
+    finally:
+        shutil.rmtree(jalur_hasil('_periksa_nama'), ignore_errors=True)
 
     # 4. folder hasil: baru, atau sidik jarinya cocok
     say('\n-- folder hasil')
