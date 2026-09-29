@@ -1,0 +1,137 @@
+{
+ "A.2.a": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 1,
+  "k25_univ": 0
+ },
+ "A.2.b": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 3,
+  "k25_univ": 0
+ },
+ "A.2.c": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 2,
+  "k25_univ": 0
+ },
+ "A.2.d": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 2,
+  "k12_univ": 0,
+  "k25_mrmr": 8,
+  "k25_univ": 4
+ },
+ "A.2.e": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 4,
+  "k12_univ": 2,
+  "k25_mrmr": 13,
+  "k25_univ": 15
+ },
+ "A.2.f": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 4,
+  "k12_univ": 1,
+  "k25_mrmr": 14,
+  "k25_univ": 14
+ },
+ "B.a": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 0,
+  "k25_univ": 0
+ },
+ "B.b": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 1,
+  "k12_univ": 0,
+  "k25_mrmr": 3,
+  "k25_univ": 0
+ },
+ "B.c": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 0,
+  "k25_univ": 0
+ },
+ "B.d": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 0,
+  "k25_univ": 0
+ },
+ "C.a": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 0,
+  "k25_univ": 0
+ },
+ "C.b": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 2,
+  "k12_univ": 0,
+  "k25_mrmr": 4,
+  "k25_univ": 0
+ },
+ "C.c": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 0,
+  "k12_univ": 0,
+  "k25_mrmr": 3,
+  "k25_univ": 0
+ },
+ "C.d": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 3,
+  "k12_univ": 0,
+  "k25_mrmr": 11,
+  "k25_univ": 13
+ },
+ "C.e": {
+  "kandidat_internal": 116,
+  "kandidat_total": 244,
+  "kandidat_pasar": 128,
+  "k12_mrmr": 2,
+  "k12_univ": 0,
+  "k25_mrmr": 5,
+  "k25_univ": 0
+ }
+}
