@@ -111,9 +111,16 @@ scripts/paper/revisi/hasil_*/
 # Folder harus dibuka dulu supaya git menelusurinya, lalu isinya ditutup lagi
 # dan hanya satu berkas dibuka. Tanpa baris tengah, konfigurasi.json dan
 # versi.json di folder itu ikut terbuka - keduanya bukan untuk repo publik.
+# Pola yang sama untuk folder slot jendela kelipatan 5 (hasil_slot_w5).
 !scripts/paper/revisi/hasil_slot/
 scripts/paper/revisi/hasil_slot/*
 !scripts/paper/revisi/hasil_slot/slot_pasar.json
+!scripts/paper/revisi/hasil_slot_w5/
+scripts/paper/revisi/hasil_slot_w5/*
+!scripts/paper/revisi/hasil_slot_w5/slot_pasar.json
+
+# Arsip hasil VPS dari `vps.py kemas` - berisi actual/pred, sama seperti hasil_*.
+jbv_*.tgz
 
 # Keluaran penyusunan naskah: tables.json memuat kolom actual/pred per leaf
 # (arus valas dalam juta USD) dan repo ini publik.

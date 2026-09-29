@@ -90,9 +90,58 @@ def _lapor_awal():
 # Sidik jari ini ditulis saat folder hasil pertama kali dipakai, lalu dicocokkan
 # setiap kali. Kolam berubah tanpa memindahkan folder akan berhenti di sini.
 # ---------------------------------------------------------------------------
+# Jendela yang dipakai SEBELUM kunci 'jendela' masuk sidik jari. Folder hasil
+# yang dibuat saat itu pasti memakai nilai ini - tidak ada nilai lain yang
+# mungkin - jadi sidik jari lamanya diisi mundur dengan ini, seperti 'nval'.
+JENDELA_LAMA = {
+    'rolling': [7, 14, 30, 60, 90], 'ewm': [7, 30], 'diff': [1, 7, 30],
+    'pct_change': [1, 7, 30], 'volatilitas': [7, 14, 30],
+    'volatilitas_asimetris': [14, 30], 'posisi_harga': [30, 60], 'rsi': [14],
+    'bollinger': [20], 'z_score': [14, 30], 'batas_perubahan': [14],
+    'jump': 14, 'jump_cap': None, 'regime_median': 60, 'macd': [12, 26, 9],
+    'fourier': [7, 30, 90], 'fourier_indeks': 'baris', 'minggu_hari': 7,
+    'interaksi': [['lag_1', 'day_of_week'], ['lag_7', 'day_of_week'],
+                  ['rolling_mean_7', 'month'], ['rolling_mean_30', 'is_weekend']],
+}
+
+
+def _jendela(FC):
+    """Seluruh jendela, periode, span dan pasangan interaksi dalam satu kamus.
+
+    Sebelum ini sidik jari hanya mencatat lag, jadi mengganti jendela rolling
+    lalu menjalankan ke folder yang sama TIDAK dihentikan - dan sudah() akan
+    melewati sel yang tercatat, sehingga hasil jendela lama dan baru tercampur
+    tanpa satu pun pesan.
+    """
+    V, T, X = FC['volatility_features'], FC['technical_indicators'], FC['extreme_detection']
+    m = T['macd']
+    return {
+        'rolling': list(FC['rolling_statistics']['windows']),
+        'ewm': list(FC['ewm_features']['spans']),
+        'diff': list(FC['trend_features']['diff_periods']),
+        'pct_change': list(FC['trend_features']['pct_change_periods']),
+        'volatilitas': list(V['windows']),
+        'volatilitas_asimetris': list(V['asymmetric_windows']),
+        'posisi_harga': list(V['price_position_windows']),
+        'rsi': list(T['rsi']['windows']),
+        'bollinger': list(T['bollinger_bands']['windows']),
+        'z_score': list(X['z_score_windows']),
+        'batas_perubahan': list(X['change_limits']['windows']),
+        'jump': X.get('jump_window', 14), 'jump_cap': X.get('jump_cap'),
+        'regime_median': V.get('regime_median_window', 60),
+        'macd': [m.get('fast', 12), m.get('slow', 26), m.get('signal', 9)],
+        'fourier': [FC['fourier_features'].get('periods', {}).get(k, d)
+                    for k, d in (('weekly', 7), ('monthly', 30), ('quarterly', 90))],
+        'fourier_indeks': 'tanggal' if 'periods' in FC['fourier_features'] else 'baris',
+        'minggu_hari': FC['time_features'].get('week_length_days', 7),
+        'interaksi': [list(p) for p in FC['interaction_features']['interactions']],
+    }
+
+
 def _sidik_konfigurasi():
     from utils.feature_config import FEATURE_CONFIG as FC
     return {
+        'jendela': _jendela(FC),
         'lag_target': list(FC['lag_features']['lags']),
         'lag_pasar': list(FC['cross_series_features']['lags']),
         'rata_pasar': FC['cross_series_features']['rolling_mean_window'],
@@ -119,9 +168,28 @@ def periksa_konfigurasi():
     # mundur nilainya alih-alih menolak folder yang sebenarnya cocok - tapi
     # HANYA kalau yang diminta sekarang juga 10. Kalau tidak, ia memang beda
     # dan harus berhenti.
+    baca_saja = os.environ.get('JBV_BACA_SAJA') == '1'
     if 'nval' not in lama and kini.get('nval') == 10:
         lama['nval'] = 10
-        _json.dump(lama, open(jalan, 'w'), indent=1)
+        if not baca_saja:
+            _json.dump(lama, open(jalan, 'w'), indent=1)
+    # Folder dari sebelum 'jendela' ada di sidik jari pasti memakai jendela lama.
+    # Diisi di memori saja: kalau jendela sekarang berbeda, itu memang beda dan
+    # harus berhenti; kalau sama, folder itu sah.
+    if 'jendela' not in lama:
+        lama['jendela'] = JENDELA_LAMA
+    if lama == kini:
+        return
+    if baca_saja:
+        # Penyusun naskah hanya MEMBACA folder hasil, dan wajib bisa membaca
+        # folder lama sesudah konfigurasi berganti - itulah naskah yang sedang
+        # beredar. Tidak ada yang ditulis, jadi tidak ada yang bisa tercampur.
+        # Yang dilaporkan naskah tentang jendela harus diambil dari
+        # konfigurasi_folder(), bukan dari feature_config.py.
+        if not os.environ.get('JBV_DIAM'):
+            print('[h1_common] mode baca-saja: konfigurasi folder berbeda dari kode; '
+                  'dibaca apa adanya.', file=sys.stderr)
+        return
     if lama == kini:
         return
     beda = [k for k in kini if lama.get(k) != kini[k]]
@@ -139,6 +207,21 @@ def periksa_konfigurasi():
 
 
 periksa_konfigurasi()
+
+
+def konfigurasi_folder():
+    """Sidik jari FOLDER HASIL, dengan isian mundur yang sama seperti di atas.
+
+    Yang harus dipakai penyusun naskah untuk melaporkan jendela dan lag, karena
+    angka itu harus menggambarkan komputasi yang menghasilkan folder ini -
+    bukan isi feature_config.py saat naskah disusun.
+    """
+    import json as _json
+    jalan = HASIL + 'konfigurasi.json'
+    k = _json.load(open(jalan)) if os.path.exists(jalan) else _sidik_konfigurasi()
+    k.setdefault('nval', 10)
+    k.setdefault('jendela', JENDELA_LAMA)
+    return k
 
 
 def catat_versi():

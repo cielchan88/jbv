@@ -245,13 +245,41 @@ TOP_K_CROSS_SERIES = 30
 # FEATURE CONFIGURATION FOR HIGH VOLATILITY DATA
 # ============================================================================
 
+# ============================================================================
+# JENDELA: KELIPATAN 5 HARI KERJA
+# ============================================================================
+# Panel ini hanya memuat hari kerja, jadi setiap jendela dihitung dalam BARIS =
+# hari kerja, bukan hari kalender. Jendela lama (7, 14, 30, 90, ...) adalah
+# angka hari kalender yang dipasang pada indeks hari kerja: "7 hari" sebenarnya
+# satu minggu lebih dua hari kerja, dan siklus Fourier "mingguan" periode 7
+# tidak pernah mingguan.
+#
+# Aturannya sekarang: setiap jendela, rentang lag, periode, dan span adalah
+# kelipatan 5 (satu minggu kerja). Statistik rolling memakai daftar yang
+# ditetapkan eksplisit - 5, 10, 15, 20, 25, 30, 60, 120. Yang lain dibulatkan
+# ke kelipatan 5 terdekat: 7 -> 5, 14 -> 15, 26 -> 25, 12 -> 10, 9 -> 10.
+# Periode Fourier dipetakan ke kalender kerja: minggu 5, bulan 20, kuartal 60.
+#
+# Lag target [1..15, 20, 25, 30] TIDAK diubah: 1-15 adalah lag berturut-turut,
+# dan sisanya sudah kelipatan 5. Ambang kalender (days_until_month_end <= 5,
+# days_until_quarter_end <= 10) juga tidak, karena keduanya dihitung dari
+# TANGGAL, bukan dari jumlah baris.
+#
+# Mengubah daftar mana pun mengubah kolam fitur. Semua jendela ikut di sidik
+# jari konfigurasi (_sidik_konfigurasi di scripts/paper/revisi/h1_common.py),
+# jadi komputasi ke folder hasil lama akan berhenti, bukan mencampur.
+# ============================================================================
 FEATURE_CONFIG = {
     # ========================================================================
     # TIME FEATURES (Keep: 8 features)
     # ========================================================================
     "time_features": {
         "basic": ["day_of_week", "month", "week_of_year"],  # 3 features - REMOVED: day_of_month, quarter
-        "cyclical": ["day_of_week_sin", "day_of_week_cos", "month_sin", "month_cos"],  # 4 features - REMOVED: day_of_month_sin/cos
+        "cyclical": ["day_of_week_sin", "day_of_week_cos", "month_sin", "month_cos"],
+        # Panjang minggu untuk day_of_week_sin/cos: 5 HARI KERJA. Dulu 7, sehingga
+        # Jumat (4) dan Senin (0) tidak bersebelahan di lingkaran, padahal pada
+        # panel hari kerja keduanya berurutan.
+        "week_length_days": 5,  # 4 features - REMOVED: day_of_month_sin/cos
         "binary": ["is_weekend"],  # 1 feature
         # REMOVED: is_month_start, is_month_end, is_quarter_start, is_quarter_end (4 features removed)
     },
@@ -301,13 +329,13 @@ FEATURE_CONFIG = {
     # ========================================================================
     "rolling_statistics": {
         "enabled": True,
-        "windows": [7, 14, 30, 60, 90],  # REDUCED from [3, 7, 14, 21, 30, 60, 90, 120, 180]
+        "windows": [5, 10, 15, 20, 25, 30, 60, 120],  # kelipatan 5 hari kerja; lihat JENDELA di atas FEATURE_CONFIG
         # PERHATIAN: daftar ini hanya bisa DIKURANGI, tidak bisa ditambah.
         # create_features_optimized() punya cabang eksplisit untuk empat nama
         # ini saja (mean/std/min/max); nama lain diabaikan diam-diam. Sudah
         # diukur - menambahkan "median" dan "skew" menghasilkan delta +0 fitur.
         # Untuk menambah statistik baru, tambahkan dulu cabangnya di sana.
-        "stats": ["mean", "std", "min", "max"],  # 4 stats per window = 20 features
+        "stats": ["mean", "std", "min", "max"],  # 4 stats x 8 jendela = 32 fitur
         # DIHAPUS: median, skew, kurt, range, q25, q75
     },
 
@@ -316,7 +344,7 @@ FEATURE_CONFIG = {
     # ========================================================================
     "ewm_features": {
         "enabled": True,
-        "spans": [7, 30],  # 2 spans × 2 stats = 4 features - REMOVED: 14, 60 (4 features removed)
+        "spans": [5, 30],  # 2 spans x 2 stats = 4 fitur (dulu 7, 30)
         "stats": ["mean", "std"]
     },
 
@@ -325,8 +353,8 @@ FEATURE_CONFIG = {
     # ========================================================================
     "trend_features": {
         "enabled": True,
-        "diff_periods": [1, 7, 30],  # value_diff_1, value_diff_7, value_diff_30
-        "pct_change_periods": [1, 7, 30],  # value_pct_change_1, value_pct_change_7, value_pct_change_30
+        "diff_periods": [1, 5, 30],  # value_diff_1, value_diff_5, value_diff_30 (dulu 1, 7, 30)
+        "pct_change_periods": [1, 5, 30],  # (dulu 1, 7, 30)
         # Total: 6 features
     },
 
@@ -335,10 +363,15 @@ FEATURE_CONFIG = {
     # ========================================================================
     "volatility_features": {
         "enabled": True,
-        "windows": [7, 14, 30],  # volatility_7, volatility_14, volatility_30 = 3 features
-        "regime_features": True,  # is_high_volatility_regime, volatility_ratio_7_30 = 2 features
+        "windows": [5, 15, 30],  # volatility_5/15/30 (dulu 7, 14, 30)
+        "regime_features": True,  # is_high_volatility_regime + volatility_ratio_<pendek>_<panjang> = 2 fitur
+        # Rezim dan rasio DITURUNKAN dari "windows" di atas: rasio = jendela terpendek
+        # dibagi terpanjang, rezim = jendela tengah dibanding mediannya selama
+        # "regime_median_window". Dulu nama volatility_7/14/30 ditulis langsung di
+        # kode, dan mengganti jendela akan MENGHILANGKAN kedua fitur ini diam-diam.
+        "regime_median_window": 60,
         "asymmetric": True,  # downside_volatility, upside_volatility, volatility_skew for [14, 30] = 6 features
-        "asymmetric_windows": [14, 30],  # REDUCED from [7, 14, 30] to save features
+        "asymmetric_windows": [15, 30],  # (dulu 14, 30)
         "price_position_windows": [30, 60],  # price_position_30, price_position_60 = 2 features
         # Total: 15 features (KEEP ALL - critical for volatility modeling)
     },
@@ -349,10 +382,14 @@ FEATURE_CONFIG = {
     "technical_indicators": {
         "rsi": {
             "enabled": True,
-            "windows": [14]  # 1 feature - REMOVED: rsi_30 (1 removed)
+            "windows": [15]  # rsi_15 (dulu 14)
         },
         "macd": {
-            "enabled": True  # macd, macd_signal, macd_histogram = 3 features
+            "enabled": True,  # macd, macd_signal, macd_histogram = 3 fitur
+            # Dulu 12/26/9 ditulis langsung di kode. Dibulatkan ke kelipatan 5
+            # terdekat; ini MENYIMPANG dari definisi MACD baku dan harus disebut
+            # begitu di naskah.
+            "fast": 10, "slow": 25, "signal": 10
         },
         "bollinger_bands": {
             "enabled": True,
@@ -371,7 +408,11 @@ FEATURE_CONFIG = {
             "weekly": True,  # fourier_weekly_sin, fourier_weekly_cos = 2 features
             "monthly": True,  # fourier_monthly_sin, fourier_monthly_cos = 2 features
             "quarterly": True  # fourier_quarterly_sin, fourier_quarterly_cos = 2 features
-        }
+        },
+        # Periode dalam HARI KERJA, karena indeksnya nomor baris. Dulu 7/30/90,
+        # yaitu periode hari kalender yang dipasang pada indeks hari kerja -
+        # siklus "mingguan" itu sebenarnya 7 hari kerja, bukan seminggu.
+        "periods": {"weekly": 5, "monthly": 20, "quarterly": 60}
     },
 
     # ========================================================================
@@ -392,13 +433,15 @@ FEATURE_CONFIG = {
     # ========================================================================
     "extreme_detection": {
         "enabled": True,
-        "z_score_windows": [14, 30],  # z_score_14, z_score_30 = 2 features (REMOVED: z_score_7)
+        "z_score_windows": [15, 30],  # (dulu 14, 30)
         "extreme_flags": True,  # is_extreme_high_14, is_extreme_low_14, is_extreme_high_30, is_extreme_low_30 = 4 features
-        "jump_detection": True,  # jump_size, is_jump, days_since_jump = 3 features
+        "jump_detection": True,  # jump_size, is_jump, days_since_jump = 3 fitur
+        "jump_window": 15,  # dulu 14, ditulis langsung di kode
+        "jump_cap": 120,    # batas days_since_jump; harus < riwayat prediksi (lihat kode)
         "consecutive_extremes": False,  # REMOVED: consecutive_extreme_highs, consecutive_extreme_lows (2 removed)
         "change_limits": {
             "enabled": True,
-            "windows": [14]  # max_change_14d, min_change_14d, change_range_14d = 3 features (REMOVED: 7d window)
+            "windows": [15]  # max_change_15d, ... (dulu 14)
         }
         # Total: 11 features
     },
@@ -444,7 +487,8 @@ FEATURE_CONFIG = {
         "enabled": True,
 
         # ------------------------------------------------------------------
-        # LAG 1 SAMPAI 14, RAPAT. Sebelumnya hanya [1, 7, 14].
+        # LAG 1 SAMPAI 15, RAPAT. Sebelumnya [1, 7, 14], lalu 1-14; sekarang 1-15
+        # supaya rentangnya tiga minggu kerja penuh (lihat JENDELA).
         #
         # KENAPA MULAI DARI 1, BUKAN 0. Target ramalan adalah arus hari t, dan
         # nilai pasar hari t baru diketahui setelah pasar tutup hari itu. Lag 0
@@ -466,12 +510,12 @@ FEATURE_CONFIG = {
         # Kolam ini dipilih untuk diukur, bukan karena sudah terbukti lebih
         # baik - jalankan ulang seluruh evaluasi sebelum menyimpulkan apa pun.
         # ------------------------------------------------------------------
-        "lags": list(range(1, 15)),
+        "lags": list(range(1, 16)),  # 1-15 hari kerja (dulu 1-14)
 
-        "rolling_mean_window": 7,  # 1 rata-rata bergerak per variabel
-        # Total: 15 fitur per variabel pasar.
+        "rolling_mean_window": 5,  # 1 rata-rata bergerak per variabel (dulu 7)
+        # Total: 16 fitur per variabel pasar (15 lag + 1 rata-rata bergerak).
         # 8 variabel (kurs bid/ask, NDF bid/ask, yield SBN, DXY, arus saham
-        # nonresiden, IHSG) = 120 fitur.
+        # nonresiden, IHSG) = 128 fitur. (Dulu 120, saat lagnya 1-14.)
     },
 
     # ========================================================================
@@ -481,8 +525,8 @@ FEATURE_CONFIG = {
         "enabled": True,
         "interactions": [
             ("lag_1", "day_of_week"),
-            ("lag_7", "day_of_week"),
-            ("rolling_mean_7", "month"),
+            ("lag_5", "day_of_week"),    # hari yang sama minggu lalu = 5 hari kerja (dulu lag_7)
+            ("rolling_mean_5", "month"),  # dulu rolling_mean_7, yang kini tidak ada - fitur ini akan HILANG diam-diam
             ("rolling_mean_30", "is_weekend")
         ]  # 4 features - REMOVED: lag1_x_holiday (1 removed)
     }
@@ -509,6 +553,13 @@ def _max_configured_window():
         + FEATURE_CONFIG["technical_indicators"]["bollinger_bands"]["windows"]
         + FEATURE_CONFIG["extreme_detection"]["z_score_windows"]
         + FEATURE_CONFIG["extreme_detection"]["change_limits"]["windows"]
+        # Dulu ditulis langsung di kode, sekarang dari konfigurasi - dan harus
+        # ikut dihitung, karena riwayat prediksi rekursif ditentukan dari sini.
+        + [FEATURE_CONFIG["extreme_detection"]["jump_window"],
+           FEATURE_CONFIG["volatility_features"]["regime_median_window"],
+           FEATURE_CONFIG["technical_indicators"]["macd"]["slow"]]
+        + FEATURE_CONFIG["trend_features"]["diff_periods"]
+        + FEATURE_CONFIG["trend_features"]["pct_change_periods"]
     )
     return max(windows)
 

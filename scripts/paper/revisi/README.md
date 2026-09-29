@@ -25,6 +25,17 @@ Keluarannya menutup dengan verdikt **SELESAI** atau **BELUM SELESAI**.
 
 ---
 
+## Cara yang berlaku sekarang: `vps.py`
+
+Seluruh urutan di bawah (tujuh tahap, penyatuan shard, ringkas, pengemasan)
+dijalankan satu skrip yang bisa dipantau. Lihat `JALANKAN_ULANG.md`.
+
+```bash
+venv/bin/python scripts/paper/revisi/vps.py periksa | mulai | pantau | status | berhenti | kemas
+```
+
+---
+
 ## Lebih cepat: paralel per leaf
 
 Leaf saling bebas — tidak ada tahap yang memakai hasil leaf lain — jadi 15 leaf
@@ -281,6 +292,7 @@ Kirim isi folder itu untuk penyusunan tabel, gambar dan naskahnya.
 | `kirim_web.py` | Layani satu berkas lewat HTTP sebentar, untuk diunduh dari peramban |
 | `jalankan_paralel.py` | Jalankan satu tahap pada beberapa proses, dibagi per leaf |
 | `gabung_shard.py` | Satukan berkas per shard jadi berkas kanonik |
+| `vps.py` | Orkestrasi VPS: periksa, jalankan semua tahap di latar belakang, pantau, kemas hasil |
 
 ---
 

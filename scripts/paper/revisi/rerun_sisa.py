@@ -1,6 +1,6 @@
 """Tiga eksperimen pembanding yang tersisa, pada kolam fitur BARU.
 
-    Tabel 7 + Gambar 5   ablasi jumlah fitur (k = 6, 8, 12, 16, 20, 25)
+    Tabel 7 + Gambar 5   ablasi jumlah fitur (k = 6, 8, 12, 16, 20, 25, 30, 35, 40)
     Tabel 8 + Gambar 6   data pasar hidup/mati pada dua nilai k
     Gambar 10            Spearman lawan mRMR pada uji data pasar yang sama
     Tabel 8b             data pasar yang juga dipakai SAAT MERAMAL
@@ -36,7 +36,11 @@ from utils.feature_engineering_optimized import select_top_features_optimized
 OUT_K = jalur('sisa_kablasi.csv')
 OUT_X = jalur('sisa_eksternal.csv')
 OUT_P = jalur('sisa_pasar_benar.csv')
-ARMS_K = [6, 8, 12, 16, 20, 25]
+# Dulu hanya [6, 8, 12, 16, 20, 25] - tanpa satu pun lengan di atas 25, jadi
+# klaim "25 tidak terkalahkan" hanya teruji dari BAWAH. Ablasi horizon 60 hari
+# menguji sampai 60 dan menemukan kurva yang turun lalu naik; lengan 30-40
+# memeriksa apakah h=1 punya belokan yang sama di atas 25.
+ARMS_K = [6, 8, 12, 16, 20, 25, 30, 35, 40]
 K_EXT = [12, 25]
 BETAS = [0.0, MRMR_BETA]
 

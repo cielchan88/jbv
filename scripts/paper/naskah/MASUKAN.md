@@ -1,7 +1,9 @@
 # Masukan revisi naskah utama — DIENDAPKAN
 
-Status: **dicatat, belum dikerjakan.** Masih ada masukan lanjutan. Jangan mulai
-menulis ulang atau menjalankan komputasi sebelum daftar ini dinyatakan lengkap.
+Status: **daftar lengkap (1–17). Kode untuk komputasi ulang siap; menunggu
+hasil VPS (`hasil_w5`).** Penulisan ulang teks dikerjakan sesudah hasil
+masuk, karena hampir semua angka akan bergeser. Judul (no. 1, 15) terakhir,
+sesudah badan naskah disetujui.
 
 Naskah yang dimaksud: `FX_15seri.docx`, dibangun dari `build.js` pada commit
 `acc0b05`.
@@ -23,6 +25,12 @@ Naskah yang dimaksud: `FX_15seri.docx`, dibangun dari `build.js` pada commit
 | 9 | Elaborasi mRMR | Tambah rumus, algoritma greedy, saringan 3k, alasan Spearman, parameter β, contoh lag berturut-turut |
 | 10 | Elaborasi Wilcoxon | Tambah yang diuji, alasan bukan uji-t, satuan pasangan (n = 450 / 1.350), perlakuan selisih nol, dua sisi, Holm/BH, keterbatasan ketergantungan antar-origin |
 | 11 | Kenapa hanya enam nilai k | **Tambah lengan 30, 35, 40.** Daftar lama `[6, 8, 12, 16, 20, 25]` di `rerun_sisa.py` tidak punya alasan tercatat dan tidak menguji di atas 25 |
+| 12 | Hapus 3.5 Ethical Considerations dan paragraf deep learning | Hapus keduanya. Menggantikan keputusan no. 6 |
+| 13 | Elaborasi Holm-Bonferroni | Tambah prosedur langkah-turun, alasan memilih Holm (FWER, tanpa asumsi ketergantungan), keluarga uji yang dikoreksi, dan pembanding BH (FDR) |
+| 14 | ML sebagai sudut pandang utama di Bab 4, 5, 6 dan seluruh naskah | Hasil dibuka dari pipeline ML (seleksi fitur, penyetelan, ablasi, SHAP); metode statistik dibaca sebagai garis dasar. Berlaku juga untuk abstrak dan pendahuluan |
+| 15 | Judul | Ditunda sampai badan naskah OK |
+| 16 | Rata-rata bergerak data pasar kelipatan 5 | **7 → 5.** Lag pasar ikut **1–14 → 1–15** |
+| 17 | Jendela lain kelipatan 5, cek seluruh kode | **Dikerjakan.** Peta lengkap di bawah. Semua ikut dikomputasi ulang |
 
 ### Peta nama leaf (no. 5)
 
@@ -62,9 +70,76 @@ Opsi putaran kedua:
 
 ---
 
-## Prasyarat SEBELUM komputasi ulang (no. 8 dan 11)
+## Peta jendela (no. 8, 16, 17)
 
-Ditemukan saat mencatat, dan wajib ditangani lebih dulu.
+Satuan: baris = hari kerja. Sumber tunggal: `utils/feature_config.py`
+(blok JENDELA di atas `FEATURE_CONFIG`). Yang dulu tertulis langsung di
+`feature_engineering_optimized.py` sekarang dibaca dari konfigurasi.
+
+| Kelompok | Lama | Baru |
+|---|---|---|
+| Statistik rolling (mean/std/min/max) | 7, 14, 30, 60, 90 | 5, 10, 15, 20, 25, 30, 60, 120 |
+| EWM | 7, 30 | 5, 30 |
+| Selisih dan persentase perubahan | 1, 7, 30 | 1, 5, 30 |
+| Volatilitas | 7, 14, 30 | 5, 15, 30 |
+| Rasio volatilitas | 7/30 | 5/30 |
+| Rezim volatilitas (median) | vol 14, median 60 | vol 15, median 60 |
+| Volatilitas asimetris | 14, 30 | 15, 30 |
+| Posisi harga | 30, 60 | tetap |
+| RSI | 14 | 15 |
+| Bollinger | 20 | tetap |
+| MACD (cepat/lambat/sinyal) | 12/26/9 | 10/25/10 |
+| Z-score | 14, 30 | 15, 30 |
+| Deteksi lonjakan | 14 | 15 |
+| Batas perubahan | 14 | 15 |
+| Fourier (mingguan/bulanan/kuartalan) | 7/30/90 | 5/20/60 |
+| Siklus hari dalam minggu (sin/cos) | 7 | 5 |
+| Interaksi | lag_7 × hari, rolling_mean_7 × bulan | lag_5 × hari, rolling_mean_5 × bulan |
+| Lag pasar | 1–14 | 1–15 |
+| Rata-rata bergerak pasar | 7 | 5 |
+| Riwayat prediksi rekursif | 270 | 360 (= 120 × 3) |
+
+Lag target (1–15, 20, 25, 30) tidak diubah: itu lag, bukan jendela, dan
+isinya sudah memuat seluruh kelipatan 5 sampai 30.
+
+Kolam: internal **104 → 116**, pasar 8 variabel × (15 lag + 1 rata-rata) =
+**128**, total **244** (dulu 224). Terverifikasi dari keluaran pembangun fitur.
+
+### Cacat lama yang ikut ditemukan dan diperbaiki
+
+Keempatnya memengaruhi hasil lama juga, jadi disebut di naskah bila relevan.
+
+1. **Fase Fourier tidak konsisten antara latih dan prediksi.** `time_idx`
+   dulu `arange(len(df))`, jadi bergantung pada panjang potongan data;
+   prediksi rekursif memakai 270 baris terakhir sehingga fasenya bergeser.
+   Sekarang dihitung dari tanggal (hari kerja sejak 2000-01-03).
+2. **`days_since_jump` terpotong saat prediksi.** Nilainya bisa melebihi
+   riwayat yang tersedia saat prediksi. Sekarang dibatasi `jump_cap` = 120.
+3. **Nama fitur rezim volatilitas tertulis langsung** (`volatility_7`,
+   `volatility_14`). Mengganti jendela akan menghilangkan fitur itu diam-diam.
+   Sekarang diturunkan dari konfigurasi.
+4. **Interaksi `rolling_mean_7 × month`** akan hilang diam-diam dengan
+   jendela baru. Diganti `rolling_mean_5`.
+
+Sesudah perbaikan: nol selisih fitur antara latih dan prediksi pada 116 fitur
+× 15 leaf, dan pemotongan awalan (cache) tetap bit-identik.
+
+### Catatan terbuka
+
+- **MACD 10/25/10 menyimpang dari standar 12/26/9.** Konsekuensi aturan
+  kelipatan 5. Sebut di naskah.
+- **`is_weekend` dan `rolling_mean_30_x_is_weekend` konstan** (data hanya hari
+  kerja). Sudah ada sejak dulu; penyeleksi membuangnya. Tidak diubah, cukup
+  dicatat.
+- **`utils/feature_engineering.py` (versi lama) masih memakai jendela lama**,
+  tapi tidak ada di jalur model (external_loader hanya mengimpor fungsi
+  penggabung seri silang). Dibiarkan.
+
+---
+
+## Prasyarat SEBELUM komputasi ulang (no. 8 dan 11) — SUDAH DITANGANI
+
+Ditemukan saat mencatat. Status penanganan di akhir tiap butir.
 
 1. **Sidik jari konfigurasi TIDAK memuat jendela rolling.** `_sidik_konfigurasi()`
    di `h1_common.py` hanya mencatat `lag_target`, `lag_pasar`, `rata_pasar`,
@@ -72,7 +147,8 @@ Ditemukan saat mencatat, dan wajib ditangani lebih dulu.
    dihentikan. Lebih buruk lagi, `sudah()` melewati sel yang sudah tercatat,
    sehingga hasil jendela lama dan baru **tercampur tanpa pesan**. Perbaikan:
    masukkan semua jendela ke sidik jari, dan pakai folder hasil baru
-   (misalnya `hasil_w5`).
+   (misalnya `hasil_w5`). **Selesai.** Folder lama dibaca dalam mode baca-saja
+   (`JBV_BACA_SAJA=1`) supaya draf sekarang tetap bisa disusun.
 2. **Riwayat prediksi ikut membesar, dan itu sudah ditangani otomatis.**
    `MIN_HISTORY_FOR_RECURSIVE_PREDICT = jendela_maks × 3`, jadi 270 → 360 baris.
    Ketiga model pohon membacanya dari konstanta ini, bukan dari angka tetap.
@@ -83,22 +159,33 @@ Ditemukan saat mencatat, dan wajib ditangani lebih dulu.
 4. **`slot_pasar.json` akan basi.** Isinya bergantung pada kolam fitur. Hitung
    ulang dengan `cek_slot_pasar.py`, lalu commit versi barunya.
 5. **SHAP dan 15 beeswarm dihitung ulang di VPS** (`shap_baru.py`), sekaligus
-   dengan nama leaf baru.
+   dengan nama leaf baru. **Selesai:** judul beeswarm memakai `nama_leaf.json`.
 6. **Ablasi h=60 (`ablasi_h60.json`) memakai kolam lama.** Perbandingan
    lintas-horizon di 5.2 akan membandingkan dua kolam yang berbeda. Nyatakan
    di naskah, atau sebutkan sebagai keterbatasan.
 
-Ukuran kolam yang diharapkan: statistik rolling naik dari 5 × 4 = 20 menjadi
-8 × 4 = 32 fitur, jadi kolam internal ≈ 104 → 116 dan total ≈ 224 → 236.
-Verifikasi dari keluaran, jangan dari hitungan ini.
+Pertanyaan terbuka sebelumnya (rata-rata pasar, jendela lain) sudah
+dijawab oleh no. 16 dan 17.
 
 ---
 
-## Pertanyaan terbuka (belum diputuskan)
+## Menjalankan di VPS
 
-- **Rata-rata bergerak data pasar** sekarang 7 hari kerja. Ikut diganti ke kelipatan 5?
-- **Jendela lain yang juga bukan kelipatan 5** ada di `feature_config.py`:
-  volatilitas `[7, 14, 30]`, RSI `[14]`, Bollinger `[20]`, extreme/change `[14]`.
-  Masukan no. 8 menyebut "rolling statistics"; apakah ini ikut diganti?
-- **Lengan ablasi 30/35/40** memperbesar komputasi `rerun_sisa.py` sekitar
-  setengah kali lipat. Perkiraan waktunya dihitung sebelum dijalankan.
+```bash
+cd /opt/jbv && git pull
+venv/bin/python scripts/paper/revisi/vps.py periksa
+venv/bin/python scripts/paper/revisi/vps.py mulai
+venv/bin/python scripts/paper/revisi/vps.py pantau
+```
+
+Arsip `jbv_hasil_w5_<tanggal>.tgz` dibuat otomatis di akhir. Sesudah
+diunggah, naskah disusun dengan `JBV_NASKAH_HASIL=.../hasil_w5` dan
+`JBV_NASKAH_SLOT=.../hasil_slot_w5`.
+
+### Yang harus dikerjakan di teks sesudah hasil masuk
+
+- Prosa yang masih menulis jendela lama ("seven, fourteen, thirty, sixty and
+  ninety days", "seven-day rolling mean") diturunkan dari `T['jendela']` dan
+  `T['rata_pasar']`, bukan ditulis ulang tangan.
+- Nama leaf lewat `nama_leaf.json` di buat_tables.py, figs.py, build.js.
+- Ablasi h=60 (`ablasi_h60.json`) masih kolam lama: sebut sebagai keterbatasan.

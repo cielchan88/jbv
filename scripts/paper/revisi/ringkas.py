@@ -174,13 +174,22 @@ def selesai():
     """
     garis('STATUS KELIMA TAHAP')
     N = NLEAF
+    # Jumlah lengan ablasi DIBACA dari rerun_sisa.py, bukan diketik. Dulu
+    # tertulis 6, jadi sesudah lengan 30/35/40 ditambahkan, tahap 4a akan
+    # dinyatakan "OK" pada dua pertiga jalan.
+    import re as _re
+    _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rerun_sisa.py')).read()
+    K = len(_re.search(r'^ARMS_K = \[([^\]]*)\]', _src, _re.M).group(1).split(','))
     TARGET = [
         ('1 penyetelan',  'opt_tuned.csv',      N * 3),
         ('2 blok uji',    'opt_rolling.csv',    N * 10 * 30),
         ('2b headline',   'headline.csv',       N * 10),
         ('3 ablasi balik', 'opt_ablasi.csv',    N * 3 * 3 * 30),
-        ('4a jumlah fitur', 'sisa_kablasi.csv', N * 3 * 6 * 30),
+        ('4a jumlah fitur', 'sisa_kablasi.csv', N * 3 * K * 30),
         ('4b data pasar', 'sisa_eksternal.csv', N * 3 * 2 * 2 * 2 * 30),
+        # Dulu tidak dihitung sama sekali, jadi ringkas.py bisa menyatakan SELESAI
+        # padahal lengan data pasar yang benar - temuan utama naskah - belum ada.
+        ('4c pasar benar', 'sisa_pasar_benar.csv', N * 3 * 2 * 2 * 30),
     ]
     tuntas = True
     for nama, berkas, target in TARGET:

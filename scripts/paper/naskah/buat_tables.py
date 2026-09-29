@@ -33,6 +33,10 @@ _cfg = HASIL + 'konfigurasi.json'
 if os.path.exists(_cfg):
     os.environ['JBV_NVAL'] = str(_json.load(open(_cfg)).get('nval', 10))
 os.environ['JBV_DIAM'] = '1'
+# Penyusun naskah hanya MEMBACA folder hasil. Tanpa ini, mengganti jendela di
+# feature_config.py membuat naskah yang sedang beredar tidak bisa dibangun lagi
+# dari foldernya sendiri - sidik jari folder itu menyebut jendela lama.
+os.environ['JBV_BACA_SAJA'] = '1'
 from h1_common import *                      # ber-chdir ke akar repo; menimpa HASIL
 HASIL = jalan.HASIL                          # kembalikan milik jalan.py
 warnings.filterwarnings('ignore')
@@ -279,7 +283,14 @@ T['pool_internal'] = int(D.kandidat_internal.mode()[0])
 T['pool_total'] = int(D.kandidat_total.mode()[0])
 T['pool_pasar'] = int(D.kandidat_pasar.mode()[0])
 T['n_lags'] = 18
-T['lag_pasar'] = list(range(1, 15))
+# Lag dan jendela DARI FOLDER HASIL, bukan dari feature_config.py: angka yang
+# dilaporkan naskah harus menggambarkan komputasi yang menghasilkan folder ini.
+# Dulu diketik tetap range(1, 15), jadi mengganti lag pasar ke 1-15 akan
+# membuat naskah tetap menulis 1-14.
+_kf = konfigurasi_folder()
+T['lag_pasar'] = list(_kf['lag_pasar'])
+T['jendela'] = _kf['jendela']
+T['rata_pasar'] = _kf['rata_pasar']
 
 # Cocokkan slot yang dihitung di sini dengan n_ext dari SHAP milik VPS.
 # Keduanya mengukur hal yang sama pada konfigurasi utama (k=25, mRMR), hanya

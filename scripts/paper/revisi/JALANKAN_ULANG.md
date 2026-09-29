@@ -1,3 +1,32 @@
+# Komputasi ulang — jendela kelipatan 5 (hasil_w5)
+
+**Cara yang berlaku sekarang: satu skrip, `vps.py`.** Bagian di bawah garis
+ganda adalah cara manual lama, disimpan sebagai rujukan.
+
+```bash
+cd /opt/jbv && git pull
+venv/bin/python scripts/paper/revisi/vps.py periksa    # prasyarat, tidak menjalankan apa pun
+venv/bin/python scripts/paper/revisi/vps.py mulai      # jalan di latar belakang, aman tutup SSH
+venv/bin/python scripts/paper/revisi/vps.py pantau     # progres per tahap + perkiraan sisa waktu
+venv/bin/python scripts/paper/revisi/vps.py kemas      # otomatis di akhir; manual bila perlu
+```
+
+Yang berubah sejak `hasil_nval60`:
+
+- **Semua jendela kelipatan 5 hari kerja.** Rolling 5/10/15/20/25/30/60/120,
+  rata-rata bergerak pasar 5, lag pasar 1–15, dan jendela lain (volatilitas,
+  RSI, z-score, MACD, Fourier, lonjakan). Peta lengkap di
+  `scripts/paper/naskah/MASUKAN.md`.
+- **Lengan ablasi k** ditambah 30, 35, 40 (sembilan lengan).
+- **Sidik jari konfigurasi memuat seluruh jendela.** Menjalankan ke folder
+  lama berhenti dengan exit 2, jadi hasil lama dan baru tidak bisa tercampur.
+- **Folder baru:** `hasil_w5` dan `hasil_slot_w5`. Folder lama tidak disentuh.
+
+Kalau prosesnya mati (biasanya OOM), `status` mengatakannya. `mulai` lagi
+melanjutkan dari checkpoint, bisa dengan `--shard 2` supaya lebih hemat memori.
+
+===
+
 # Komputasi ulang — panel 15 seri, kolam lag pasar 1–14, paralel per leaf
 
 Yang berubah sejak hasil terakhir:

@@ -290,8 +290,8 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
 
         # Cyclical encoding (4 features)
         if "day_of_week_sin" in config["time_features"]["cyclical"]:
-            df['day_of_week_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 7)
-            df['day_of_week_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
+            df['day_of_week_sin'] = np.sin(2 * np.pi * df['day_of_week'] / config['time_features']['week_length_days'])
+            df['day_of_week_cos'] = np.cos(2 * np.pi * df['day_of_week'] / config['time_features']['week_length_days'])
         if "month_sin" in config["time_features"]["cyclical"]:
             df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
             df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
@@ -396,12 +396,19 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
 
         # Volatility regime features (2 features)
         if config["volatility_features"]["regime_features"]:
-            if 'volatility_7' in df.columns and 'volatility_30' in df.columns:
-                df['volatility_ratio_7_30'] = df['volatility_7'] / (df['volatility_30'] + 1e-8)
+            # Nama kolom DITURUNKAN dari jendela konfigurasi. Dulu volatility_7,
+            # volatility_14 dan volatility_30 ditulis langsung di sini, di dalam
+            # `if ... in df.columns` - jadi mengganti jendela tidak menimbulkan
+            # galat, kedua fitur ini hanya HILANG dari kolam tanpa suara.
+            vw = sorted(config["volatility_features"]["windows"])
+            vp, vt, vl = vw[0], vw[len(vw) // 2], vw[-1]
+            med_w = config["volatility_features"]["regime_median_window"]
+            if f'volatility_{vp}' in df.columns and f'volatility_{vl}' in df.columns:
+                df[f'volatility_ratio_{vp}_{vl}'] = df[f'volatility_{vp}'] / (df[f'volatility_{vl}'] + 1e-8)
 
-            if 'volatility_14' in df.columns and len(df) > 60:
-                vol_median = df['volatility_14'].shift(1).rolling(window=60, min_periods=1).median()
-                df['is_high_volatility_regime'] = (df['volatility_14'].shift(1) > vol_median).astype('float64')
+            if f'volatility_{vt}' in df.columns and len(df) > med_w:
+                vol_median = df[f'volatility_{vt}'].shift(1).rolling(window=med_w, min_periods=1).median()
+                df['is_high_volatility_regime'] = (df[f'volatility_{vt}'].shift(1) > vol_median).astype('float64')
 
         # Price position features (2 features)
         for window in config["volatility_features"]["price_position_windows"]:
@@ -463,12 +470,14 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
 
         # MACD (3 features)
         if config["technical_indicators"]["macd"]["enabled"]:
-            if len(df) > 26:
+            m_cfg = config["technical_indicators"]["macd"]
+            m_fast, m_slow, m_sig = m_cfg["fast"], m_cfg["slow"], m_cfg["signal"]
+            if len(df) > m_slow:
                 try:
-                    ema_12 = df['value'].shift(1).ewm(span=12, adjust=False).mean()
-                    ema_26 = df['value'].shift(1).ewm(span=26, adjust=False).mean()
-                    df['macd'] = ema_12 - ema_26
-                    df['macd_signal'] = df['macd'].shift(1).ewm(span=9, adjust=False).mean()
+                    ema_fast = df['value'].shift(1).ewm(span=m_fast, adjust=False).mean()
+                    ema_slow = df['value'].shift(1).ewm(span=m_slow, adjust=False).mean()
+                    df['macd'] = ema_fast - ema_slow
+                    df['macd_signal'] = df['macd'].shift(1).ewm(span=m_sig, adjust=False).mean()
                     df['macd_histogram'] = df['macd'] - df['macd_signal']
                 except:
                     df['macd'] = 0
@@ -500,19 +509,28 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
     # ========================================================================
     if config["fourier_features"]["enabled"] and len(df) > 30:
         try:
-            df['time_idx'] = np.arange(len(df))
+            # Indeks waktu DARI TANGGAL, bukan nomor baris. Dulu np.arange(len(df)),
+            # yang mulai lagi dari 0 di bingkai pendek yang dipakai predict() -
+            # jadi fase siklus saat meramal bergeser dari fase saat dilatih, di
+            # SETIAP seri (terukur: fourier_weekly_sin 0,951 di bingkai latih,
+            # 0 di bingkai prediksi untuk baris yang sama). Hitungan hari kerja
+            # sejak satu Senin tetap membuat fasenya fungsi tanggal saja, dan
+            # siklus 5 hari kerjanya selaras dengan hari dalam minggu.
+            df['time_idx'] = np.busday_count(
+                np.datetime64('2000-01-03'),
+                pd.to_datetime(df['date']).values.astype('datetime64[D]'))
 
             if config["fourier_features"]["cycles"]["weekly"]:
-                df['fourier_weekly_sin'] = np.sin(2 * np.pi * df['time_idx'] / 7)
-                df['fourier_weekly_cos'] = np.cos(2 * np.pi * df['time_idx'] / 7)
+                df['fourier_weekly_sin'] = np.sin(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['weekly'])
+                df['fourier_weekly_cos'] = np.cos(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['weekly'])
 
             if config["fourier_features"]["cycles"]["monthly"]:
-                df['fourier_monthly_sin'] = np.sin(2 * np.pi * df['time_idx'] / 30)
-                df['fourier_monthly_cos'] = np.cos(2 * np.pi * df['time_idx'] / 30)
+                df['fourier_monthly_sin'] = np.sin(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['monthly'])
+                df['fourier_monthly_cos'] = np.cos(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['monthly'])
 
-            if config["fourier_features"]["cycles"]["quarterly"] and len(df) > 90:
-                df['fourier_quarterly_sin'] = np.sin(2 * np.pi * df['time_idx'] / 90)
-                df['fourier_quarterly_cos'] = np.cos(2 * np.pi * df['time_idx'] / 90)
+            if config["fourier_features"]["cycles"]["quarterly"] and len(df) > config['fourier_features']['periods']['quarterly']:
+                df['fourier_quarterly_sin'] = np.sin(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['quarterly'])
+                df['fourier_quarterly_cos'] = np.cos(2 * np.pi * df['time_idx'] / config['fourier_features']['periods']['quarterly'])
 
             df = df.drop('time_idx', axis=1)
         except:
@@ -554,10 +572,11 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
                     df[f'is_extreme_low_{window}'] = 0
 
         # Jump detection (3 features)
-        if config["extreme_detection"]["jump_detection"] and len(df) > 14:
+        j_w = config["extreme_detection"]["jump_window"]   # dulu 14, tertulis langsung
+        if config["extreme_detection"]["jump_detection"] and len(df) > j_w:
             try:
-                typical_change = df['value'].diff().shift(1).abs().rolling(window=14, min_periods=1).mean()
-                typical_std = df['value'].diff().shift(1).rolling(window=14, min_periods=1).std()
+                typical_change = df['value'].diff().shift(1).abs().rolling(window=j_w, min_periods=1).mean()
+                typical_std = df['value'].diff().shift(1).rolling(window=j_w, min_periods=1).std()
                 current_change = df['value'].shift(1).diff()
                 df['jump_size'] = current_change.abs() / (typical_change + 1e-8)
                 df['is_jump'] = (current_change.abs() > (typical_change + 2 * typical_std)).astype('float64')
@@ -572,6 +591,14 @@ def create_features_optimized(df, lag_steps=90, holidays_list=None, external_ser
                             df.loc[df.index[i], 'days_since_jump'] = i - max(recent_jumps)
                         else:
                             df.loc[df.index[i], 'days_since_jump'] = i
+                # DIBATASI. Tanpa batas, nilai ini bergantung pada seberapa jauh
+                # ke belakang bingkainya dimulai: bingkai prediksi hanya 360 baris,
+                # jadi lompatan yang lebih tua tidak terlihat dan nilainya berbeda
+                # dari bingkai latih (terukur: 899 lawan 360 pada A.2.d). Dengan
+                # batas di bawah panjang riwayat prediksi, kedua bingkai selalu
+                # memberi angka yang sama.
+                df['days_since_jump'] = df['days_since_jump'].clip(
+                    upper=config["extreme_detection"]["jump_cap"])
             except:
                 df['jump_size'] = 0
                 df['is_jump'] = 0

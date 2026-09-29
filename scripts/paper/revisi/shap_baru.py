@@ -16,6 +16,9 @@ import warnings
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from h1_common import *          # noqa: F403
+import json as _json_nama
+_jn = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'nama_leaf.json')
+NAMA_LEAF = _json_nama.load(open(_jn))['peta'] if os.path.exists(_jn) else {}
 warnings.filterwarnings('ignore')
 
 import matplotlib
@@ -169,7 +172,10 @@ def main():
         }
         # Beeswarm per leaf. Memakai sv yang baru saja dihitung, jadi
         # ongkosnya hanya menggambar - bukan menghitung SHAP dua kali.
-        beeswarm(top, X.iloc[-300:], sv, f'{rid}',
+        # Judul memakai nama TAMPILAN dari nama_leaf.json; nama berkas tetap
+        # kode internal. Dulu judulnya kode internal, jadi mengganti nama leaf
+        # di naskah menuntut 15 gambar dibuat ulang.
+        beeswarm(top, X.iloc[-300:], sv, NAMA_LEAF.get(rid, rid),
                  S + f'fig/beeswarm/{rid}.png')
         json.dump(st, open(CKPT, 'w'))
         print(f'  shap {rid}  ext={st["leaf"][rid]["n_ext"]}  '

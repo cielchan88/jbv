@@ -1,0 +1,23 @@
+{
+  "_catatan": [
+    "Nama leaf untuk DITAMPILKAN di naskah utama (panel 15 sel). Satu sumber untuk",
+    "semua yang mencetak nama leaf: shap_baru.py (judul beeswarm), buat_tables.py,",
+    "figs.py dan build.js.",
+    "",
+    "Kode internal di data dan folder hasil TIDAK diubah - hanya tampilannya.",
+    "Nama berkas beeswarm juga tetap memakai kode internal, supaya figs.py",
+    "menyalinnya tanpa peta tambahan.",
+    "",
+    "Awas bentrok: kode lama A.1.a/b/c adalah sel korporasi PMA yang DIGABUNG",
+    "ke A.2.d/e/f. Sesudah penggantian nama, 'A.1' berarti sel lain (dulu A.2.a).",
+    "Sebut sel PMA lama dengan deskripsinya, jangan dengan kodenya.",
+    "",
+    "Naskah pendamping (18 sel) tetap memakai kode lama."
+  ],
+  "peta": {
+    "A.2.a": "A.1", "A.2.b": "A.2", "A.2.c": "A.3",
+    "A.2.d": "A.4", "A.2.e": "A.5", "A.2.f": "A.6",
+    "B.a": "B.1", "B.b": "B.2", "B.c": "B.3", "B.d": "B.4",
+    "C.a": "C.1", "C.b": "C.2", "C.c": "C.3", "C.d": "C.4", "C.e": "C.5"
+  }
+}
