@@ -1,9 +1,14 @@
 # Masukan revisi naskah utama — DIENDAPKAN
 
-Status: **daftar lengkap (1–18). Kode untuk komputasi ulang siap; menunggu
-hasil VPS (`hasil_w5`).** Penulisan ulang teks dikerjakan sesudah hasil
-masuk, karena hampir semua angka akan bergeser. Judul (no. 1, 15) terakhir,
-sesudah badan naskah disetujui.
+Status: **badan naskah, Kesimpulan dan Abstrak sudah ditulis ulang dari hasil
+`hasil_w5`** (no. 2-14, 16-18). Yang tersisa: **judul** (no. 1, 15), yang
+dibahas sesudah badan naskah disetujui.
+
+Keputusan sesudah hasil VPS: k tetap **25** (ditetapkan sebelum studi).
+Ablasi k dilaporkan sebagai temuan: k 30/35/40 lebih baik per titik dan
+lolos Holm atas 8 lengan, tetapi tidak nyata per seri (n = 15), tidak
+dimiliki XGBoost, dan kurvanya tidak mulus. Menyetel k di blok validasi
+dicatat sebagai riset lanjutan.
 
 Naskah yang dimaksud: `FX_15seri.docx`, dibangun dari `build.js` pada commit
 `acc0b05`.

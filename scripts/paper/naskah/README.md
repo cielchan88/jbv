@@ -5,17 +5,19 @@ sudah dicek terhadap sumbernya.
 
 ```bash
 cd /opt/jbv
-export JBV_NASKAH_HASIL=$PWD/scripts/paper/revisi/hasil_nval60 \
-       JBV_NASKAH_BANDING=$PWD/scripts/paper/revisi/hasil_sdv-wide-gabung
 venv/bin/python scripts/paper/naskah/buat_tables.py   # 1. angka  -> keluaran/tables.json
 venv/bin/python scripts/paper/naskah/figs.py          # 2. gambar -> keluaran/gambar/
 node            scripts/paper/naskah/build.js         # 3. naskah -> keluaran/FX_15seri.docx
 venv/bin/python scripts/paper/naskah/cek_draft.py     # 4. verifikasi
 ```
 
-Kedua env itu **wajib**: tanpa `JBV_NASKAH_HASIL` pipeline membaca folder hasil
-bawaan dan diam-diam menghasilkan angka blok validasi 10 origin, bukan 60.
-Tanpa `JBV_NASKAH_BANDING` bagian perbandingan panjang blok dilewati.
+Bawaannya sudah menunjuk ke hasil yang dipakai naskah sekarang: `hasil_w5`
+(jendela kelipatan 5, blok validasi 60 origin) dan `hasil_slot_w5`. Env hanya
+perlu disetel untuk menyusun dari folder lain.
+
+`JBV_NASKAH_BANDING` (perbandingan blok validasi 10 vs 60) **tidak dipakai**
+lagi: satu-satunya folder blok 10 origin memakai jendela lama, jadi
+membandingkannya dengan `hasil_w5` mencampur dua kolam fitur.
 
 ## Pasang dulu, sekali saja
 
@@ -66,8 +68,8 @@ Diatur `jalan.py`, semuanya bisa dialihkan lewat env:
 
 | Env | Bawaan | Isi |
 |---|---|---|
-| `JBV_NASKAH_HASIL` | `scripts/paper/revisi/hasil_sdv-wide-gabung/` | hasil komputasi mentah |
-| `JBV_NASKAH_SLOT` | `scripts/paper/revisi/hasil_slot/` | `slot_pasar.json` |
+| `JBV_NASKAH_HASIL` | `scripts/paper/revisi/hasil_w5/` | hasil komputasi mentah |
+| `JBV_NASKAH_SLOT` | `scripts/paper/revisi/hasil_slot_w5/` | `slot_pasar.json` |
 | `JBV_NASKAH_KERJA` | `scripts/paper/naskah/keluaran/` | tables.json, gambar, .docx |
 | `JBV_NASKAH_LAMA` | *(kosong)* | folder hasil run **sebelumnya**, opsional |
 

@@ -9,8 +9,8 @@ Tiga folder yang dipakai:
 Semuanya bisa dialihkan lewat env, dan bawaannya menunjuk ke tempat yang
 sebenarnya dipakai di repo ini:
 
-    JBV_NASKAH_HASIL   bawaan scripts/paper/revisi/hasil_sdv-wide-gabung
-    JBV_NASKAH_SLOT    bawaan scripts/paper/revisi/hasil_slot
+    JBV_NASKAH_HASIL   bawaan scripts/paper/revisi/hasil_w5
+    JBV_NASKAH_SLOT    bawaan scripts/paper/revisi/hasil_slot_w5
     JBV_NASKAH_KERJA   bawaan scripts/paper/naskah/keluaran
     JBV_NASKAH_LAMA    opsional; folder hasil run SEBELUMNYA, hanya untuk
                        menghitung catatan reprodusibilitas ARIMA. Kalau tidak
@@ -36,9 +36,9 @@ def _ambil(env, *bawaan):
 
 
 HASIL = _ambil('JBV_NASKAH_HASIL', 'scripts', 'paper', 'revisi',
-               'hasil_sdv-wide-gabung') + os.sep
+               'hasil_w5') + os.sep
 SLOT = _ambil('JBV_NASKAH_SLOT', 'scripts', 'paper', 'revisi',
-              'hasil_slot') + os.sep
+              'hasil_slot_w5') + os.sep
 KERJA = _ambil('JBV_NASKAH_KERJA', 'scripts', 'paper', 'naskah',
                'keluaran') + os.sep
 LAMA = os.environ.get('JBV_NASKAH_LAMA')

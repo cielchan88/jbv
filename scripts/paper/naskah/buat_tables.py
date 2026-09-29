@@ -261,12 +261,56 @@ NM = {'Redundancy-aware selection': 0, 'Daily re-fitting': 1,
       'Tuned hyperparameters': 2}
 T['reverse_ablation'] = [dict(component=r['komponen'], opt=r['mean_opt'],
     off=r['mean_off'], delta=r['delta_pct'], p=r['p'], wins=r['menang_opt'],
-    n=r['n'], sig=r['p'] < 0.05)
+    n=r['n'], p_holm=r.get('p_holm'),
+    # Putusan tabel memakai Holm atas tiga komponen, bukan p mentah: ketiganya
+    # diuji pada data yang sama. Dengan p mentah, mRMR (p 0,038) tercetak
+    # "significant" padahal Holm-nya 0,113.
+    sig=(r.get('p_holm') if r.get('p_holm') is not None else r['p']) < 0.05)
     for r in sorted(U['tabel9'], key=lambda r: NM[r['komponen']])]
 T['reverse_by_model'] = {r['komponen']: [round(r['per_model_pct'][m], 2)
     for m in ('LightGBM', 'RandomForest', 'XGBoost')] for r in U['tabel9']}
 T['reverse_leaf_worse'] = {r['komponen']: r['leaf_lebih_baik_tanpa']
                            for r in U['tabel9']}
+
+# --------------------------------------- Tabel 7: kekokohan lengan ablasi k
+# Uji per titik (n = 1.350) memperlakukan origin dalam satu leaf sebagai
+# saling bebas, padahal tidak. Tiga pemeriksaan tambahan, semuanya dari
+# berkas mentah yang sama:
+#   - Holm atas seluruh lengan melawan k=25 (satu keluarga uji),
+#   - Wilcoxon per LEAF (rata-rata 3 model x 30 origin, n = 15), satuan yang
+#     lebih jujur untuk ketergantungan antar-origin,
+#   - selisih per model dan per paruh blok uji.
+_kb = BACA('sisa_kablasi.csv')
+_kp = _kb.pivot_table(index=['leaf', 'model', 'origin'], columns='top_k', values='mase')
+_acuan = 25
+_lengan = [k for k in _kp.columns if k != _acuan]
+_praw = {k: float(wilcoxon(_kp[k], _kp[_acuan]).pvalue) for k in _lengan}
+_urut = sorted(_lengan, key=_praw.get)
+_holm, _jalan = {}, 0.0
+for _i, _k in enumerate(_urut):
+    _jalan = max(_jalan, min(1.0, (len(_urut) - _i) * _praw[_k]))
+    _holm[_k] = _jalan
+_L = _kp.groupby(level='leaf').mean()
+_o = _kp.index.get_level_values('origin')
+for a in T['ablation']:
+    k = a['k']
+    if k == _acuan:
+        continue
+    a['p_holm'] = _holm[k]
+    a['p_leaf'] = float(wilcoxon(_L[k], _L[_acuan]).pvalue)
+    a['leaf_lebih_baik'] = int((_L[k] < _L[_acuan]).sum())
+    a['per_model'] = {m: float(100 * (_kp[k].xs(m, level='model').mean()
+                                      / _kp[_acuan].xs(m, level='model').mean() - 1))
+                      for m in ('LightGBM', 'RandomForest', 'XGBoost')}
+    a['paruh'] = [float(100 * (_kp[k][_o < 15].mean() / _kp[_acuan][_o < 15].mean() - 1)),
+                  float(100 * (_kp[k][_o >= 15].mean() / _kp[_acuan][_o >= 15].mean() - 1))]
+T['ablation_acuan'] = _acuan
+# Setelan terpilih per learner (indeks ke grid di rerun_optimal.py; 0 =
+# setelan bawaan pustaka). Menunjukkan apakah penyetelan benar-benar bergerak.
+_tn = BACA('opt_tuned.csv')
+T['cfg_terpilih'] = {m: [int((g.cfg == i).sum()) for i in range(4)]
+                     for m, g in _tn.groupby('model')}
+T['nval'] = int(json.load(open(H + 'konfigurasi.json')).get('nval', 10))
 
 # -------------------------------------------------------------- SHAP dan slot
 T.update(shap_family=S['shap_family'], shap_ext_share=S['shap_ext_share'],

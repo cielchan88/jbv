@@ -67,7 +67,7 @@ else:
     utama_js = open(os.path.join(DIR, 'naskah', 'build.js'), encoding='utf-8').read()
     if nsp != T['n_leaf']:
         print(f'   beda jumlah sel {nsp} vs {T["n_leaf"]} (penggabungan)')
-        if not re.search(r'aggregates of two reporting categories', utama_js):
+        if not re.search(r'(?:aggregates|merges) of two reporting categories', utama_js):
             fail('panel/sel', f'pendamping {nsp} sel vs utama {T["n_leaf"]}, '
                               'dan naskah utama tidak menjelaskan penggabungannya')
         if nsp - T['n_leaf'] != 3:
@@ -190,7 +190,7 @@ if KODE is not None and KODE != k_utama:
     catatan.append(
         f'default kode TOP_K_FEATURES = {KODE}, yang berasal dari ablasi horizon '
         f'{A60["horizon"] if A60 else 60} hari, BUKAN dari naskah utama yang '
-        f'melaporkan k={k_utama} dan menemukan k={KODE} '
+        f'memakai k={T.get("ablation_acuan", 25)} (terbaik di ablasinya k={k_utama}) dan menemukan k={KODE} '
         f'{d12:+.2f}% lebih buruk di h=1. Siapa pun yang menjalankan kode ini '
         f'apa adanya untuk ramalan satu hari memakai setelan yang tidak didukung '
         f'naskah utama - ini justru contoh "tune at the horizon you will run" '

@@ -99,6 +99,10 @@ fig,axes=plt.subplots(1,2,figsize=(7.4,2.6))
 ax=axes[0]
 ax.plot(ab.k,ab.mase,'o-',c=BLUE,lw=1.6,ms=5,label='mean')
 ax.plot(ab.k,ab['median'],'s--',c=ACC,lw=1.4,ms=4,label='median')
+# Acuan k: semua uji di Tabel 8 dibandingkan terhadapnya.
+_ac=T.get('ablation_acuan',25)
+ax.axvline(_ac,c=MUTED,lw=.9,ls=':',zorder=1)
+ax.text(_ac,ax.get_ylim()[1],f' reference k = {_ac}',fontsize=6.6,color=MUTED,va='top',ha='left')
 ax.set_xlabel('features kept (k)',fontsize=8); ax.set_ylabel('MASE',fontsize=8)
 ax.legend(fontsize=7,frameon=False); ax.grid(color=GRID,lw=.6); ax.set_axisbelow(True)
 ax=axes[1]
@@ -179,14 +183,18 @@ x=np.arange(len(R)); w=.24
 fig,ax=plt.subplots(figsize=(7.4,3.0))
 for i,m in enumerate(mods):
     v=[bm[c][i] for c in R.component]
-    ax.bar(x+(i-1)*w,v,w,label=m,color=[BLUE,ACC,MUTED][i],zorder=3)
+    ax.bar(x+(i-1)*w,v,w,label=nice(m),color=[BLUE,ACC,MUTED][i],zorder=3)
+# Label efek gabungan diletakkan di bawah sumbu x (di luar area batang), bukan
+# di atas garis putus-putus: di sana ia menimpa batang yang tingginya dekat nol.
 for i,r in enumerate(R.itertuples()):
     ax.plot([i-.42,i+.42],[r.delta]*2,c='#222',lw=1.6,ls='--',zorder=5)
-    ax.text(i,r.delta+.25,f'pooled {r.delta:+.2f}%  p={r.p:.3f}',ha='center',fontsize=7)
+    ax.text(i,-.30,f'pooled {r.delta:+.2f}%, p = {r.p:.3f}, Holm {r.p_holm:.3f}',ha='center',
+            va='top',fontsize=6.8,color='#222',transform=ax.get_xaxis_transform())
 ax.axhline(0,c='#222',lw=.9)
 ax.set_xticks(x); ax.set_xticklabels([c.replace(' ','\n',1) for c in R.component],fontsize=7.6)
 ax.set_ylabel('% lost when component removed',fontsize=8)
-ax.legend(fontsize=7,frameon=False,ncol=3); ax.grid(axis='y',color=GRID,lw=.6); ax.set_axisbelow(True)
+ax.legend(fontsize=7,frameon=False,ncol=3,loc='lower center',bbox_to_anchor=(.5,1.0))
+ax.grid(axis='y',color=GRID,lw=.6); ax.set_axisbelow(True)
 simpan(fig,'fig9_ablation.png')
 
 # ---------------------------------------------------------------- Gambar 10
