@@ -476,14 +476,16 @@ def status(a):
             ks = 'TERHENTI'
         pct = 100 * sel / tot if tot else 0
         bar = '#' * int(pct / 5) + '.' * (20 - int(pct / 5))
-        eta = ''
+        eta, rinci = '', []
         if ks == 'BERJALAN' and info.get('t0'):
             dt = time.time() - info['t0']
-            laju = (sel - info.get('awal', 0)) / dt if dt > 0 else 0
-            eta = f'  jalan {durasi(dt)}' + (f', sisa ~{durasi((tot - sel) / laju)}' if laju > 0 else ', menghitung laju...')
+            eta = f'  jalan {durasi(dt)}'
+            rinci = eta_fase(a.hasil, t, info)
         elif ks == 'SELESAI' and info.get('lama'):
             eta = f'  {durasi(info["lama"])}'
         print(f'  {k}  {t["nama"]:30s} [{bar}] {pct:5.1f}%  {sel:>6}/{tot:<6} {ks:9s}{eta}')
+        for b in rinci:
+            print(f'       {b}')
     print(f'\n  keseluruhan: {100 * tot_sel / tot_all:.1f}%  (rata-rata per tahap, bukan per waktu)')
 
     mem = memori()
@@ -529,6 +531,60 @@ def status(a):
     elif keadaan == 'SELESAI':
         print(f'\nSELESAI. Arsip: {st.get("arsip", "(jalankan: " + rel + " kemas)")}')
     return 0
+
+
+# Satu tahap bisa memuat beberapa berkas dengan ongkos per baris yang sangat
+# berbeda. Tahap 1: satu baris opt_tuned = 4 setelan x NVAL origin refit harian
+# (240 fit pada NVAL=60), satu baris opt_rolling = 1 fit. Perkiraan dari laju
+# gabungan membagi baris murah dengan laju baris mahal, dan pernah mencetak
+# "sisa ~887 jam". Karena itu laju dihitung PER BERKAS, hanya untuk berkas
+# yang sedang dikerjakan, dan berkas berikutnya ditandai "belum diketahui".
+LABEL_BERKAS = {'opt_tuned.csv': 'penyetelan', 'opt_rolling.csv': 'blok uji 30 origin',
+                'sisa_kablasi.csv': 'ablasi k', 'sisa_eksternal.csv': 'data pasar',
+                'sisa_pasar_benar.csv': 'pasar benar'}
+
+
+def eta_fase(hasil, t, info):
+    berkas = [b for b in t['target'] if b.endswith('.csv')]
+    if len(berkas) < 1 or 'ckpt' in t:
+        return []
+    folder = jalur_hasil(t['hasil'])
+    p = os.path.join(folder_vps(hasil), 'fase.json')
+    try:
+        fase = json.load(open(p))
+    except Exception:
+        fase = {}
+    kunci = f"{t['id']}|{info.get('t0')}"
+    catat = fase.setdefault(kunci, {})
+    out, aktif_ada = [], False
+    for i, b in enumerate(berkas):
+        n, target = min(hitung_baris(folder, b), t['target'][b]), t['target'][b]
+        nama = LABEL_BERKAS.get(b, b)
+        if n >= target:
+            out.append(f'- {nama:20s} {n}/{target} selesai')
+            continue
+        if aktif_ada:
+            out.append(f'- {nama:20s} {n}/{target} menunggu (laju belum diketahui)')
+            continue
+        aktif_ada = True
+        if b not in catat:
+            # Berkas pertama tahap ini dimulai bersama tahapnya; berkas
+            # berikutnya dicatat saat pertama terlihat aktif.
+            catat[b] = [info['t0'], info.get('awal', 0)] if i == 0 else [time.time(), n]
+        t_awal, n_awal = catat[b]
+        dt = time.time() - t_awal
+        if n > n_awal and dt > 0:
+            per = dt / (n - n_awal)
+            out.append(f'- {nama:20s} {n}/{target} ~{durasi(per)}/baris, sisa fase ini ~{durasi(per * (target - n))}')
+        else:
+            out.append(f'- {nama:20s} {n}/{target} menghitung laju...')
+    try:
+        tmp = p + '.tmp'
+        json.dump(fase, open(tmp, 'w'))
+        os.replace(tmp, p)
+    except Exception:
+        pass
+    return out
 
 
 def pantau(a):
