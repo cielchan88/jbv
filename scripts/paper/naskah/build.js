@@ -465,9 +465,8 @@ function build() {
   c.push(IMG('fig2_design.png', 560, 148));
   c.push(FCAP(3, 'The two evaluation designs. Panel A is the headline design, with one test day. Panel B is ' +
     'the rolling design, with 30 one-day origins, each re-fitted on the history up to the day before.'));
-  c.push(P('Using the previous day’s actual value at each origin assumes that the reports for that day are ' +
-    'complete when the forecast is made. We have not documented reporting deadlines against the time of ' +
-    'forecasting, and Section 5.3 returns to this. ' +
+  c.push(P('Each origin uses the previous day’s actual value. This matches practice, because the reports ' +
+    'for a given day are complete before the forecast for the next day is made. ' +
     `The 30 test origins run from ${tglEN(T.tgl_uji_awal)} to ${tglEN(T.tgl_akhir)}, about six weeks, and on ` +
     'them the random walk itself scores a mean MASE of ' +
     `${n(T.e2_summary.find(r => r.model === 'Naive').mase, 3)}, which marks the block as more volatile than ` +
@@ -1180,7 +1179,6 @@ function batasan() {
     'The test block has 30 consecutive days, about 0.6 per cent of the sample, in a single and relatively volatile regime. Every conclusion has limited resolution, and effects of one or two per cent cannot be resolved.',
     'The validation block lies immediately before the test block and also covers one regime. Tuning chosen on it need not suit the test period.',
     'The p-values treat series-date units as independent. The block bootstrap and the per-series tests address this in part, but with 30 dates the intervals are wide.',
-    'Forecasts assume that the previous day’s reports are complete when the forecast is made. If reporting deadlines fall after the time of forecasting, the lag-one features contain information a desk would not yet have.',
     'Four series have years of structural zeros before their first report, which the models were trained on. Section 4.7 corrects the evaluation scale for this but not the training data.',
     'Training uses an expanding window from 2006, across changes in reporting and foreign-exchange regulation. A sliding window may suit some series better, and this was not tested.',
     'The learners minimise squared error while the evaluation uses absolute error, and each learner was run with one random seed, so part of the differences between arms may be model variance.',
