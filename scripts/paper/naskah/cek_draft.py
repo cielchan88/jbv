@@ -168,6 +168,28 @@ if t:
     if n_t8 != len(p25):
         beda.append(f'T8: hanya {n_t8} dari {len(p25)} baris seri dikenali')
 
+t = judul('Combination', 'Mean MASE')
+if t:
+    src = {e['nama']: e for e in T.get('ensemble', [])}
+    n_ens = 0
+    for row in t[1:]:
+        e = src.get(row[0])
+        if e:
+            n_ens += 1
+            banding(f'T7 {row[0][:25]} mean', num(row[1]), round(e['mase'], 3))
+            banding(f'T7 {row[0][:25]} holm', num(row[6]), round(e['p_holm'], 4))
+    if n_ens != len(src):
+        beda.append(f'T7: hanya {n_ens} dari {len(src)} kombinasi dikenali')
+
+t = judul('Rule', 'k', 'Without market data')
+if t:
+    src = {(('univariate' if r['beta'] == 0 else 'mRMR'), str(r['k'])): r for r in T['tabel8b']}
+    for row in t[1:]:
+        r = T['tabel8b_gabungan'] if row[0] == 'pooled' else src.get((row[0], row[1]))
+        if r:
+            banding(f'T10 {row[0]}/{row[1]} off', num(row[2]), round(r['mati'], 3))
+            banding(f'T10 {row[0]}/{row[1]} on', num(row[3]), round(r['benar'], 3))
+
 # ------------------------------------------- 2b. kelengkapan Lampiran B
 # Lampiran yang memuat sebagian seri tanpa mengatakan seri mana yang hilang
 # lebih menyesatkan daripada tidak ada lampiran. build.js sudah melewatkannya

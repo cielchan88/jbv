@@ -239,6 +239,19 @@ T['n_leaf_membaik'] = int((per.rusak_benar < -0.5).sum())
 T['n_leaf_memburuk'] = int((per.rusak_benar > 0.5).sum())
 T['n_leaf_tanpa_slot'] = int((per.slot == 0).sum())
 
+# ------------------- per seri, lengan DISUPLAI (hasil utama 4.5, beta=1)
+# Tabel per seri di 4.5 kini melaporkan hasil yang sudah dikoreksi: data pasar
+# ikut diberikan saat meramal. Lengan dinolkan hanya muncul di Diskusi.
+_sup = gg[gg.beta == 1.0].groupby(['leaf', 'top_k']).agg(
+    mati=('mati', 'mean'), benar=('benar', 'mean')).reset_index()
+_sup['delta'] = 100 * (_sup.benar / _sup.mati - 1)
+T['per_leaf_supplied'] = [dict(leaf=r.leaf, k=int(r.top_k), off=float(r.mati), on=float(r.benar),
+                               delta=float(r.delta), n_ext=int(slot[r.leaf][f'k{int(r.top_k)}_mrmr']))
+                          for r in _sup.itertuples()]
+_s25 = _sup[_sup.top_k == 25]
+_rs, _ps = spearmanr([slot[l]['k25_mrmr'] for l in _s25.leaf], _s25.delta)
+T['supplied_slot_rho'] = {'rho': float(_rs), 'p': float(_ps)}
+
 # ------------------------------- Tabel 8 per seri (lengan dinolkan, beta=1)
 xm = ext[ext.beta == 1.0]
 pv = (xm.pivot_table(index=['leaf', 'top_k'], columns='ext', values='mase')
@@ -305,6 +318,38 @@ for a in T['ablation']:
     a['paruh'] = [float(100 * (_kp[k][_o < 15].mean() / _kp[_acuan][_o < 15].mean() - 1)),
                   float(100 * (_kp[k][_o >= 15].mean() / _kp[_acuan][_o >= 15].mean() - 1))]
 T['ablation_acuan'] = _acuan
+
+# ------------------------------------ kombinasi ramalan berbobot sama (4.2)
+# Lima kombinasi sederhana, SEMUANYA dilaporkan dan dikoreksi Holm bersama,
+# supaya tidak ada yang dipilih sesudah melihat blok uji. Bobot sama tidak
+# butuh data untuk ditaksir, jadi tidak ada kebocoran dari blok uji.
+_r = BACA('opt_rolling.csv')
+_r['skala'] = _r.ae / _r.mase
+_P = _r.pivot_table(index=['leaf', 'origin'], columns='model', values='pred')
+_A = _r.groupby(['leaf', 'origin']).actual.first()
+_S = _r.groupby(['leaf', 'origin']).skala.median()
+_mase = lambda pr: (pr - _A).abs() / _S
+_juara = T['champion_juara']
+_ref = _mase(_P[_juara])
+_ML = ['LightGBM', 'RandomForest', 'XGBoost']
+_KOMB = [('Mean of the three learners', _P[_ML].mean(axis=1)),
+         ('Mean of the three learners, ARIMA and Croston', _P[_ML + ['ARIMA', 'Croston']].mean(axis=1)),
+         ('Mean of LightGBM and ARIMA', _P[['LightGBM', 'ARIMA']].mean(axis=1)),
+         ('Median of all ten methods', _P.median(axis=1)),
+         ('Mean of all ten methods', _P.mean(axis=1))]
+_ens, _pr = [], {}
+for nama, pr in _KOMB:
+    m = _mase(pr)
+    L = pd.DataFrame({'c': m, 'j': _ref}).groupby(level='leaf').mean()
+    _pr[nama] = float(wilcoxon(m, _ref).pvalue)
+    _ens.append(dict(nama=nama, mase=float(m.mean()), med=float(m.median()), max=float(m.max()),
+                     delta=float(100 * (m.mean() / _ref.mean() - 1)), wins=int((m < _ref).sum()),
+                     n=int(len(m)), p=_pr[nama], leaf_lebih_baik=int((L.c < L.j).sum())))
+_urut, _jalan = sorted(_ens, key=lambda e: e['p']), 0.0
+for i, e in enumerate(_urut):
+    _jalan = max(_jalan, min(1.0, (len(_urut) - i) * e['p']))
+    e['p_holm'] = _jalan
+T['ensemble'] = _ens
 # Setelan terpilih per learner (indeks ke grid di rerun_optimal.py; 0 =
 # setelan bawaan pustaka). Menunjukkan apakah penyetelan benar-benar bergerak.
 _tn = BACA('opt_tuned.csv')

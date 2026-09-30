@@ -4,6 +4,19 @@ Status: **badan naskah, Kesimpulan dan Abstrak sudah ditulis ulang dari hasil
 `hasil_w5`** (no. 2-14, 16-18). Yang tersisa: **judul** (no. 1, 15), yang
 dibahas sesudah badan naskah disetujui.
 
+Review eksternal (30-09-2026), semua dikerjakan tanpa run ulang:
+- Artefak data pasar: 4.5 kini hanya hasil terkoreksi (Tabel 10-11); zero-fill
+  pindah ke 5.2 "An Implementation Pitfall" (Tabel 12, Gambar 11-12).
+- Ensemble: lima kombinasi berbobot sama, Holm bersama (Tabel 7). Tidak ada
+  yang nyata lebih baik dari LightGBM; median 10 metode satu-satunya < 1.
+- Blok validasi: 3.3 diperjelas (rolling-origin, expanding window);
+  keterbatasan satu rezim di 5.6.
+- 5.4 baru: kerangka rezim nilai tukar, tiga proposisi (bukan temuan).
+  Sitasi baru: Calvo & Reinhart 2002, Menkhoff 2013, Fratzscher et al. 2019,
+  Smith & Wallis 2009, Claeskens et al. 2016.
+- Riset lanjutan (6.3): CatBoost, validasi tersebar, SHAP-RFE, bobot
+  kombinasi dari blok validasi.
+
 Keputusan sesudah hasil VPS: k tetap **25** (ditetapkan sebelum studi).
 Ablasi k dilaporkan sebagai temuan: k 30/35/40 lebih baik per titik dan
 lolos Holm atas 8 lengan, tetapi tidak nyata per seri (n = 15), tidak
