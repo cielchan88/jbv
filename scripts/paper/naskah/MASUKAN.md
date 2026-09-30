@@ -242,3 +242,43 @@ Urutan penulisan: badan naskah (Metodologi, Bab 4-6) -> Kesimpulan -> Abstrak
   `T['rata_pasar']`, bukan ditulis ulang tangan.
 - Nama leaf lewat `nama_leaf.json` di buat_tables.py, figs.py, build.js.
 - Ablasi h=60 (`ablasi_h60.json`) masih kolam lama: sebut sebagai keterbatasan.
+
+---
+
+## Review kedua (target workshop IFC/BIS): grup A dan B selesai
+
+Tanpa jalan ulang VPS. Semua angka baru dihitung dari berkas hasil yang ada
+lewat `inferensi.py` dan `buat_tables.py`.
+
+**B (analisis tambahan)**
+- Unit uji dirata-rata per (seri, tanggal) = 450; CI bootstrap blok
+  melingkar per tanggal (blok 5, B = 2000); TOST +-2% dengan CI 90%;
+  Hodges-Lehmann; Holm per keluarga (metode, komponen, k, kombinasi).
+- DM-HLN per seri dan Model Confidence Set (T_max, alpha 0,10):
+  LightGBM, RF, XGBoost, ARIMA dan Croston tersisa.
+- MASE dengan penyebut sejak mulai pelaporan (A.2, B.2, C.2 sejak
+  2013-02-11; C.4 sejak 2007-02-26): peringkat tidak berubah.
+- Metrik desk (Tabel 12): MAE relatif, MAE dan bias juta USD, akurasi arah,
+  galat total harian.
+- RQ4: pangsa SHAP pasar per kelompok; kualifikasi penalti pasar tanpa
+  A.6 dan C.5.
+- Gambar baru: heatmap MASE relatif RW (Gambar 5), seri mentah (Gambar 2),
+  diagram evaluasi diperbarui.
+
+**A (koreksi dan penulisan)**
+- Bab 1 dengan RQ1-4, Bab 2 dengan Tabel 1 (H1-H5) dan literatur M4/M5,
+  model global, MinT, DM/HLN, MCS.
+- Kotak 1 (training-serving skew), Lampiran D daftar 116 fitur, Lampiran F
+  versi pustaka; Tabel A2 hanya MASE.
+- Referensi baru diverifikasi lewat Consensus.
+
+### Masih terbuka (pertanyaan untuk penulis)
+1. Apakah laporan t-1 benar tersedia saat ramalan dibuat (asumsi real-time)?
+2. Konfirmasi 11 Februari 2013 sebagai awal pelaporan A.2, B.2, C.2.
+3. Tanggal perubahan regulasi (aturan underlying, DHE SDA) untuk Lampiran E.
+4. Izin kerahasiaan untuk MAE/bias dalam juta USD di Tabel 12.
+5. Pernyataan "code available on request" vs repo publik; teks deklarasi AI.
+
+### Grup C (ditunda, perlu VPS)
+Blok uji 1-2 tahun, desain faktorial, beberapa seed, benchmark tambahan
+(ETS, Theta, CatBoost). Diperlukan bila menyasar jurnal seperti IJF.

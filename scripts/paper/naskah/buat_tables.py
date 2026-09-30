@@ -88,6 +88,8 @@ for _, r in lv.iterrows():
 T['n_leaf'] = len(lv)
 T['n_hari'] = len(dcols)
 T['tgl_awal'], T['tgl_akhir'] = dcols[0], dcols[-1]
+T['tgl_uji_awal'] = dcols[-30]
+T['tgl_latih_akhir'] = dcols[-2]           # desain headline: training berakhir sehari sebelum uji
 
 # ------------------------------------------------- nilai hilang di data pasar
 # Naskah menyebut rentang nilai hilang di 3.3 dan menyatakan tidak ada nilai
@@ -235,9 +237,10 @@ T['slot_damage'] = {'nol': {'rho': float(r1), 'p': float(p1_)},
 T['per_leaf_benar'] = [dict(leaf=i, slot=int(r.slot), mati=float(r.mati),
     nol=float(r.nol), benar=float(r.benar), rusak_nol=float(r.rusak_nol),
     rusak_benar=float(r.rusak_benar)) for i, r in per.sort_values('rusak_benar').iterrows()]
-T['n_leaf_membaik'] = int((per.rusak_benar < -0.5).sum())
-T['n_leaf_memburuk'] = int((per.rusak_benar > 0.5).sum())
 T['n_leaf_tanpa_slot'] = int((per.slot == 0).sum())
+T['n_leaf_membaik'] = int(((per.rusak_benar < 0) & (per.slot > 0)).sum())
+T['n_leaf_memburuk'] = int(((per.rusak_benar > 0) & (per.slot > 0)).sum())
+assert T['n_leaf_membaik'] + T['n_leaf_memburuk'] + T['n_leaf_tanpa_slot'] == len(per), 'rincian seri pasar tidak berjumlah penuh'
 
 # ------------------- per seri, lengan DISUPLAI (hasil utama 4.5, beta=1)
 # Tabel per seri di 4.5 kini melaporkan hasil yang sudah dikoreksi: data pasar
@@ -350,6 +353,173 @@ for i, e in enumerate(_urut):
     _jalan = max(_jalan, min(1.0, (len(_urut) - i) * e['p']))
     e['p_holm'] = _jalan
 T['ensemble'] = _ens
+
+# ============================================================ review kedua (B)
+# Semua dari berkas hasil yang sudah ada; lihat inferensi.py untuk alasannya.
+import inferensi as INF
+_opt = roll.set_index(['leaf', 'model', 'origin']).mase
+_ML3 = ['LightGBM', 'RandomForest', 'XGBoost']
+_ab = BACA('opt_ablasi.csv')
+_R = {}
+
+# 1. metode: juara melawan kesembilan lainnya (450 unit, sudah per seri-tanggal)
+_jr = T['champion_juara']
+_m = roll.pivot_table(index=['leaf', 'origin'], columns='model', values='mase')
+_R['metode'] = [INF.banding(_m[_jr], _m[m], m) for m in _m.columns if m != _jr]
+
+# 2. ablasi terbalik: rata-rata tiga learner per (seri, tanggal)
+_full = _opt[_opt.index.get_level_values('model').isin(_ML3)]
+_KOMP = {'tanpa_mrmr': 'Redundancy-aware selection', 'tanpa_refit': 'Daily re-fitting',
+         'tanpa_setelan': 'Tuned hyperparameters'}
+_R['komponen'] = [INF.banding(_full, _ab[_ab.arm == arm].set_index(['leaf', 'model', 'origin']).mase, lab_)
+                  for arm, lab_ in _KOMP.items()]
+# menang tanpa ties: 'tanpa_setelan' identik di sel yang memilih konfigurasi 1
+T['reverse_ties'] = {}
+for arm, lab_ in _KOMP.items():
+    x = _ab[_ab.arm == arm].set_index(['leaf', 'model', 'origin']).mase
+    j = pd.concat([_full, x], axis=1, keys=['o', 'x']).dropna()
+    seri_ = int(np.isclose(j.o, j.x, rtol=0, atol=1e-12).sum())
+    T['reverse_ties'][lab_] = dict(ties=seri_, wins=int((j.o < j.x).sum()), n=int(len(j)))
+
+# 3. jumlah fitur melawan k acuan
+_R['k'] = [INF.banding(_kp[_acuan], _kp[k], f'k = {k}') for k in _kp.columns if k != _acuan]
+
+# 4. data pasar disuplai melawan dimatikan, dirata-rata atas learner dan kondisi
+_gi = gg.set_index(['leaf', 'model', 'origin', 'beta', 'top_k'])
+_R['pasar'] = [INF.banding(_gi.mati, _gi.benar, 'pooled')] + [
+    INF.banding(g_.mati, g_.benar, f"{'mRMR' if b_ == 1 else 'univariate'}, k = {int(k_)}")
+    for (b_, k_), g_ in _gi.groupby(level=['beta', 'top_k'])]
+
+# 5. kombinasi melawan juara
+_R['kombinasi'] = [INF.banding(_ref, _mase(pr), nama) for nama, pr in _KOMB]
+T['robust'] = _R
+
+# 6. Diebold-Mariano (HLN) per seri: juara melawan metode lain
+_dm = []
+for m in _m.columns:
+    if m == _jr:
+        continue
+    lebih, kalah = 0, 0
+    for lf, g_ in _m.groupby(level='leaf'):
+        stat, pp = INF.dm_hln(g_[_jr].values, g_[m].values)
+        if pp < 0.05:
+            lebih += stat > 0
+            kalah += stat < 0
+    _dm.append(dict(model=m, juara_lebih_baik=int(lebih), juara_lebih_buruk=int(kalah)))
+T['dm_per_seri'] = _dm
+
+# 7. Model Confidence Set 90 persen pada rata-rata harian MASE
+_L = roll.pivot_table(index='origin', columns='model', values='mase', aggfunc='mean')
+_mcs, _mcs_p = INF.mcs(_L, alpha=0.10)
+T['mcs'] = dict(tersisa=_mcs, p=_mcs_p, alpha=0.10, n_tanggal=int(len(_L)))
+
+# 8. skala MASE untuk seri yang baru dilaporkan setelah awal panel
+#    Penyebut asli dihitung atas y[:cut] termasuk periode nol struktural.
+_kor, _fak = [], {}
+for _, rr in lv.iterrows():
+    dd_, yy_ = series_of(rr, dcols, dall)
+    cut_ = len(yy_) - 30
+    nz = np.nonzero(yy_)[0]
+    if len(nz) and nz[0] >= 250:
+        lama_ = scale_denom(yy_[:cut_]); baru_ = scale_denom(yy_[nz[0]:cut_])
+        _fak[rr.Row_ID] = lama_ / baru_
+        _kor.append(dict(leaf=rr.Row_ID, mulai=str(dd_[nz[0]])[:10], nol_sebelum=int(nz[0]),
+                         faktor=float(lama_ / baru_)))
+_f = lambda s: s * s.index.get_level_values('leaf').map(lambda l: _fak.get(l, 1.0)).values
+_rk = roll.set_index(['leaf', 'model', 'origin']).mase
+_rk2 = _f(_rk)
+_rank2 = _rk2.groupby(level='model').mean().sort_values()
+_m2 = _rk2.unstack('model')
+_kab2 = _f(_kb.set_index(['leaf', 'model', 'origin', 'top_k']).mase).unstack('top_k')
+_ab2 = _f(_ab.set_index(['leaf', 'model', 'origin', 'arm']).mase).unstack('arm')
+_full2 = _f(_full)
+_g2 = _gi.copy()
+for c_ in ('mati', 'benar'):
+    _g2[c_] = _f(_gi[c_])
+T['skala_koreksi'] = dict(
+    seri=_kor,
+    peringkat=[dict(model=m, lama=float(_rk.groupby(level='model').mean()[m]), baru=float(v))
+               for m, v in _rank2.items()],
+    juara_baru=str(_rank2.index[0]),
+    uji_juara={m: float(wilcoxon(_m2[_jr], _m2[m]).pvalue) for m in ('ARIMA', 'Croston', 'RandomForest', 'XGBoost')},
+    komponen={lab_: float(100 * (_ab2[arm].mean() / _full2.reindex(_ab2.index).mean() - 1))
+              for arm, lab_ in _KOMP.items()},
+    k={int(k): float(100 * (_kab2[k].mean() / _kab2[_acuan].mean() - 1)) for k in _kab2.columns if k != _acuan},
+    pasar=float(100 * (_g2.benar.mean() / _g2.mati.mean() - 1)))
+
+# 9. metrik untuk desk (juta USD dan relatif terhadap random walk)
+_rw = roll[roll.model == 'Naive'].set_index(['leaf', 'origin'])
+_desk = []
+for m, g_ in roll.groupby('model'):
+    g_ = g_.set_index(['leaf', 'origin'])
+    prev = _rw.pred.reindex(g_.index)                      # ramalan RW = nilai kemarin
+    mae_s = g_.ae.groupby(level='leaf').mean()
+    rw_s = _rw.ae.groupby(level='leaf').mean()
+    rel = (mae_s / rw_s).replace([np.inf], np.nan).dropna()
+    arah_a, arah_p = np.sign(g_.actual - prev), np.sign(g_.pred - prev)
+    ok = (arah_a != 0) & (arah_p != 0)
+    tot = g_.groupby(level='origin')[['actual', 'pred']].sum()
+    _desk.append(dict(model=m, rel_mae_geo=float(np.exp(np.log(rel[rel > 0]).mean())),
+                      mae=float(g_.ae.mean()), bias=float((g_.actual - g_.pred).mean()),
+                      arah=(float((arah_a[ok] == arah_p[ok]).mean() * 100) if ok.sum() else None),
+                      mae_total=float((tot.actual - tot.pred).abs().mean())))
+T['desk'] = sorted(_desk, key=lambda r: r['rel_mae_geo'])
+
+# 10. RQ4: pangsa SHAP pasar per kelompok pihak transaksi
+_sh = pd.Series({r['leaf']: r['share'] for r in S['shap_ext_share']})
+T['shap_per_kelompok'] = {g: float(_sh[_sh.index.str[0] == g].mean()) for g in 'ABC'}
+
+# 11. penalti pasar per seri, dengan dan tanpa dua sel "Other" terbesar
+_ps = pd.DataFrame(T['per_leaf_supplied'])
+# 11b. MASE per seri x metode, untuk heatmap (Gambar 5)
+T['per_leaf_model'] = {lf: {m: float(v) for m, v in g_.groupby('model').mase.mean().items()}
+                       for lf, g_ in roll.groupby('leaf')}
+
+# 12. pangsa SHAP pasar tidak memprediksi apakah data pasar membantu
+_chg = pd.Series({r['leaf']: r['delta'] for r in T['per_leaf_supplied'] if r['k'] == 25})
+_rr, _pp = spearmanr(_sh.reindex(_chg.index), _chg)
+T['shap_vs_change'] = dict(rho=float(_rr), p=float(_pp))
+
+# 13. nol sejak mulai pelaporan, dan analisis sparsity yang dihitung ulang
+_z = {}
+for _, rr in lv.iterrows():
+    dd_, yy_ = series_of(rr, dcols, dall)
+    nz = np.nonzero(yy_)[0]
+    _z[rr.Row_ID] = dict(mulai=str(dd_[nz[0]])[:10], nol_total=float(100 * np.mean(yy_ == 0)),
+                         nol_sejak=float(100 * np.mean(yy_[nz[0]:] == 0)),
+                         nol_uji=float(100 * np.mean(yy_[-30:] == 0)))
+T['nol_sejak'] = _z
+_w = pd.DataFrame(T['winners']).set_index('leaf')
+_w['nol_sejak'] = [_z[l]['nol_sejak'] for l in _w.index]
+_rr, _pp = spearmanr(_w.nol_sejak, _w.mase)
+T['winner_rho_sejak'], T['winner_p_sejak'] = float(_rr), float(_pp)
+
+# 14. daftar lengkap kolam fitur internal, per keluarga (Lampiran)
+from utils.feature_engineering_optimized import create_features_optimized as _cfo
+_d0, _y0 = series_of(lv.iloc[0], dcols, dall)
+_f0 = _cfo(pd.DataFrame({'ds': _d0[:-30], 'y': _y0[:-30]}))
+_fit = [c for c in _f0.columns if c not in ('date', 'ds', 'value')]
+_KEL = [('Lag', lambda c: c.startswith('lag_') and '_x_' not in c),
+        ('Rolling statistics', lambda c: c.startswith('rolling_') and '_x_' not in c),
+        ('Exponentially weighted mean', lambda c: c.startswith('ewm_')),
+        ('Difference and percentage change', lambda c: c.startswith('value_')),
+        ('Volatility and range', lambda c: any(k in c for k in ('volatil', 'price_position', 'max_change', 'min_change', 'change_range'))),
+        ('Extreme value and jump', lambda c: any(k in c for k in ('z_score', 'is_extreme', 'jump'))),
+        ('Technical indicator', lambda c: any(c.startswith(k) for k in ('rsi', 'bb_', 'macd'))),
+        ('Interaction', lambda c: '_x_' in c),
+        ('Calendar and Fourier', lambda c: True)]
+_daftar, _sisa = [], list(_fit)
+for nama_, f_ in _KEL:
+    anggota = [c for c in _sisa if f_(c)]
+    _sisa = [c for c in _sisa if c not in anggota]
+    _daftar.append(dict(kelompok=nama_, fitur=anggota))
+assert sum(len(x['fitur']) for x in _daftar) == next(iter(slot.values()))['kandidat_internal'], 'daftar fitur tidak sama dengan kolam internal'
+T['daftar_fitur'] = _daftar
+
+T['pasar_kualifikasi'] = {int(k): dict(
+    semua=float(g_.delta.mean()),
+    tanpa=float(g_[~g_.leaf.isin(['A.2.f', 'C.e'])].delta.mean()))
+    for k, g_ in _ps.groupby('k')}
 # Setelan terpilih per learner (indeks ke grid di rerun_optimal.py; 0 =
 # setelan bawaan pustaka). Menunjukkan apakah penyetelan benar-benar bergerak.
 _tn = BACA('opt_tuned.csv')

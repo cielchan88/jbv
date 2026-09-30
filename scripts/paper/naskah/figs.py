@@ -96,8 +96,7 @@ simpan(fig,'fig4_winners.png')
 
 # ---------------------------------------------------------------- Gambar 5
 ab=pd.DataFrame(T['ablation']).sort_values('k')
-fig,axes=plt.subplots(1,2,figsize=(7.4,2.6))
-ax=axes[0]
+fig,ax=plt.subplots(figsize=(7.4,2.6))
 ax.plot(ab.k,ab.mase,'o-',c=BLUE,lw=1.6,ms=5,label='mean')
 ax.plot(ab.k,ab['median'],'s--',c=ACC,lw=1.4,ms=4,label='median')
 # Acuan k: semua uji di Tabel 8 dibandingkan terhadapnya.
@@ -106,10 +105,6 @@ ax.axvline(_ac,c=MUTED,lw=.9,ls=':',zorder=1)
 ax.text(_ac,ax.get_ylim()[1],f' reference k = {_ac}',fontsize=6.6,color=MUTED,va='top',ha='left')
 ax.set_xlabel('features kept (k)',fontsize=8); ax.set_ylabel('MASE',fontsize=8)
 ax.legend(fontsize=7,frameon=False); ax.grid(color=GRID,lw=.6); ax.set_axisbelow(True)
-ax=axes[1]
-ax.bar(ab.k.astype(str),ab['max'],color=BLUE,zorder=3)
-ax.set_xlabel('features kept (k)',fontsize=8); ax.set_ylabel('worst scaled error',fontsize=8)
-ax.grid(axis='y',color=GRID,lw=.6); ax.set_axisbelow(True)
 simpan(fig,'fig5_kablation.png')
 
 # ---------------------------------------------------------------- Gambar 6
@@ -154,7 +149,7 @@ ax=axes[1]
 ax.bar(x2-w2/2,B.delta_nol,w2,label='zero-filled',color=ACC,zorder=3)
 ax.bar(x2+w2/2,B.delta_benar,w2,label='supplied',color='#4f7d5a',zorder=3)
 for i,r in enumerate(B.itertuples()):
-    ax.text(i,r.delta_nol+1.0,f'-{r.rusak_hilang_pct:.0f}%',ha='center',
+    ax.text(i,r.delta_nol+1.0,f'recovered {r.rusak_hilang_pct:.0f}%',ha='center',
             fontsize=6.6,color=MUTED)
 ax.axhline(0,c='#222',lw=.9)
 ax.set_ylim(top=B.delta_nol.max()*1.14)   # ruang untuk label di atas batang
@@ -172,7 +167,8 @@ for ax,kol,tag,warna,st in ((axes[0],'rusak_nol','zero-filled',ACC,SD['nol']),
     ax.scatter(P.slot,P[kol],s=34,c=warna,ec='white',lw=.6,zorder=3)
     ax.axhline(0,c='#222',lw=.9)
     ax.set_xlabel('market features retained (of 25)',fontsize=8)
-    ax.set_title(f"{tag}\nSpearman {st['rho']:.3f}, p={st['p']:.3f}",fontsize=8)
+    _pt = 'p < 0.001' if st['p'] < 0.001 else f"p = {st['p']:.3f}"
+    ax.set_title(f"{tag}\nSpearman {st['rho']:.3f}, {_pt}",fontsize=8)
     ax.grid(color=GRID,lw=.6); ax.set_axisbelow(True)
 axes[0].set_ylabel('% worse than market off',fontsize=8)
 simpan(fig,'fig11_slot_damage.png')
@@ -211,8 +207,9 @@ ax.legend(fontsize=7,frameon=False); ax.grid(axis='y',color=GRID,lw=.6); ax.set_
 ax=axes[1]
 ax.bar([f'k={int(k)}' for k in st.k],st.delta,color=BLUE,zorder=3)
 for i,r in enumerate(st.itertuples()):
-    ax.text(i,r.delta-.12,f'p={r.p:.3f}',ha='center',fontsize=7,color=MUTED)
+    ax.text(i,r.delta-.08,f'p = {r.p:.3f}',ha='center',va='top',fontsize=7,color=MUTED)
 ax.axhline(0,c='#222',lw=.9)
+ax.set_ylim(min(0, st.delta.min()) * 1.35 - .1, .25)
 ax.set_ylabel('% change from using mRMR',fontsize=8)
 ax.grid(axis='y',color=GRID,lw=.6); ax.set_axisbelow(True)
 simpan(fig,'fig10_selector.png')
@@ -222,11 +219,11 @@ print('selesai ->',F)
 # WAJIB dibangun ulang, tidak boleh dipakai ulang dari versi lama: kolam lag
 # pasar berubah, dan pangsa kepentingannya ikut bergeser - Lag 26,1% -> 19,0%,
 # External 7,8% -> 11,5%.
-FAM = {k: v for k, v in sorted(T['shap_family'].items(), key=lambda kv: -kv[1])
-       if v >= 0.05}
+FAM = {('Market' if k == 'External' else k): v
+       for k, v in sorted(T['shap_family'].items(), key=lambda kv: -kv[1]) if v >= 0.05}
 fig, ax = plt.subplots(figsize=(7.4, 2.7))
 nm = list(FAM); vv = [FAM[k] for k in nm]
-warna = [ACC if k == 'External' else BLUE for k in nm]
+warna = [ACC if k == 'Market' else BLUE for k in nm]
 ax.barh(range(len(nm))[::-1], vv, color=warna, zorder=3)
 for i, v in enumerate(vv):
     ax.text(v + .6, len(nm) - 1 - i, f'{v:.1f}%', va='center', fontsize=7.6, color=MUTED)
@@ -269,7 +266,7 @@ fig, ax = plt.subplots(figsize=(7.4, 1.95))
 NTRAIN = T['n_hari'] - 1
 ax.add_patch(plt.Rectangle((0, .62), 8.6, .3, fc='#E8EFF4', ec=BLUE, lw=.8))
 ax.text(4.3, .77, f'Training — {NTRAIN:,} business days '
-        f'({T["tgl_awal"]} – {T["tgl_akhir"]})',
+        f'({T["tgl_awal"]} – {T.get("tgl_latih_akhir", T["tgl_akhir"])})',
         ha='center', va='center', fontsize=7.8, color='#1B2530')
 ax.add_patch(plt.Rectangle((8.65, .62), .35, .3, fc='#F6E9E7', ec=ACC, lw=1.1))
 ax.text(8.82, .77, '1', ha='center', va='center', fontsize=7.6,
@@ -291,6 +288,51 @@ ax.text(0, .44, 'B. Inference design — 30 origins, one step each',
 ax.set_xlim(-.1, 12.3); ax.set_ylim(0, 1.15); ax.axis('off')
 simpan(fig, 'fig2_design.png')
 
+
+# ------------------------------------------ heatmap seri x metode (review 2)
+# Menggantikan plot titik per seri dan diagram batang pemenang. Nilai adalah
+# MASE relatif terhadap random walk pada seri yang sama, jadi warna netral = 1.
+from matplotlib.colors import TwoSlopeNorm
+PLM = T['per_leaf_model']
+urut_m = [d['model'] for d in sorted(T['e2_summary'], key=lambda d: d['mase'])]
+urut_l = sorted(PLM)
+M_ = np.array([[PLM[l][m] / PLM[l]['Naive'] for m in urut_m] for l in urut_l])
+fig, ax = plt.subplots(figsize=(7.4, 4.6))
+# Warna pada skala log2 dan dibatasi +-1,5 (0,35x sampai 2,8x), supaya satu
+# seri yang sangat sulit (B.1) tidak menghabiskan seluruh rentang warna.
+L2 = np.clip(np.log2(M_), -1.5, 1.5)
+im = ax.imshow(L2, cmap='RdBu_r', vmin=-1.5, vmax=1.5, aspect='auto')
+for i in range(M_.shape[0]):
+    jb = int(np.argmin(M_[i]))
+    for j in range(M_.shape[1]):
+        ax.text(j, i, f'{M_[i, j]:.2f}', ha='center', va='center', fontsize=6.2,
+                weight='bold' if j == jb else 'normal',
+                color='white' if abs(L2[i, j]) > 1.0 else '#1B2530')
+    ax.add_patch(plt.Rectangle((jb - .5, i - .5), 1, 1, fill=False, ec='#1B2530', lw=1.2))
+ax.set_xticks(range(len(urut_m))); ax.set_xticklabels([nice(m) for m in urut_m], fontsize=7, rotation=30, ha='right')
+ax.set_yticks(range(len(urut_l))); ax.set_yticklabels([f'{nama(l)}  {LAB[l]}' for l in urut_l], fontsize=7)
+cb = fig.colorbar(im, ax=ax, fraction=.03, pad=.02, ticks=np.log2([.4, .5, .7, 1, 1.4, 2, 2.8]))
+cb.ax.set_yticklabels(['0.4', '0.5', '0.7', '1', '1.4', '2', '2.8+'], fontsize=6.5)
+cb.set_label('MASE relative to random walk (log scale)', fontsize=7)
+simpan(fig, 'fig_heatmap.png')
+
+# --------------------------------------------- deret mentah (review 2)
+# Nilai dibagi simpangan baku masing-masing seri dan sumbu tegak disembunyikan:
+# bentuk dan periode nol terlihat, besaran arus tidak.
+_pn = pd.read_csv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                               'data', 'processed', 'sdv-wide-gabung.csv'))
+_tg = [c for c in _pn.columns if c[:2] == '20']
+_tt = pd.to_datetime(_tg)
+fig, axes = plt.subplots(5, 3, figsize=(7.4, 6.6), sharex=True)
+for ax, l in zip(axes.T.ravel(), urut_l):
+    v = pd.to_numeric(_pn.loc[_pn.Row_ID == l, _tg].iloc[0], errors='coerce').values.astype(float)
+    ax.plot(_tt, v / np.nanstd(v), lw=.35, color=BLUE)
+    ax.axvspan(_tt[-30], _tt[-1], color=ACC, alpha=.35, lw=0)
+    ax.set_title(f'{nama(l)}  {LAB[l]}', fontsize=7, loc='left', pad=2)
+    ax.set_yticks([]); ax.tick_params(axis='x', labelsize=6)
+    for sp in ('top', 'right'):
+        ax.spines[sp].set_visible(False)
+simpan(fig, 'fig_seri.png')
 
 # ------------------------------------------------ Gambar 3: alur evaluasi
 # Satu diagram untuk seluruh prosedur evaluasi: dari panel mentah, pemisahan
@@ -370,8 +412,8 @@ panah(7.5, 5.15, 5.8, 4.72)
 
 # 4. satuan berpasangan
 kotak(0.1, 3.85, 9.8, .87, '4  Pair the forecasts',
-      f'One unit = series x learner x origin, forecast by both arms of a comparison.  '
-      f'{_npas} units per method pair, {_npipa:,} per pipeline arm.')
+      f'One unit = series x learner x origin, forecast by both arms of a comparison. For inference, units are '
+      f'averaged to series x date ({_npas} per comparison).')
 for x in (1.3, 3.75, 6.25, 8.7):
     panah(5, 3.85, x, 3.52)
 
@@ -387,11 +429,9 @@ for i, (j, t) in enumerate(E):
 
 # 6. inferensi
 kotak(0.1, 0.05, 9.8, 1.57, '6  Inference',
-      'Wilcoxon signed-rank test on the paired differences in absolute scaled error, two-sided, '
-      'zero differences dropped.\n'
-      'Holm-Bonferroni correction within each family (methods, pipeline components, feature counts), '
-      'plus Benjamini-Hochberg\nfor the method comparison.\n'
-      f'Robustness check with the series as the unit (n = {T["n_leaf"]}). '
+      'Wilcoxon signed-rank test, two-sided, with Holm correction within four families (methods, components,\n'
+      'feature counts, combinations). Block bootstrap over dates for confidence intervals, equivalence within\n'
+      '+-2 per cent, Hodges-Lehmann shifts, Diebold-Mariano tests per series and a 90 per cent Model Confidence Set.\n'
       'SHAP values on the fitted trees show what the model uses.')
 # Diagram mengisi seluruh kanvas. tight_layout menyisakan margin kanan yang
 # lebar untuk sumbu yang disembunyikan, jadi posisinya diatur manual.

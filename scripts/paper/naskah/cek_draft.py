@@ -140,10 +140,12 @@ if t:
 # ini mencocokkan yang pertama ditemukan dengan sumber yang kedua, lalu
 # melaporkan 16 ketidakcocokan palsu. Urutannya yang membedakan: tabel
 # peringkat pertama adalah desain headline, yang kedua desain bergulir.
+# Susunan sesudah review kedua: tabel bergulir (Tabel 5) di badan naskah,
+# tabel headline (Tabel A1) di lampiran. Urutannya kini e2 lalu e1.
 peringkat = [t for t in tbs
              if t and t[0][:3] == ['Rank', 'Method', 'Mean MASE'] and len(t) > 10]
 for idx, (tb, kunci, tag) in enumerate(
-        zip(peringkat, ('e1_summary', 'e2_summary'), ('T5', 'T6'))):
+        zip(peringkat, ('e2_summary', 'e1_summary'), ('T5', 'TA1'))):
     src = {m['model']: m for m in T[kunci]}
     for row in tb[1:]:
         key = NICE.get(row[1])
@@ -151,7 +153,7 @@ for idx, (tb, kunci, tag) in enumerate(
             banding(f'{tag} {row[1]} mean', num(row[2]), round(src[key]['mase'], 3))
             banding(f'{tag} {row[1]} median', num(row[3]), round(src[key]['med'], 3))
 
-t = judul('Series', 'Purpose', 'FE only')
+t = judul('Series', 'Purpose', 'FE, k = 12')
 if t:
     p25 = {r['leaf']: r for r in T['per_leaf_ext'] if r['k'] == 25}
     p12 = {r['leaf']: r for r in T['per_leaf_ext'] if r['k'] == 12}
@@ -177,7 +179,7 @@ if t:
         if e:
             n_ens += 1
             banding(f'T7 {row[0][:25]} mean', num(row[1]), round(e['mase'], 3))
-            banding(f'T7 {row[0][:25]} holm', num(row[6]), round(e['p_holm'], 4))
+            banding(f'T6 {row[0][:25]} holm', num(row[4]), round(e['p_holm'], 4))
     if n_ens != len(src):
         beda.append(f'T7: hanya {n_ens} dari {len(src)} kombinasi dikenali')
 
