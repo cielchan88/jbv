@@ -35,13 +35,14 @@ NAMA_LEAF = json.load(open(os.path.join(os.path.dirname(os.path.dirname(
 nama = lambda l: NAMA_LEAF.get(l, l)
 import re, matplotlib.text
 KODE_LAMA = re.compile(r'(?<![\w.])(?:' + '|'.join(re.escape(k) for k in NAMA_LEAF) + r')(?!\w|\.\w)')
-def simpan(fig,nama_berkas):
+def simpan(fig,nama_berkas,tata=True):
     # Penjaga: tidak boleh ada kode leaf lama di teks mana pun pada gambar -
     # judul, label sumbu, anotasi, legenda.
     for t in fig.findobj(matplotlib.text.Text):
         if KODE_LAMA.search(t.get_text()):
             raise SystemExit(f'BERHENTI: {nama_berkas} memuat kode leaf lama: {t.get_text()!r}')
-    fig.tight_layout(); fig.savefig(F+nama_berkas,dpi=200); plt.close(fig); print('  ',nama_berkas)
+    if tata: fig.tight_layout()
+    fig.savefig(F+nama_berkas,dpi=200); plt.close(fig); print('  ',nama_berkas)
 
 # ---------------------------------------------------------------- Gambar 1
 KOL=['Export','Import','Investment','Repatriation','No underlying','Remittance','Trading','Other']
@@ -289,6 +290,113 @@ ax.text(0, .44, 'B. Inference design — 30 origins, one step each',
         fontsize=8.2, weight='bold', color='#1B2530')
 ax.set_xlim(-.1, 12.3); ax.set_ylim(0, 1.15); ax.axis('off')
 simpan(fig, 'fig2_design.png')
+
+
+# ------------------------------------------------ Gambar 3: alur evaluasi
+# Satu diagram untuk seluruh prosedur evaluasi: dari panel mentah, pemisahan
+# latih/validasi/uji per seri, penyetelan dan uji refit harian, satuan
+# berpasangan, empat eksperimen, sampai inferensi. Setiap angka diturunkan
+# dari tables.json supaya diagram tidak tertinggal dari naskah.
+from matplotlib.patches import FancyBboxPatch
+INK_ = '#1B2530'
+_abl = sorted(a['k'] for a in T['ablation'])
+_ac = T.get('ablation_acuan', 25)
+_nval = T.get('nval', 60)
+_npas = T['n_leaf'] * 30
+_npipa = T['n_leaf'] * 3 * 30
+fig, ax = plt.subplots(figsize=(7.4, 6.3))
+ax.set_xlim(0, 10); ax.set_ylim(0, 10.6); ax.axis('off')
+
+
+def kotak(x, y, w, h, judul, isi, fc='#F3F6F9', ec=BLUE, fs=6.9, jfs=7.6):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle='round,pad=0.02,rounding_size=0.12',
+                                fc=fc, ec=ec, lw=.9))
+    ax.text(x + .12, y + h - .12, judul, ha='left', va='top', fontsize=jfs,
+            weight='bold', color=INK_)
+    # Isi dimulai di bawah baris judul terakhir, supaya judul dua baris
+    # tidak menimpa isinya.
+    ax.text(x + .12, y + h - .14 - .30 * (judul.count('\n') + 1), isi, ha='left', va='top',
+            fontsize=fs, color=INK_, linespacing=1.35)
+
+
+def panah(x1, y1, x2, y2):
+    ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                arrowprops=dict(arrowstyle='-|>', color=MUTED, lw=1.0, shrinkA=0, shrinkB=0))
+
+
+# 1. data
+kotak(0.1, 9.35, 9.8, 1.15, '1  Data',
+      f'{T["n_leaf"]} daily flow series (counterparty x purpose), {T["n_hari"]:,} business days, '
+      'millions of US dollars.\n'
+      f'Market data ({T["pool_pasar"] // (len(T["lag_pasar"]) + 1)} variables, lagged) enter only '
+      'the market-data experiment.')
+panah(5, 9.35, 5, 9.05)
+
+# 2. pemisahan per seri (garis waktu)
+ax.text(0.1, 8.95, '2  For each series, split the history in time order', ha='left', va='top',
+        fontsize=7.6, weight='bold', color=INK_)
+y0, hh = 8.05, .38
+ax.add_patch(plt.Rectangle((0.1, y0), 6.1, hh, fc='#E8EFF4', ec=BLUE, lw=.8))
+ax.text(3.15, y0 + hh / 2, 'training sample (also fixes the MASE scale)', ha='center',
+        va='center', fontsize=6.9, color=INK_)
+ax.add_patch(plt.Rectangle((6.2, y0), 2.2, hh, fc='#EEF3E8', ec='#4f7d5a', lw=.8))
+ax.text(7.3, y0 + hh / 2, f'validation, {_nval} origins', ha='center', va='center',
+        fontsize=6.9, color=INK_)
+ax.add_patch(plt.Rectangle((8.4, y0), 1.5, hh, fc='#F6E9E7', ec=ACC, lw=.8))
+ax.text(9.15, y0 + hh / 2, 'test, 30 origins', ha='center', va='center', fontsize=6.9,
+        color=INK_)
+ax.text(0.1, y0 - .12, 'time  →', ha='left', va='top', fontsize=6.4, color=MUTED)
+panah(7.3, y0, 2.6, 7.45)
+panah(9.15, y0, 7.4, 7.45)
+
+# 3. penyetelan dan uji
+kotak(0.1, 5.15, 4.85, 2.3, '3a  Tuning (three learners only)',
+      f'For each of 4 configurations and each\nvalidation origin t:\n'
+      '  build features from history up to t − 1\n'
+      f'  select k = {_ac} features by mRMR\n'
+      '  fit, forecast day t, record scaled error\n'
+      'Keep the configuration with the lowest\nmean MASE. It is fixed for the test.',
+      fc='#F4F8F1', ec='#4f7d5a')
+kotak(5.05, 5.15, 4.85, 2.3, '3b  Testing (all ten methods)',
+      'For each test origin t:\n'
+      '  re-fit on actual history up to t − 1\n'
+      '  forecast day t, one step ahead\n'
+      '  scaled error q = e ⁄ (training mean\n'
+      '  absolute first difference)\n'
+      'Headline design: the last origin only,\nfor description.',
+      fc='#FBF1EE', ec=ACC)
+panah(2.5, 5.15, 4.2, 4.72)
+panah(7.5, 5.15, 5.8, 4.72)
+
+# 4. satuan berpasangan
+kotak(0.1, 3.85, 9.8, .87, '4  Pair the forecasts',
+      f'One unit = series x learner x origin, forecast by both arms of a comparison.  '
+      f'{_npas} units per method pair, {_npipa:,} per pipeline arm.')
+for x in (1.3, 3.75, 6.25, 8.7):
+    panah(5, 3.85, x, 3.52)
+
+# 5. empat eksperimen
+E = [('Method\ncomparison', f'10 methods,\neach against\nthe leader'),
+     ('Reverse\nablation', 'full pipeline vs\nno mRMR, no re-fit,\nno tuning'),
+     ('Feature\ncount', f'k = {", ".join(map(str, _abl[:5]))},\n{", ".join(map(str, _abl[5:]))} vs {_ac}\nfit once per block'),
+     ('Market\ndata', 'off, zero-filled at\nprediction, supplied\nfit once per block')]
+for i, (j, t) in enumerate(E):
+    x = 0.1 + i * 2.475
+    kotak(x, 1.95, 2.3, 1.57, '5  ' + j, t, fc='#F7F7F7', ec=MUTED, fs=6.6, jfs=7.2)
+    panah(x + 1.15, 1.95, x + 1.15, 1.62)
+
+# 6. inferensi
+kotak(0.1, 0.05, 9.8, 1.57, '6  Inference',
+      'Wilcoxon signed-rank test on the paired differences in absolute scaled error, two-sided, '
+      'zero differences dropped.\n'
+      'Holm-Bonferroni correction within each family (methods, pipeline components, feature counts), '
+      'plus Benjamini-Hochberg\nfor the method comparison.\n'
+      f'Robustness check with the series as the unit (n = {T["n_leaf"]}). '
+      'SHAP values on the fitted trees show what the model uses.')
+# Diagram mengisi seluruh kanvas. tight_layout menyisakan margin kanan yang
+# lebar untuk sumbu yang disembunyikan, jadi posisinya diatur manual.
+fig.subplots_adjust(left=.005, right=.995, top=.995, bottom=.005)
+simpan(fig, 'fig3_evaluasi.png', tata=False)
 
 
 # ------------------------------------------------- beeswarm per leaf (disalin)

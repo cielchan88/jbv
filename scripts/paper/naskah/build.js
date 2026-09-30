@@ -633,6 +633,17 @@ function build() {
     'from nested calendar shares.'));
 
   c.push(H2('3.5. Evaluation and Statistical Inference'));
+  c.push(P('Figure 3 sets out the whole evaluation procedure, from the raw series to the reported test. ' +
+    'Each series is split in time order into a training sample, a validation block for tuning and a test ' +
+    'block. The learners are tuned on the validation block, every method is then re-fitted and scored at ' +
+    'each test origin, the forecasts are paired across the arms of each experiment, and the paired ' +
+    'differences are tested and corrected for multiple testing. The rest of this section describes each ' +
+    'step.'));
+  c.push(IMG('fig3_evaluasi.png', 560, 477));
+  c.push(FCAP(3, `The evaluation procedure. Steps 2 and 3 run separately for each of the ${T.n_leaf} series. ` +
+    `Tuning uses the ${T.nval}-origin validation block only, so the configuration is fixed before the ` +
+    'test block is seen. Step 5 lists the four experiments, and every one of them passes through the same ' +
+    'paired tests and correction in step 6.'));
   c.push(H3('Accuracy measure'));
   c.push(P('Accuracy is the mean absolute scaled error, or MASE, proposed by Hyndman and Koehler (2006) as a ' +
     'generally applicable replacement for percentage-based measures. ' +
@@ -742,12 +753,12 @@ function build() {
   c.push(rankTable(e2rank));
   c.push(...h1Prose());
   c.push(IMG('fig3_leaf.png', 560, 250));
-  c.push(FCAP(3, 'Accuracy by series over 30 one-day origins. Each row is one series and each grey dot one ' +
+  c.push(FCAP(4, 'Accuracy by series over 30 one-day origins. Each row is one series and each grey dot one ' +
     'method. The orange dot marks the best method for that series and the blue tick the random walk. ' +
     'The dashed line at MASE = 1 is the in-sample random-walk scale.'));
   c.push(...winnersProse());
   c.push(IMG('fig4_winners.png', 560, 227));
-  c.push(FCAP(4, `How many of the ${T.n_leaf} series each method wins. `
+  c.push(FCAP(5, `How many of the ${T.n_leaf} series each method wins. `
     + `${Kata(T.n_metode_menang)} methods win at least one series and none wins more than ${kata(bestCount[0][1])}.`));
 
   /* ---------------------------------------------------------------- H2 */
@@ -761,7 +772,7 @@ function build() {
     + 'three components.'));
   c.push(reverseAblationTable());
   c.push(IMG('fig9_ablation.png', 560, 265));
-  c.push(FCAP(5, 'What each component contributes, by learner and pooled. ' +
+  c.push(FCAP(6, 'What each component contributes, by learner and pooled. ' +
     'Bars above zero mean the full pipeline is better. The dashed line is the pooled effect, and its ' +
     'paired test and Holm-adjusted p-value are printed below each group.'));
   c.push(...reverseAblationProse());
@@ -769,10 +780,10 @@ function build() {
   /* ---------------------------------------------------------------- H3 */
   c.push(H2('4.4. How Many Features to Keep'));
   c.push(P('The feature-count ablation holds the learners, the data, the origins and the metric fixed and ' +
-    `changes only the number of features kept. Figure 6 shows the curve and Table 8 gives the tests against ` +
+    `changes only the number of features kept. Figure 7 shows the curve and Table 8 gives the tests against ` +
     `k = ${acuanK}.`));
   c.push(IMG('fig5_kablation.png', 560, 197));
-  c.push(FCAP(6, 'Feature-count ablation. The left panel shows mean and median MASE against the number of ' +
+  c.push(FCAP(7, 'Feature-count ablation. The left panel shows mean and median MASE against the number of ' +
     `features kept, pooled over three learners, ${T.n_leaf} series and 30 origins. The right panel shows the ` +
     'worst scaled error at each count.'));
   c.push(TCAP(8, `Feature-count ablation against k = ${acuanK}. The Holm column corrects for the ` +
@@ -787,7 +798,7 @@ function build() {
     'the screen when today forecast is made. The test is therefore a fair one, provided the model actually ' +
     'receives those values when it forecasts.'));
   c.push(IMG('fig6_external.png', 560, 197));
-  c.push(FCAP(7, 'Market data as first tested, under both selection rules and both feature counts. '
+  c.push(FCAP(8, 'Market data as first tested, under both selection rules and both feature counts. '
     + 'The left panel shows mean MASE with market data off and on. The right panel shows the share of '
     + 'non-tied paired forecasts on which the market-off arm is the better one, with the share of tied pairs '
     + 'printed above each bar. The rest of this section shows that most of this loss is an artefact of the pipeline.'));
@@ -805,12 +816,12 @@ function build() {
     + '"Recovered" is the share of the zero-filled penalty that disappears once the features are supplied.'));
   c.push(suppliedTable());
   c.push(IMG('fig6b_pasar_benar.png', 560, 212));
-  c.push(FCAP(8, 'Three arms of the same comparison. '
+  c.push(FCAP(9, 'Three arms of the same comparison. '
     + 'The left panel shows mean MASE with market data off, supplied at training but zero-filled at '
     + 'prediction, and supplied at both. The right panel shows each arm as a penalty against the no-market '
     + 'baseline, with the share of the zero-filled penalty that the correction removes.'));
   c.push(IMG('fig11_slot_damage.png', 560, 220));
-  c.push(FCAP(9, 'Why the penalty scaled with exposure. Each point is one series at 25 features under '
+  c.push(FCAP(10, 'Why the penalty scaled with exposure. Each point is one series at 25 features under '
     + 'redundancy-aware selection. With market features zero-filled at prediction (left), the penalty rises '
     + 'with the number of slots the selector gives them. Once the features are supplied (right), the '
     + 'relationship disappears.'));
@@ -822,7 +833,7 @@ function build() {
     'arriving together. If that were the whole story the market-data loss would be a fault of the selector ' +
     'and would shrink under the redundancy-aware rule. We repeat the comparison under both rules.'));
   c.push(IMG('fig10_selector.png', 560, 204));
-  c.push(FCAP(10, 'The two selection rules compared. The left panel shows how many market features each ' +
+  c.push(FCAP(11, 'The two selection rules compared. The left panel shows how many market features each ' +
     'rule admits. The right panel shows the change in mean MASE from using the redundancy-aware rule instead ' +
     'of the univariate one, with market data off.'));
   c.push(...selectorProse());
@@ -830,14 +841,14 @@ function build() {
   /* ---------------------------------------------------------------- H5 */
   c.push(H2('4.6. What the Model Relies On'));
   c.push(P('Selection decides which features enter the model, not how much each contributes once it is ' +
-    'fitted. Figure 11 shows what the selector kept for each series and how much of the fitted importance the ' +
-    'market variables carry, and Figure 12 pools the importance by feature family.'));
+    'fitted. Figure 12 shows what the selector kept for each series and how much of the fitted importance the ' +
+    'market variables carry, and Figure 13 pools the importance by feature family.'));
   c.push(IMG('fig8_slotcomposition.png', 560, 242));
-  c.push(FCAP(11, 'What the selector kept, series by series, at 25 features with market data switched on. ' +
+  c.push(FCAP(12, 'What the selector kept, series by series, at 25 features with market data switched on. ' +
     'The left panel divides the 25 slots between market variables, the series own lags and everything else. ' +
     'The right panel shows the share of total absolute SHAP value carried by the market variables.'));
   c.push(IMG('fig7_shapfamily.png', 560, 212));
-  c.push(FCAP(12, 'Feature importance by family, from SHAP values on the fitted trees, averaged across all ' +
+  c.push(FCAP(13, 'Feature importance by family, from SHAP values on the fitted trees, averaged across all ' +
     `${T.n_leaf} series at 25 features with market data switched on.`));
   c.push(...famProse());
 
@@ -1038,7 +1049,7 @@ function h1Prose() {
     `rankings is ${n(T.rank_corr.rho, 3)} (p = ${n(T.rank_corr.p, 4)}), and on the single test date ` +
     `${nice(e1top.model)} is the most accurate method. ` +
     `That agreement says the final date was not unusual, not that one test day is enough evidence. ` +
-    `Figure 3 gives a stronger reason not to lean on any aggregate ranking, because the best method changes ` +
+    `Figure 4 gives a stronger reason not to lean on any aggregate ranking, because the best method changes ` +
     `from series to series.`));
   // Pemeriksa: kalimat "mean dan median sepakat" hanya sah bila memang sepakat.
   if (medTerendah.model !== top.model) {
@@ -1347,7 +1358,7 @@ function slotDamageProse() {
   const A = T.slot_damage;
   const g = T.tabel8b_gabungan;
   const c = [];
-  c.push(P(`Figure 9 identifies the mechanism. With the market features zero-filled, the penalty a series ` +
+  c.push(P(`Figure 10 identifies the mechanism. With the market features zero-filled, the penalty a series ` +
     `suffers rises with the number of slots the selector gave them. The rank correlation across the ` +
     `${A.n} series is ${n(A.nol.rho, 3)} (p = ${n(A.nol.p, 4)}). ` +
     `That is what a feature withheld at prediction would produce, since the more of the model is blanked ` +
@@ -1500,7 +1511,7 @@ function appendixBeeswarm() {
   const share = Object.fromEntries(T.shap_ext_share.map(r => [r.leaf, r.share]));
   const c = [];
   c.push(H1('Appendix B. Feature contributions, series by series'));
-  c.push(P('Figure 11 shows how the 25 selected features divide between market variables, own lags and ' +
+  c.push(P('Figure 12 shows how the 25 selected features divide between market variables, own lags and ' +
     'everything else, and how much of the fitted importance the market variables carry. ' +
     'It cannot show direction, and the beeswarms below can. Each dot is one of the last 300 training days, ' +
     'placed by that feature contribution to the predicted next-day flow in millions of US dollars, and ' +
@@ -1510,7 +1521,7 @@ function appendixBeeswarm() {
     'around zero means it is carried in the model and does almost nothing.'));
   c.push(NOTE('These are the fourteen highest-importance features of the 25 selected, ordered by mean ' +
     'absolute SHAP value. A series can therefore show fewer market rows here than its market slot count ' +
-    'in Figure 11, which means the remaining market features rank below the fourteenth.'));
+    'in Figure 12, which means the remaining market features rank below the fourteenth.'));
   ada.forEach((l, i) => {
     const v = T.shap_per_leaf[l];
     c.push(IMG('beeswarm' + path.sep + l + '.png', 520, 282));
