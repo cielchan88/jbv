@@ -22,7 +22,7 @@ Naskah yang dimaksud: `FX_15seri.docx`, dibangun dari `build.js` pada commit
 | 1 | Judul lebih menarik dan lebih ML, begitu pula subjudul | **Belum final.** Minta alternatif lain; lihat daftar opsi di bawah |
 | 2 | Kurangi em dash, titik dua, titik koma | Kerjakan saat menulis ulang. Hitungan awal: 22 em dash, 20 "-" sebagai dash, 101 titik dua, 62 titik koma |
 | 3 | Tanda supply/demand terbalik | **Benar terbalik.** Data: Ekspor rata-rata −79, Impor +270. Negatif = supply, positif = demand |
-| 4 | Paragraf sel PMA tidak jelas | Tulis ulang supaya **penggabungannya** yang tersurat: tiga sel PMA digabung ke sel korporasi lain dengan tujuan yang sama, 18 → 15 sel |
+| 4 | Paragraf sel PMA tidak jelas | **Diubah (30-09-2026): penjelasan penggabungan dihapus seluruhnya.** Label sel korporasi cukup "Corporate". Sel A.1 di data berlabel PTMN, bukan PMA; istilah "foreign direct investment" di draf sebelumnya keliru. Satu-satunya jejak yang tersisa: 5.2 menyebut ablasi h=60 dijalankan pada grid 18 sel versi sebelumnya |
 | 5 | Ganti nama leaf | Pakai peta di bawah. "C,5" dibaca C.5 |
 | 6 | Paragraf deep learning | Ringkas jadi dua kalimat, pertahankan bahwa naskah tidak mengklaim DL lebih buruk |
 | 7 | Tonjolkan metodologi ML | Pipeline ML jadi inti Metodologi; tujuh metode lain dipadatkan jadi satu subbab benchmark |

@@ -67,9 +67,11 @@ else:
     utama_js = open(os.path.join(DIR, 'naskah', 'build.js'), encoding='utf-8').read()
     if nsp != T['n_leaf']:
         print(f'   beda jumlah sel {nsp} vs {T["n_leaf"]} (penggabungan)')
-        if not re.search(r'(?:aggregates|merges) of two reporting categories', utama_js):
-            fail('panel/sel', f'pendamping {nsp} sel vs utama {T["n_leaf"]}, '
-                              'dan naskah utama tidak menjelaskan penggabungannya')
+        # Keputusan penulis (30-09-2026): penggabungan sel TIDAK dijelaskan di
+        # naskah utama. Bukan kegagalan lagi, cukup dicatat untuk pembaca yang
+        # menerima kedua naskah sekaligus.
+        catatan.append(f'pendamping {nsp} sel vs utama {T["n_leaf"]}; naskah utama sengaja '
+                       'tidak menjelaskan penggabungannya (keputusan penulis)')
         if nsp - T['n_leaf'] != 3:
             fail('panel/sel', f'selisihnya {nsp - T["n_leaf"]}, bukan 3 pasang '
                               'yang digabung seperti dinyatakan 3.2')
@@ -246,7 +248,7 @@ if os.path.exists(panel):
             fail('A.1.b', f'naskah utama menulis {mu.group(1)}%, data {z:.2f}%')
         # Pendamping MEMASUKKAN sel ini; utama membuangnya. Naskah utama harus
         # mengatakannya, karena ia mengutip angka horizon dari ablasi 18 sel.
-        if A60 and not re.search(r'include the degenerate series this paper', utama_js):
+        if A60 and not re.search(r'include the degenerate series this paper|zero on almost every day', utama_js):
             fail('A.1.b', 'naskah utama mengutip ablasi 18 sel tapi tidak '
                           'menyatakan bahwa sel degenerat ikut di dalamnya')
 else:

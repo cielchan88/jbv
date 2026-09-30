@@ -238,8 +238,7 @@ const LABEL = Object.fromEntries(T.desc.map(d => {
   const raw = String(d.label).replace(/^[a-f]\.\s*/, '');
   return [d.leaf, PURPOSE_EN[raw] || raw];
 }));
-const ACTOROF = id => id.startsWith('A.1') ? 'FDI corporate'
-  : id.startsWith('A.2') ? 'Other corporate'
+const ACTOROF = id => id.startsWith('A') ? 'Corporate'
   : id.startsWith('B') ? 'Individual' : 'Non-resident';
 
 /* ------------------------------------------------------------------ build */
@@ -496,19 +495,6 @@ function build() {
     '**A positive value is net demand for foreign exchange, and a negative value is net supply.** ' +
     'Exporters, for example, sell the foreign currency they earn, so the export cells are negative on average, ' +
     'while importers buy it and the import cells are positive.'));
-  // Masukan no. 4: yang harus tersurat adalah PENGGABUNGANNYA. Sel PMA lama
-  // disebut dengan deskripsinya, bukan kodenya, karena sesudah penggantian
-  // nama "A.1" berarti sel lain (lihat nama_leaf.json).
-  c.push(P('The reporting framework records corporates with foreign direct investment separately from other ' +
-    'corporates, and for three purposes, import, repatriation and other, that split leaves cells too thin to ' +
-    'forecast. The thinnest is zero on 95.9 per cent of days, and its whole 30-day test block is zero, so any ' +
-    'method that predicts zero would score perfectly on it. ' +
-    'We therefore merge each of the three foreign-investment cells into the other-corporate cell with the same ' +
-    'purpose, which reduces the grid from eighteen cells to fifteen. ' +
-    'The merged series are A.2.d (Import), A.2.e (Repatriation) and A.2.f (Other). ' +
-    'Flows are additive, so the merge moves no value between purposes and leaves the panel total unchanged to ' +
-    'machine precision. It also matches how the supervisory question is asked, since it concerns corporates ' +
-    'as a whole for these purposes.'));
   c.push(P(`The market data cover the same ${fmt(T.n_hari)} dates, with no date missing on either side. ` +
     `${Kata(T.pasar ? T.pasar.n_var : 8)} variables are used. They are spot USD/IDR bid and ask, one-month ` +
     'forward bid and ask, the ten-year government bond yield, the dollar index, net non-resident equity ' +
@@ -522,7 +508,7 @@ function build() {
         'one date, so the training sample holds no future information.')));
   c.push(TCAP(2, `Descriptive statistics for the ${T.n_leaf} series. Values in millions of US dollars.`));
   c.push(descTable());
-  c.push(NOTE(`Sparsity still varies a great deal after the merge. The zero share runs from ` +
+  c.push(NOTE(`Sparsity varies a great deal across the panel. The zero share runs from ` +
     `${n(Math.min(...T.desc.map(d => d.zero)), 1)} per cent of days to ` +
     `${n(Math.max(...T.desc.map(d => d.zero)), 1)}, and excess kurtosis from ` +
     `${n(Math.min(...T.desc.map(d => d.kurt)), 1)} to ${n(kurtMaks, 0)}.`));
@@ -875,10 +861,10 @@ function build() {
         `${kata(T.ablasi_h60.n_model)} tree models (${T.ablasi_h60.n_unit} paired units), keeping ` +
         `${T.ablasi_h60.terbaik_k} features rather than ${T.ablasi_h60.acuan_k} lowered mean MASE by ` +
         `${n(Math.abs(T.ablasi_h60.terbaik_delta_pct), 1)} per cent. ` +
-        `That ablation predates both the merge described in Section 3.2 and the whole-week feature windows. ` +
-        `Its cells are the ${T.ablasi_h60.n_leaf} unmerged ones and include the degenerate series this paper ` +
-        'merges away, and it fixes the hyperparameters rather than tuning them, so it is a comparison of ' +
-        'horizons rather than a like-for-like extension of Table 8. '
+        `That ablation was run on an earlier ${kata(T.ablasi_h60.n_leaf)}-cell version of the grid, one cell ` +
+        'of which is zero on almost every day, before the whole-week feature windows were introduced, and ' +
+        'with fixed rather than tuned hyperparameters. It is therefore a comparison of horizons rather ' +
+        'than a like-for-like extension of Table 8. '
       : 'Sixty days ahead, in our own earlier ablation, the direction is the opposite. ') +
     'The plausible reading is that a one-day forecast can use many weakly informative recent features, while ' +
     'at a long horizon the same features mostly add variance. The configuration that is right at one ' +
@@ -911,7 +897,6 @@ function build() {
     `The panel has ${T.n_leaf} series. That is enough to separate the learners from the weakest benchmarks and not enough to separate effects of one or two per cent, which is the size of every pipeline effect reported here. Absence of significance is a statement about the resolution of this study, not a demonstration that the components do nothing.`,
     `Hyperparameters are tuned on ${T.nval} validation origins. In an earlier run a validation block of 10 origins chose a different configuration in more than half of the cells, which is why the longer block is used. Sixty origins is long enough to avoid that instability, but not to resolve a tuning effect as small as the one measured here.`,
     'Only one horizon is studied, and the panel comes from one jurisdiction and one reporting framework. Under a managed float the central bank is itself a counterparty, so the flow-to-rate relationship measured here is partly a policy artefact. A shallow onshore market lets a single large settlement move a daily cell, which inflates the tails. And the reporting framework fixes both the counterparty categories and the declared purposes, so the grid is an institutional choice. In a deep free-floating market with a different taxonomy we would expect disaggregation to buy less and the market-data question to be worth asking again.',
-    'Three reported cells are merges of two reporting categories each, as Section 3.2 sets out. That removes a degenerate cell but also removes the possibility of saying anything about foreign-investment corporates separately, which a supervisor may want.',
     `Reproducibility has two requirements. The first is the thread count. ARIMA order selection is sensitive to floating-point summation order, and in an earlier run the identical code and data with a different number of threads moved ${T.repro.arima_utas_berbeda.sel_bergeser} of the ${T.repro.arima_utas_berbeda.n_sel} ARIMA cells, shifting its pooled mean from ${n(T.repro.arima_utas_berbeda.mean_empat_utas, 4)} to ${n(T.repro.arima_utas_berbeda.mean_satu_utas, 4)}. No other method moved. With threads pinned to one, two complete re-runs over ${T.repro.arima_utas.leaf.length} series and ${T.repro.arima_utas.n_origin} origins each were bit-identical, maximum absolute difference ${n(T.repro.arima_utas.beda_maks_absolut, 1)}. All results reported here were produced with threads pinned.`,
     `The second requirement is the library stack. The results were produced under Python ${T.versi.python}, NumPy ${T.versi.numpy}, pandas ${T.versi.pandas}, scikit-learn ${T.versi.sklearn}, LightGBM ${T.versi.lightgbm}, XGBoost ${T.versi.xgboost} and statsmodels ${T.versi.statsmodels}. In an earlier run, re-computing SHAP under a different stack reproduced ${T.repro.shap_lintas_lingkungan.n_leaf_cocok} of ${T.repro.shap_lintas_lingkungan.n_leaf} series exactly, while on one series the market share of importance came out ${n(T.repro.shap_lintas_lingkungan.ext_share_utas_terkunci, 1)} per cent against ${n(T.repro.shap_lintas_lingkungan.ext_share_mesin_komputasi, 1)}. Pinning threads did not remove that difference, so replication should pin the library versions as well.`,
     'The market-data correction supplies the market series at prediction time, which is valid one day ahead because the required lags are already observed. It does not extend to multi-step recursive forecasting, where the future values of another series do not exist.',
