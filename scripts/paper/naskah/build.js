@@ -716,8 +716,6 @@ function build() {
   c.push(P('**Code availability.** The code that produces every table and figure from the model outputs, ' +
     'including the checks that tie each number in the text to its source, is available from the authors on ' +
     'request.'));
-  c.push(P('**Use of generative AI.** Generative AI tools were used to assist with programming, analysis and ' +
-    'drafting. The authors reviewed all outputs and take full responsibility for the content.'));
   c.push(P('**Disclaimer.** The views expressed are those of the authors and not necessarily those of their ' +
     'institution.'));
 
