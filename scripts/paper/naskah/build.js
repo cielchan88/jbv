@@ -857,14 +857,13 @@ function build() {
     `One day ahead, keeping more than ${acuanK} features tends to help and no tighter count does. ` +
     (T.ablasi_h60
       ? `Sixty days ahead the direction is the opposite. In our own earlier ablation on the same reporting ` +
-        `framework, over ${T.ablasi_h60.n_leaf} cells, ${kata(T.ablasi_h60.n_jendela)} rolling windows and the same ` +
+        `framework, over ${kata(T.ablasi_h60.n_jendela)} rolling windows and the same ` +
         `${kata(T.ablasi_h60.n_model)} tree models (${T.ablasi_h60.n_unit} paired units), keeping ` +
         `${T.ablasi_h60.terbaik_k} features rather than ${T.ablasi_h60.acuan_k} lowered mean MASE by ` +
         `${n(Math.abs(T.ablasi_h60.terbaik_delta_pct), 1)} per cent. ` +
-        `That ablation was run on an earlier ${kata(T.ablasi_h60.n_leaf)}-cell version of the grid, one cell ` +
-        'of which is zero on almost every day, before the whole-week feature windows were introduced, and ' +
-        'with fixed rather than tuned hyperparameters. It is therefore a comparison of horizons rather ' +
-        'than a like-for-like extension of Table 8. '
+        'That ablation was run before the whole-week feature windows were introduced and with fixed rather ' +
+        'than tuned hyperparameters, so it is a comparison of horizons rather than a like-for-like ' +
+        'extension of Table 8. '
       : 'Sixty days ahead, in our own earlier ablation, the direction is the opposite. ') +
     'The plausible reading is that a one-day forecast can use many weakly informative recent features, while ' +
     'at a long horizon the same features mostly add variance. The configuration that is right at one ' +

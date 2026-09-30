@@ -248,9 +248,11 @@ if os.path.exists(panel):
             fail('A.1.b', f'naskah utama menulis {mu.group(1)}%, data {z:.2f}%')
         # Pendamping MEMASUKKAN sel ini; utama membuangnya. Naskah utama harus
         # mengatakannya, karena ia mengutip angka horizon dari ablasi 18 sel.
-        if A60 and not re.search(r'include the degenerate series this paper|zero on almost every day', utama_js):
-            fail('A.1.b', 'naskah utama mengutip ablasi 18 sel tapi tidak '
-                          'menyatakan bahwa sel degenerat ikut di dalamnya')
+        # Keputusan penulis (30-09-2026): naskah utama tidak menyebut sel
+        # degenerat maupun grid 18 sel. Dicatat, bukan digagalkan.
+        if A60:
+            catatan.append('ablasi h=60 memakai grid 18 sel (termasuk sel degenerat); naskah utama '
+                           'sengaja tidak menyebutnya (keputusan penulis)')
 else:
     catatan.append(f'{panel} tidak ada - pangsa nol A.1.b tidak diperiksa')
 
