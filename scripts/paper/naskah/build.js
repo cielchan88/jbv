@@ -351,10 +351,10 @@ function build() {
 
   /* ---------------------------------------------------------- 1. Intro */
   c.push(H1('1. Introduction'));
-  // Epigraf atas permintaan penulis. Kutipan persis kalimat pembuka Turing (1950).
+  // Epigraf atas permintaan penulis: pertanyaan pembuka Turing (1950), versi pendek.
   c.push(new Paragraph({
     spacing: { after: 40 }, alignment: AlignmentType.RIGHT, indent: { left: 3600 },
-    children: [new TextRun({ text: '“I propose to consider the question, ‘Can machines think?’”', italics: true, size: 20, color: MUTED })],
+    children: [new TextRun({ text: '“Can machines think?”', italics: true, size: 20, color: MUTED })],
   }));
   c.push(new Paragraph({
     spacing: { after: 220 }, alignment: AlignmentType.RIGHT,
