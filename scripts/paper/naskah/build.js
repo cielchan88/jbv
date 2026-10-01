@@ -1028,8 +1028,9 @@ function reverseAblationProse() {
           daftarN(luar.filter(x => x.k === k).map(x => `${NM_POHON[x.m]} by ${pct(x.r.delta, 1)} ` +
             `(90 per cent interval ${nCI(x.r.lo90)} to ${nCI(x.r.hi90)})`)) + '. ').join('')
       : '') +
-    'Each learner was run with a single random seed, so part of these learner-level differences may be ' +
-    'model variance rather than an effect of the component. Appendix G gives every learner separately.'));
+    'With these settings LightGBM and XGBoost are deterministic, giving identical forecasts whatever the ' +
+    'random seed, so their learner-level differences are not seed noise. The random forest was run with ' +
+    'a single seed, and part of its differences may be model variance. Appendix G gives every learner separately.'));
   if (!T.robust.komponen.every(r => r.p_holm >= 0.05)) throw new Error('reverseAblationProse: ada komponen nyata setelah Holm');
   return c;
 }
@@ -1313,7 +1314,7 @@ function batasan() {
     'The p-values treat series-date units as independent. The block bootstrap and the per-series tests address this in part, but with 30 dates the intervals are wide.',
     'Four series have years of structural zeros before their first report, which the models were trained on. Section 4.7 corrects the evaluation scale for this but not the training data.',
     'Training uses an expanding window from 2006, across changes in reporting and foreign-exchange regulation, such as the January 2022 shift in the export series described in Section 3.1. A sliding window may suit some series better, and this was not tested.',
-    'The learners minimise squared error while the evaluation uses absolute error, and each learner was run with one random seed, so part of the differences between arms may be model variance.',
+    'The learners minimise squared error while the evaluation uses absolute error. The random forest was run with one random seed, so part of its differences between arms may be model variance, while LightGBM and XGBoost are deterministic with these settings.',
     'Market data enter as levels, bid and ask quotes enter as near-duplicate pairs, and the selection rule neither excludes near-duplicates reliably nor favours calendar effects, as Section 3.3 explains.',
     'Only one horizon, one jurisdiction and one reporting framework are studied. Appendix E sets out how the exchange-rate regime might shape the market-data results.',
   ];
