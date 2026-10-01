@@ -1,3 +1,42 @@
+# Jalan ulang v2 — review ketiga (hasil_v2)
+
+```bash
+cd /opt/jbv && git pull
+venv/bin/python scripts/paper/revisi/vps.py periksa --rencana v2   # prasyarat + perkiraan waktu
+venv/bin/python scripts/paper/revisi/vps.py mulai   --rencana v2   # latar belakang, aman tutup SSH
+venv/bin/python scripts/paper/revisi/vps.py pantau  --rencana v2
+venv/bin/python scripts/paper/revisi/vps.py kemas   --rencana v2   # otomatis di akhir
+```
+
+Dua tahap: `rerun_v2.py` (paralel per seri) lalu `ringkas_v2.py`. Folder
+`hasil_v2` terpisah dari `hasil_w5`, jadi naskah sekarang tetap bisa dibangun.
+
+| Desain | hasil_w5 (naskah sekarang) | hasil_v2 |
+|---|---|---|
+| Blok uji | 30 origin | 250 origin (validasi 60 di depannya) |
+| Data latih | sejak 2006 | sejak laporan pertama tiap seri |
+| Penyebut MASE | seluruh riwayat | sejak laporan pertama (versi lama dan sejak 2022 ikut dicatat) |
+| Data pasar | level bid/ask | perubahan harian harga tengah (lengan level tetap ada) |
+| Jumlah fitur | 6–40 | 12, 25, 40 dan semua 116 kandidat |
+| Seed | satu | RF tiga seed (42, 1, 2); LightGBM/XGBoost deterministik |
+| Benchmark | 7 | 11: + ETS, Theta, seasonal naive, ridge |
+| Jendela | — | lengan latih sejak 2022 |
+| Pemilihan per seri | — | dari ramalan blok validasi semua metode |
+
+Perkiraan: ~55 jam-core (diukur di uji kecil), ~14 jam dengan 4 shard. Setiap
+sel ditulis begitu selesai, jadi `mulai` sesudah terhenti melanjutkan.
+
+Dua pemeriksaan sebelum skrip ini di-commit:
+- **Regresi.** Dengan desain lama, `rerun_v2.py` mereproduksi kelas forecaster
+  lama bit-per-bit (LightGBM, random forest, XGBoost; selisih 0,0).
+- **Seed.** LightGBM dan XGBoost dengan grid ini tidak berubah sedikit pun
+  oleh `random_state` (selisih maksimum 0,0), jadi hanya RF yang diulang.
+
+Uji cepat lokal: `JBV_V2_CEPAT=1 JBV_LEAF=A.2.d JBV_HASIL=hasil_v2_uji python scripts/paper/revisi/rerun_v2.py`
+(10 origin uji, 5 validasi, ~11 menit).
+
+================================================================================
+
 # Komputasi ulang — jendela kelipatan 5 (hasil_w5)
 
 **Cara yang berlaku sekarang: satu skrip, `vps.py`.** Bagian di bawah garis

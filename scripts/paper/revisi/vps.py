@@ -15,6 +15,15 @@ langkah itu pernah salah di sesi-sesi sebelumnya: folder hasil yang keliru,
 shard yang lupa disatukan, OOM yang membunuh proses tanpa jejak. Di sini semua
 langkah itu satu alur, dan statusnya tercatat di berkas, bukan di layar.
 
+RENCANA v2 (review ketiga). `--rencana v2` menjalankan rerun_v2.py (blok uji
+250 origin, data pasar sebagai perubahan, k = semua, tiga seed RF, latih sejak
+laporan pertama, benchmark ETS/Theta/seasonal naive/ridge) lalu ringkas_v2.py,
+ke folder hasil_v2. Semua perintah di atas berlaku, tambah --rencana v2:
+
+    venv/bin/python scripts/paper/revisi/vps.py periksa --rencana v2
+    venv/bin/python scripts/paper/revisi/vps.py mulai   --rencana v2
+    venv/bin/python scripts/paper/revisi/vps.py status  --rencana v2
+
 APA YANG DIJALANKAN, BERURUTAN (urutan wajib - tahap 2-4 membaca setelan
 terpilih dari tahap 1):
 
@@ -94,7 +103,34 @@ def arms_k():
     return [int(x) for x in re.search(r'^ARMS_K = \[([^\]]*)\]', src, re.M).group(1).split(',')]
 
 
-def tahap_daftar(hasil, slot):
+# Jalan ulang v2 (review ketiga, rerun_v2.py). Konstanta di bawah HARUS sama
+# dengan rerun_v2.py; ringkas_v2.py memeriksa kelengkapan per sel, jadi target
+# yang salah akan ketahuan di sana.
+V2_NROLL, V2_NVAL = 250, 60
+V2_BENCH, V2_LEARNER, V2_SEED_RF = 11, 3, 3
+V2_LENGAN_HARIAN, V2_LENGAN_MINGGUAN = 4, 7
+
+
+def target_v2(n_leaf=N_LEAF):
+    sel_learner = V2_SEED_RF + 2            # RF tiga seed, LightGBM dan XGBoost satu
+    per = (V2_NVAL * (V2_BENCH + 4 * V2_LEARNER)
+           + V2_NROLL * (V2_BENCH + sel_learner * (V2_LENGAN_HARIAN + V2_LENGAN_MINGGUAN)))
+    return n_leaf * per
+
+
+def tahap_daftar(hasil, slot, rencana='naskah'):
+    if rencana == 'v2':
+        return [
+            dict(id=1, nama='jalan ulang v2', skrip='rerun_v2.py', paralel=True, hasil=hasil,
+                 target={'v2_ramalan.csv': target_v2(), 'v2_setelan.csv': N_LEAF * 3,
+                         'v2_skala.csv': N_LEAF}),
+            dict(id=2, nama='ringkasan v2', skrip='ringkas_v2.py', paralel=False, hasil=hasil,
+                 target={'v2_ringkas.json': 1}),
+        ]
+    return tahap_daftar_naskah(hasil, slot)
+
+
+def tahap_daftar_naskah(hasil, slot):
     """Tahap beserta berkas keluaran dan jumlah baris yang harus dicapai.
 
     Target sama dengan ringkas.py. Jumlah lengan ablasi dibaca dari
@@ -315,7 +351,7 @@ def periksa(a, cetak=True):
 
     # 4. folder hasil: baru, atau sidik jarinya cocok
     say('\n-- folder hasil')
-    for nama in (a.hasil, a.slot):
+    for nama in ((a.hasil,) if a.rencana == 'v2' else (a.hasil, a.slot)):
         folder = jalur_hasil(nama)
         if not os.path.exists(os.path.join(folder, 'konfigurasi.json')):
             lulus(f'{nama}: baru')
@@ -345,6 +381,12 @@ def periksa(a, cetak=True):
         say('         sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && '
             'sudo mkswap /swapfile && sudo swapon /swapfile')
     lulus(f'saran jumlah shard: {saran}  (~{MB_PER_SHARD} MB per shard)')
+    if a.rencana == 'v2':
+        # Diukur pada uji kecil rerun_v2 (satu utas): ~46 dtk per origin validasi
+        # dan ~42 dtk per origin uji per seri, termasuk penyetelan dan benchmark.
+        jam = N_LEAF * (V2_NVAL * 46 + V2_NROLL * 42) / 3600
+        lulus(f'perkiraan waktu v2: ~{jam:.0f} jam-core, jadi ~{jam / saran:.0f} jam dengan {saran} shard '
+              '(bisa lebih cepat/lambat menurut CPU)')
     bebas = shutil.disk_usage(REPO).free // (1024 ** 3)
     (lulus if bebas >= 3 else gagal)(f'ruang disk bebas {bebas} GB')
 
@@ -355,9 +397,9 @@ def periksa(a, cetak=True):
 # ------------------------------------------------------------------ kerja
 def kerja(a):
     """Dijalankan di latar belakang oleh `mulai`. Menulis status.json tiap tahap."""
-    daftar = tahap_daftar(a.hasil, a.slot)
+    daftar = tahap_daftar(a.hasil, a.slot, a.rencana)
     st = baca_status(a.hasil)
-    st.update(mulai=st.get('mulai') or waktu(), pid=os.getpid(), keadaan='BERJALAN',
+    st.update(mulai=st.get('mulai') or waktu(), pid=os.getpid(), keadaan='BERJALAN', rencana=a.rencana,
               hasil=a.hasil, slot=a.slot, nval=a.nval, shard=a.shard, galat=None)
     st.setdefault('tahap', {})
     tulis_status(a.hasil, st)
@@ -405,9 +447,11 @@ def kerja(a):
         tulis_status(a.hasil, st)
         print(f'[{waktu()}] tahap {k} selesai dalam {durasi(st["tahap"][k]["lama"])}', flush=True)
 
-    # Pemeriksaan akhir: ringkas.py membaca baca-saja, jadi aman.
-    print(f'[{waktu()}] ringkas.py:', flush=True)
-    subprocess.call([sys.executable, os.path.join(DIR, 'ringkas.py')], env=env_tahap(a.hasil, a.nval))
+    # Pemeriksaan akhir: ringkas.py membaca baca-saja, jadi aman. Rencana v2
+    # sudah punya tahap ringkasannya sendiri.
+    if a.rencana != 'v2':
+        print(f'[{waktu()}] ringkas.py:', flush=True)
+        subprocess.call([sys.executable, os.path.join(DIR, 'ringkas.py')], env=env_tahap(a.hasil, a.nval))
     st.update(keadaan='SELESAI', selesai=waktu(), aktif=None)
     tulis_status(a.hasil, st)
     arsip = kemas(a, cetak=True)
@@ -429,7 +473,7 @@ def mulai(a):
     if not a.shard:
         a.shard = saran
     log = os.path.join(folder_vps(a.hasil), 'vps.log')
-    cmd = [sys.executable, '-u', os.path.abspath(__file__), '_kerja',
+    cmd = [sys.executable, '-u', os.path.abspath(__file__), '_kerja', '--rencana', a.rencana,
            '--hasil', a.hasil, '--slot', a.slot, '--nval', str(a.nval), '--shard', str(a.shard)]
     f = open(log, 'a')
     p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -438,7 +482,9 @@ def mulai(a):
     st.update(pid=p.pid, keadaan='BERJALAN', shard=a.shard)
     tulis_status(a.hasil, st)
     rel = os.path.relpath(__file__, REPO)
-    if (a.hasil, a.slot) != ('hasil_w5', 'hasil_slot_w5'):
+    if a.rencana == 'v2':
+        rel += ' --rencana v2' + ('' if a.hasil == 'hasil_v2' else f' --hasil {a.hasil}')
+    elif (a.hasil, a.slot) != ('hasil_w5', 'hasil_slot_w5'):
         rel += f' --hasil {a.hasil} --slot {a.slot}'
     print(f'\nBERJALAN di latar belakang, pid {p.pid}, {a.shard} shard.')
     print('Aman menutup SSH/Termius - prosesnya tidak ikut berhenti.\n')
@@ -453,7 +499,7 @@ def mulai(a):
 # ----------------------------------------------------------------- status
 def status(a):
     st = baca_status(a.hasil)
-    daftar = tahap_daftar(a.hasil, a.slot)
+    daftar = tahap_daftar(a.hasil, a.slot, a.rencana)
     hidup = pid_hidup(st.get('pid', 0)) if st.get('pid') else False
     keadaan = st.get('keadaan', 'BELUM DIMULAI')
     if keadaan == 'BERJALAN' and not hidup:
@@ -539,7 +585,8 @@ def status(a):
 # gabungan membagi baris murah dengan laju baris mahal, dan pernah mencetak
 # "sisa ~887 jam". Karena itu laju dihitung PER BERKAS, hanya untuk berkas
 # yang sedang dikerjakan, dan berkas berikutnya ditandai "belum diketahui".
-LABEL_BERKAS = {'opt_tuned.csv': 'penyetelan', 'opt_rolling.csv': 'blok uji 30 origin',
+LABEL_BERKAS = {'v2_ramalan.csv': 'ramalan v2', 'v2_setelan.csv': 'setelan v2', 'v2_skala.csv': 'skala v2',
+                'opt_tuned.csv': 'penyetelan', 'opt_rolling.csv': 'blok uji 30 origin',
                 'sisa_kablasi.csv': 'ablasi k', 'sisa_eksternal.csv': 'data pasar',
                 'sisa_pasar_benar.csv': 'pasar benar'}
 
@@ -623,7 +670,7 @@ def kemas(a, cetak=True):
     seluruh CSV/JSON hasil, beeswarm, konfigurasi.json dan versi.json (bukti
     kolam fitur dan tumpukan pustaka), plus slot_pasar.json dari folder slot.
     """
-    daftar = tahap_daftar(a.hasil, a.slot)
+    daftar = tahap_daftar(a.hasil, a.slot, a.rencana)
     belum = [t['nama'] for t in daftar if not lengkap(t)]
     if belum and not getattr(a, 'paksa', False):
         print(f'BELUM LENGKAP: {", ".join(belum)}. Tambah --paksa untuk mengemas apa adanya.')
@@ -633,7 +680,7 @@ def kemas(a, cetak=True):
     buang = re.compile(r'(\.shard-|^log\.|/_vps/|/log\.|\.tmp$)')
     n = 0
     with tarfile.open(arsip, 'w:gz') as tar:
-        for nama in (a.hasil, a.slot):
+        for nama in ((a.hasil,) if a.rencana == 'v2' else (a.hasil, a.slot)):
             akar = jalur_hasil(nama)
             for dp, _, fs in os.walk(akar):
                 for f in fs:
@@ -663,13 +710,17 @@ def kemas(a, cetak=True):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('perintah', choices=['periksa', 'mulai', 'status', 'pantau', 'berhenti', 'kemas', '_kerja'])
-    ap.add_argument('--hasil', default='hasil_w5', help='folder hasil (bawaan hasil_w5)')
+    ap.add_argument('--rencana', choices=['naskah', 'v2'], default='naskah',
+                    help='naskah = tujuh tahap naskah sekarang; v2 = jalan ulang review ketiga (rerun_v2.py)')
+    ap.add_argument('--hasil', default=None, help='folder hasil (bawaan hasil_w5, atau hasil_v2 untuk --rencana v2)')
     ap.add_argument('--slot', default='hasil_slot_w5', help='folder slot pasar (bawaan hasil_slot_w5)')
     ap.add_argument('--nval', type=int, default=NVAL, help='panjang blok validasi (bawaan 60)')
     ap.add_argument('--shard', type=int, default=0, help='jumlah proses paralel (bawaan: dari RAM dan core)')
     ap.add_argument('--selang', type=int, default=60, help='detik antar-pembaruan untuk `pantau`')
     ap.add_argument('--paksa', action='store_true', help='`kemas` walau belum lengkap')
     a = ap.parse_args()
+    if a.hasil is None:
+        a.hasil = 'hasil_v2' if a.rencana == 'v2' else 'hasil_w5'
     if a.perintah == '_kerja':
         # SIGTERM dari `berhenti` dijadikan SystemExit(143) supaya status tercatat.
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))

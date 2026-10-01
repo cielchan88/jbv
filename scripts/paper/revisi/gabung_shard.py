@@ -43,6 +43,10 @@ KUNCI = {
     'sisa_kablasi.csv':   ['leaf', 'model', 'top_k', 'origin'],
     'sisa_eksternal.csv': ['leaf', 'model', 'top_k', 'ext', 'beta', 'origin'],
     'sisa_pasar_benar.csv': ['leaf', 'model', 'top_k', 'beta', 'origin'],
+    # jalan ulang v2 (rerun_v2.py)
+    'v2_ramalan.csv':     ['leaf', 'blok', 'metode', 'lengan', 'seed', 'origin'],
+    'v2_setelan.csv':     ['leaf', 'model'],
+    'v2_skala.csv':       ['leaf'],
 }
 # Dua bentuk penanda: JBV_SHARD=2/4 -> ".shard-2-of-4", JBV_LEAF -> ".shard-leaf-A-2-d"
 POLA = re.compile(r'^(.*)\.shard-(?:\d+-of-\d+|leaf-[A-Za-z0-9-]*)(\.csv)$')

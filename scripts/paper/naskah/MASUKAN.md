@@ -324,3 +324,11 @@ Jalan ulang: >=250 origin, fitur pasar sebagai perubahan mid, lengan k = 116,
 tiga seed, training sejak laporan pertama (+ jendela geser pasca-2022),
 benchmark ETS/Theta/seasonal naive/ridge, pemilihan metode per sel di blok
 validasi. Kode tetap "on request" (keputusan penulis).
+
+### Jalan ulang v2 disiapkan (belum dijalankan)
+`scripts/paper/revisi/rerun_v2.py` + `ringkas_v2.py`, lewat
+`vps.py mulai --rencana v2` ke folder `hasil_v2`. Rincian desain dan cara
+menjalankan di `scripts/paper/revisi/JALANKAN_ULANG.md`. Temuan sampingan saat
+menguji: LightGBM dan XGBoost deterministik terhadap seed, jadi kalimat naskah
+"part of the learner-level differences may be model variance" hanya berlaku
+untuk random forest - diperbaiki sesudah hasil v2 masuk.
