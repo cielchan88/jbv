@@ -259,7 +259,7 @@ const ACTOROF = id => id.startsWith('A') ? 'Corporate'
 /* ------------------------------------------------------------------ build */
 const doc = new Document({
   creator: 'FX flow forecasting study',
-  title: 'One-Day-Ahead Forecasting of Foreign-Exchange Flows by Counterparty and Purpose',
+  title: 'Does Machine Learning Beat Simple Benchmarks? One-Day-Ahead Forecasts of Foreign-Exchange Flows in Indonesia',
   numbering: {
     config: [{
       reference: 'bul',
@@ -304,12 +304,8 @@ function build() {
 
   /* ---------------------------------------------------------------- title */
   c.push(new Paragraph({
-    spacing: { after: 90 },
-    children: [new TextRun({ text: 'One-Day-Ahead Forecasting of Foreign-Exchange Flows by Counterparty and Purpose', bold: true, size: 32, color: INK })],
-  }));
-  c.push(new Paragraph({
     spacing: { after: 250 },
-    children: [new TextRun({ text: 'A machine-learning pipeline tested one component at a time against statistical benchmarks', size: 22, italics: true, color: MUTED })],
+    children: [new TextRun({ text: 'Does Machine Learning Beat Simple Benchmarks? One-Day-Ahead Forecasts of Foreign-Exchange Flows in Indonesia', bold: true, size: 32, color: INK })],
   }));
 
   /* -------------------------------------------------------------- abstract */
@@ -355,6 +351,15 @@ function build() {
 
   /* ---------------------------------------------------------- 1. Intro */
   c.push(H1('1. Introduction'));
+  // Epigraf atas permintaan penulis. Kutipan persis kalimat pembuka Turing (1950).
+  c.push(new Paragraph({
+    spacing: { after: 40 }, alignment: AlignmentType.RIGHT, indent: { left: 3600 },
+    children: [new TextRun({ text: '“I propose to consider the question, ‘Can machines think?’”', italics: true, size: 20, color: MUTED })],
+  }));
+  c.push(new Paragraph({
+    spacing: { after: 220 }, alignment: AlignmentType.RIGHT,
+    children: [new TextRun({ text: 'Alan M. Turing (1950)', size: 18, color: MUTED })],
+  }));
   c.push(P('A central bank that watches the foreign-exchange market needs a forward view of supply and demand. ' +
     'The net total is useful but not enough. Two days can share the same net total and be nothing alike. On ' +
     'one, exporters sell and importers buy in equal measure. On the other, non-residents pull money out while ' +
@@ -1350,6 +1355,7 @@ function refs() {
     'Smith, J. and Wallis, K. F. (2009). A simple explanation of the forecast combination puzzle. *Oxford Bulletin of Economics and Statistics*, 71(3), 331–355.',
     'Tashman, L. J. (2000). Out-of-sample tests of forecasting accuracy: an analysis and review. *International Journal of Forecasting*, 16(4), 437–450.',
     'Taylor, S. J. and Letham, B. (2018). Forecasting at scale. *The American Statistician*, 72(1), 37–45.',
+    'Turing, A. M. (1950). Computing machinery and intelligence. *Mind*, 59(236), 433–460.',
     'Wickramasuriya, S. L., Athanasopoulos, G. and Hyndman, R. J. (2019). Optimal forecast reconciliation for hierarchical and grouped time series through trace minimization. *Journal of the American Statistical Association*, 114(526), 804–819.',
     'Wilcoxon, F. (1945). Individual comparisons by ranking methods. *Biometrics Bulletin*, 1(6), 80–83.',
 ];
