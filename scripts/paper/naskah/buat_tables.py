@@ -489,6 +489,21 @@ for _, rr in lv.iterrows():
                          nol_sejak=float(100 * np.mean(yy_[nz[0]:] == 0)),
                          nol_uji=float(100 * np.mean(yy_[-30:] == 0)))
 T['nol_sejak'] = _z
+
+# 13b. patahan Januari 2022 di sel ekspor (fakta data, tanpa tafsiran sebab)
+_pt = {}
+for _, rr in lv.iterrows():
+    if rr.Row_ID not in ('B.a', 'A.2.a', 'A.2.b'):
+        continue
+    dd_, yy_ = series_of(rr, dcols, dall)
+    th = pd.DatetimeIndex(dd_).year
+    _pt[rr.Row_ID] = dict(nol_14_21=float(100 * np.mean(yy_[(th >= 2014) & (th <= 2021)] == 0)),
+                          nol_22=float(100 * np.mean(yy_[th >= 2022] == 0)),
+                          abs_21=float(np.mean(np.abs(yy_[th == 2021]))),
+                          abs_22=float(np.mean(np.abs(yy_[th == 2022]))))
+assert _pt['B.a']['nol_14_21'] < 10 and _pt['B.a']['nol_22'] > 75, _pt['B.a']
+assert _pt['A.2.a']['abs_22'] < 0.2 * _pt['A.2.a']['abs_21'] and _pt['A.2.b']['abs_22'] > _pt['A.2.b']['abs_21']
+T['patahan_2022'] = _pt
 _w = pd.DataFrame(T['winners']).set_index('leaf')
 _w['nol_sejak'] = [_z[l]['nol_sejak'] for l in _w.index]
 _rr, _pp = spearmanr(_w.nol_sejak, _w.mase)

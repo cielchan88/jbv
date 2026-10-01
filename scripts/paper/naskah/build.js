@@ -442,7 +442,15 @@ function build() {
     'of flows. Measured from each series’ first report, the share of zero days is small except in ' +
     `${daftar(Object.entries(T.nol_sejak).filter(([, v]) => v.nol_sejak > 15).map(([l, v]) => `${l} (${n(v.nol_sejak, 1)} per cent)`))}. ` +
     'Because values are rounded to whole millions, part of the remaining zeros in the smallest cells are ' +
-    'rounding rather than inactivity. Table 2 summarises the series.'));
+    'rounding rather than inactivity. ' +
+    'B.a, sales of foreign currency by individuals for export, is thin by nature, because individuals ' +
+    'seldom report such sales with the underlying export documents that place them in this category. The ' +
+    `series also changes abruptly in January 2022. Its share of zero days is ${n(T.patahan_2022['B.a'].nol_14_21, 1)} ` +
+    `per cent over 2014 to 2021 and ${n(T.patahan_2022['B.a'].nol_22, 1)} per cent from 2022 onwards. In the same month ` +
+    `the mean absolute daily flow of A.2.a, corporate exports, falls from ${fmt(Math.round(T.patahan_2022['A.2.a'].abs_21))} million US dollars ` +
+    `in 2021 to ${fmt(Math.round(T.patahan_2022['A.2.a'].abs_22))} million in 2022, while that of A.2.b, corporate transactions without underlying, rises from ` +
+    `${fmt(Math.round(T.patahan_2022['A.2.b'].abs_21))} to ${fmt(Math.round(T.patahan_2022['A.2.b'].abs_22))} million. ` +
+    'We report this as it appears in the data and do not model it. Table 2 summarises the series.'));
   c.push(TCAP(2, `Descriptive statistics for the ${T.n_leaf} series over the full sample. Values in millions of US dollars.`));
   c.push(descTable());
   c.push(P(`The market data cover the same ${fmt(T.n_hari)} dates. ${Kata(T.pasar ? T.pasar.n_var : 8)} ` +
@@ -896,7 +904,7 @@ function winnersProse() {
   c.push(P(`One series stands apart. ${Object.entries(T.nol_sejak).sort((a, b) => b[1].nol_uji - a[1].nol_uji)[0][0]} ` +
     `is zero on ${n(Object.values(T.nol_sejak).sort((a, b) => b.nol_uji - a.nol_uji)[0].nol_uji, 0)} per cent ` +
     'of the test days, so a forecast of no change is almost always right and every other method loses to ' +
-    'the random walk there.'));
+    'the random walk there. Section 3.1 describes why the series is so sparse.'));
   return c;
 }
 
@@ -1178,7 +1186,7 @@ function batasan() {
     'The validation block lies immediately before the test block and also covers one regime. Tuning chosen on it need not suit the test period.',
     'The p-values treat series-date units as independent. The block bootstrap and the per-series tests address this in part, but with 30 dates the intervals are wide.',
     'Four series have years of structural zeros before their first report, which the models were trained on. Section 4.7 corrects the evaluation scale for this but not the training data.',
-    'Training uses an expanding window from 2006, across changes in reporting and foreign-exchange regulation. A sliding window may suit some series better, and this was not tested.',
+    'Training uses an expanding window from 2006, across changes in reporting and foreign-exchange regulation, such as the January 2022 shift in the export series described in Section 3.1. A sliding window may suit some series better, and this was not tested.',
     'The learners minimise squared error while the evaluation uses absolute error, and each learner was run with one random seed, so part of the differences between arms may be model variance.',
     'Market data enter as levels, bid and ask quotes enter as near-duplicate pairs, and the selection rule neither excludes near-duplicates reliably nor favours calendar effects, as Section 3.3 explains.',
     'Only one horizon, one jurisdiction and one reporting framework are studied. Appendix E sets out how the exchange-rate regime might shape the market-data results.',
