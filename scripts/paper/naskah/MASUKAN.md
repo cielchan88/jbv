@@ -282,3 +282,45 @@ lewat `inferensi.py` dan `buat_tables.py`.
 ### Grup C (ditunda, perlu VPS)
 Blok uji 1-2 tahun, desain faktorial, beberapa seed, benchmark tambahan
 (ETS, Theta, CatBoost). Diperlukan bila menyasar jurnal seperti IJF.
+
+---
+
+## Review ketiga (Review_FX_15seri_6): dikerjakan tanpa jalan ulang VPS
+
+**A. Masalah baru**
+- Semua p-value kini pada unit (seri, tanggal) = 450, termasuk Tabel 7, 8 (k),
+  9 (pasar), C1 dan selektor di 4.3; Holm per tabel (7 keluarga). Kolom menang
+  juga pada unit. Holm k = 30/35/40 tidak lagi nyata, cocok dengan CI.
+- Ekuivalensi: margin dijustifikasi (2% MAE LightGBM ~ 0,7 juta USD per seri
+  per hari, di bawah satuan pembulatan), diakui post hoc; Lampiran G memuat
+  +-1/+-3%, CI blok 2 dan 10 hari, Hodges-Lehmann, dan efek per learner.
+  Tuning bersyarat (30 pasangan yang berubah): -1,1% [-3,1; 0,9], setara
+  hanya pada +-3%. Rumusan baru: efek >2% tersingkir untuk refit dan tuning,
+  <2% belum terpecahkan, seleksi belum terpecahkan.
+- Metrik desk dengan/tanpa B.1: tanpa B.1 LightGBM 0,841 vs Croston 0,844.
+  Uji Pesaran-Timmermann; rata-rata bergulir 61,2% sebagai pembanding arah;
+  ARIMA top-down pada total (topdown.py) 152,1 vs LightGBM bottom-up 158,1.
+- "Leads on every summary" diperbaiki di 5.1. MCS p per metode di Tabel 5.
+- Kombinasi: kolom putusan; median sepuluh metode "inconclusive".
+
+**B. Masalah inti**
+- Patahan Januari 2022: jumlah A.1 + A.2 hampir mulus (496 -> 422 juta);
+  volatilitas A.1 2025-2026 dilaporkan. Skala MASE sejak 2022: RW 0,858
+  (bukan 1,224), empat teratas tetap.
+- Future work dibingkai ulang sebagai satu jalan ulang yang desainnya tetap.
+
+**C. Detail**
+- Tabel 8 tidak lagi hilang (penomoran 1-11). Gambar 2 memakai skala nyata.
+- Croston = SBA (Syntetos & Boylan 2005), 0,95 x SES; ilustrasi B.1 (13,2x RW).
+- Gambar 10: RF dan LightGBM (shap_dua.py), taksonomi Lampiran D.
+- Persamaan sebagai OMML; judul bagian abstrak baku; pustaka ARIMA disebut;
+  ablasi internal yang tidak dipublikasikan dihapus dari 5.4.
+- Sitasi baru (Crossref): Hodges & Lehmann 1963, Kunsch 1989, Politis &
+  Romano 1994, Davydenko & Fildes 2013, Menkhoff et al. 2016, Pesaran &
+  Timmermann 1992, Syntetos & Boylan 2005.
+
+### Belum dikerjakan (perlu VPS)
+Jalan ulang: >=250 origin, fitur pasar sebagai perubahan mid, lengan k = 116,
+tiga seed, training sejak laporan pertama (+ jendela geser pasca-2022),
+benchmark ETS/Theta/seasonal naive/ridge, pemilihan metode per sel di blok
+validasi. Kode tetap "on request" (keputusan penulis).

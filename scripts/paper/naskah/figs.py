@@ -196,6 +196,8 @@ simpan(fig,'fig9_ablation.png')
 
 # ---------------------------------------------------------------- Gambar 10
 sl=T['slot_uptake_new']; st=pd.DataFrame(T['selector_tests']).sort_values('k')
+# p dari uji pada unit (seri, tanggal), sama dengan teks 4.3 (review ketiga)
+_ps=T['robust']['selektor']; st['p']=[next(r['p'] for r in _ps if r['label']==f'k = {int(k)}') for k in st.k]
 fig,axes=plt.subplots(1,2,figsize=(7.4,2.5))
 ax=axes[0]
 x=np.arange(2); w=.36
@@ -219,17 +221,19 @@ print('selesai ->',F)
 # WAJIB dibangun ulang, tidak boleh dipakai ulang dari versi lama: kolam lag
 # pasar berubah, dan pangsa kepentingannya ikut bergeser - Lag 26,1% -> 19,0%,
 # External 7,8% -> 11,5%.
-FAM = {('Market' if k == 'External' else k): v
-       for k, v in sorted(T['shap_family'].items(), key=lambda kv: -kv[1]) if v >= 0.05}
-fig, ax = plt.subplots(figsize=(7.4, 2.7))
-nm = list(FAM); vv = [FAM[k] for k in nm]
-warna = [ACC if k == 'Market' else BLUE for k in nm]
-ax.barh(range(len(nm))[::-1], vv, color=warna, zorder=3)
-for i, v in enumerate(vv):
-    ax.text(v + .6, len(nm) - 1 - i, f'{v:.1f}%', va='center', fontsize=7.6, color=MUTED)
-ax.set_yticks(range(len(nm))[::-1]); ax.set_yticklabels(nm, fontsize=7.6)
-ax.set_xlabel('share of total |SHAP| across the 15 series (%)', fontsize=8)
-ax.set_xlim(0, max(vv) * 1.16)
+SD = T['shap_dua']['famili']
+nm = [k for k in SD['RandomForest'] if max(SD['RandomForest'][k], SD['LightGBM'].get(k, 0)) >= 0.05]
+fig, ax = plt.subplots(figsize=(7.4, 3.0))
+yy = np.arange(len(nm))[::-1]; h = .38
+for j, (lrn, wr) in enumerate((('RandomForest', BLUE), ('LightGBM', ACC))):
+    vv = [SD[lrn].get(k, 0.0) for k in nm]
+    ax.barh(yy + (h / 2 if j == 0 else -h / 2), vv, h, color=wr, zorder=3, label=nice(lrn))
+    for y_, v in zip(yy, vv):
+        ax.text(v + .5, y_ + (h / 2 if j == 0 else -h / 2), f'{v:.1f}', va='center', fontsize=6.4, color=MUTED)
+ax.set_yticks(yy); ax.set_yticklabels(nm, fontsize=7.4)
+ax.set_xlabel('share of total |SHAP|, mean across the 15 series (%)', fontsize=8)
+ax.set_xlim(0, max(max(SD[l].values()) for l in SD) * 1.15)
+ax.legend(fontsize=7, frameon=False, loc='lower right')
 ax.grid(axis='x', color=GRID, lw=.6); ax.set_axisbelow(True)
 simpan(fig, 'fig7_shapfamily.png')
 
@@ -317,8 +321,9 @@ cb.set_label('MASE relative to random walk (log scale)', fontsize=7)
 simpan(fig, 'fig_heatmap.png')
 
 # --------------------------------------------- deret mentah (review 2)
-# Nilai dibagi simpangan baku masing-masing seri dan sumbu tegak disembunyikan:
-# bentuk dan periode nol terlihat, besaran arus tidak.
+# Skala nyata, juta USD (review ketiga): Tabel 2 dan Tabel metrik operasional
+# sudah menerbitkan besaran arus, jadi menyembunyikan skala di sini tidak
+# konsisten. Setiap panel memakai skalanya sendiri.
 _pn = pd.read_csv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
                                'data', 'processed', 'sdv-wide-gabung.csv'))
 _tg = [c for c in _pn.columns if c[:2] == '20']
@@ -326,10 +331,11 @@ _tt = pd.to_datetime(_tg)
 fig, axes = plt.subplots(5, 3, figsize=(7.4, 6.6), sharex=True)
 for ax, l in zip(axes.T.ravel(), urut_l):
     v = pd.to_numeric(_pn.loc[_pn.Row_ID == l, _tg].iloc[0], errors='coerce').values.astype(float)
-    ax.plot(_tt, v / np.nanstd(v), lw=.35, color=BLUE)
+    ax.plot(_tt, v, lw=.35, color=BLUE)
     ax.axvspan(_tt[-30], _tt[-1], color=ACC, alpha=.35, lw=0)
     ax.set_title(f'{nama(l)}  {LAB[l]}', fontsize=7, loc='left', pad=2)
-    ax.set_yticks([]); ax.tick_params(axis='x', labelsize=6)
+    ax.tick_params(axis='both', labelsize=5.5)
+    ax.yaxis.set_major_locator(plt.MaxNLocator(3))
     for sp in ('top', 'right'):
         ax.spines[sp].set_visible(False)
 simpan(fig, 'fig_seri.png')
@@ -429,9 +435,9 @@ for i, (j, t) in enumerate(E):
 
 # 6. inferensi
 kotak(0.1, 0.05, 9.8, 1.57, '6  Inference',
-      'Wilcoxon signed-rank test, two-sided, with Holm correction within four families (methods, components,\n'
-      'feature counts, combinations). Block bootstrap over dates for confidence intervals, equivalence within\n'
-      '+-2 per cent, Hodges-Lehmann shifts, Diebold-Mariano tests per series and a 90 per cent Model Confidence Set.\n'
+      'Units averaged to one value per series and date. Wilcoxon signed-rank test, two-sided, with Holm correction\n'
+      'within each family of comparisons. Block bootstrap over dates for confidence intervals, equivalence within\n'
+      '±2 per cent, Hodges-Lehmann shifts, Diebold-Mariano tests per series and a 90 per cent Model Confidence Set.\n'
       'SHAP values on the fitted trees show what the model uses.')
 # Diagram mengisi seluruh kanvas. tight_layout menyisakan margin kanan yang
 # lebar untuk sumbu yang disembunyikan, jadi posisinya diatur manual.

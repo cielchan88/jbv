@@ -58,7 +58,11 @@ const T = JSON.parse(fs.readFileSync(TABLES, 'utf8'));
 const PAGE_W = 12240, MARGIN = 1440;
 const INK = '1B2530', MUTED = '5E6B76', ACC = '9E2B2B', RULE = 'C8D0D6', HDR = 'EEF2F5';
 
-const n = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
+const n = (v, d = 3) => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  const t = Number(v).toFixed(d);
+  return /^-0\.?0*$/.test(t) ? t.slice(1) : t;       // tidak ada "-0.0" (review ketiga)
+};
 const pv = p => (p === null || p === undefined) ? '—' : (p < 0.0001 ? '< 0.0001' : Number(p).toFixed(4));
 const pct = (v, d = 2) => `${v > 0 ? '+' : ''}${n(v, d)}%`;
 
@@ -111,6 +115,7 @@ const arahKomponen = (d, jamak = false) =>
         : (jamak ? 'carry the wrong sign' : 'carries the wrong sign');
 const matikanJadi = d => (d > 0 ? 'worse' : 'better');
 const Kata = v => { const s = kata(v); return s[0].toUpperCase() + s.slice(1); };
+const Kata1 = t => t[0].toUpperCase() + t.slice(1);
 
 /* Sebaran relatif ketiga ensemble pohon di Tabel 6, dalam persen. Dipakai di
    abstrak. Diturunkan supaya klaim "within X per cent" tidak perlu diketik
@@ -119,7 +124,8 @@ const POHON = ['RandomForest', 'LightGBM', 'XGBoost'];
 // Pembantu prosa. Di atas `const doc` karena build() dipanggil saat doc dibuat.
 const pTeks = p => (p < 0.0001 ? 'p < 0.0001' : `p = ${Number(p).toFixed(4)}`);
 const niceK = m => (m === 'RandomForest' ? 'random forest' : m === 'Naive' ? 'the random walk'
-  : m === 'SeasonalDecomp' ? 'seasonal decomposition' : NICE[m] || m);
+  : m === 'SeasonalDecomp' ? 'seasonal decomposition' : m === 'NaiveDrift' ? 'the random walk with drift'
+  : m === 'NaiveMean' ? 'the rolling mean' : NICE[m] || m);
 const NAMA_KOMP = { 'Redundancy-aware selection': 'redundancy-aware selection',
   'Daily re-fitting': 'daily re-fitting', 'Tuned hyperparameters': 'tuning' };
 const fmtN = v => v.toLocaleString('en-US');
@@ -145,6 +151,19 @@ const EQ = (t, nomor) => new Paragraph({
 });
 /* Kotak berbayang satu sel untuk "lesson learned" (review kedua: ringkas
    pitfall menjadi boks, bukan subbab panjang). */
+/* Persamaan sebagai objek matematika Word (OMML), bukan teks biasa. */
+const MR = t => new D.MathRun(t);
+const MSUB = (a, b) => new D.MathSubScript({ children: [MR(a)], subScript: [MR(b)] });
+const EQM = (isi, nomor) => new Paragraph({
+  spacing: { before: 170, after: 170, line: 300 },
+  tabStops: [{ type: D.TabStopType.CENTER, position: 4680 }, { type: D.TabStopType.RIGHT, position: 9360 }],
+  children: [new TextRun({ text: '\t' }), new D.Math({ children: isi }),
+    ...(nomor ? [new TextRun({ text: `\t(${nomor})`, size: 21 })] : [])],
+});
+/* Putusan satu perbandingan: setara (TOST +-2%), berbeda (CI 95% tidak memuat
+   nol) atau belum terputuskan. tanda=+1 berarti perubahan positif = lebih buruk. */
+const putusan = (r, buruk = 'worse', baik = 'better') =>
+  r.setara ? 'equivalent' : (r.beda ? (r.delta > 0 ? buruk : baik) : 'inconclusive');
 const BOX = (judul, paras) => new Table({
   columnWidths: [9360], width: { size: 9360, type: WidthType.DXA },
   rows: [new TableRow({ children: [new TableCell({
@@ -312,32 +331,31 @@ function build() {
   // Formula masukan no. 18 (penting, cara, temuan, implikasi), dibatasi
   // sekitar 250 kata atas saran review kedua. Setiap angka dari tables.json.
   c.push(H1('Abstract'));
-  c.push(LEAD('Why it matters',
+  c.push(LEAD('Background',
     'A central bank that monitors the foreign-exchange market needs to know who will buy and who will sell ' +
     'tomorrow, not only the net total. Machine-learning pipelines suit this task, but they bundle design ' +
     'choices that are rarely tested one at a time.'));
-  c.push(LEAD('How it was done',
+  c.push(LEAD('Methods',
     `We forecast ${T.n_leaf} daily flow series, each one counterparty group and one transaction purpose, one ` +
     'business day ahead, using Indonesian supervisory data from 2006 to 2026. Three tree ensembles with ' +
     'redundancy-aware feature selection, tuning and daily re-fitting are compared with seven statistical ' +
     'benchmarks over 30 rolling origins. Pipeline components are removed one at a time, and differences are ' +
     'assessed with paired tests, block-bootstrap intervals, equivalence tests and a model confidence set.'));
-  c.push(LEAD('What we found',
+  c.push(LEAD('Results',
     `${nice(juara.model)} has the lowest mean scaled error, but a 90 per cent model confidence set retains ` +
     `${kata(mcs.length)} methods, including ${daftar(mcsStat.map(nice))}. ` +
+    'No pipeline component is shown to improve accuracy. ' +
     (setara.length
-      ? `${Kata(setara.length)} of the three pipeline components, ${daftar(setara)}, ` +
-        `${setara.length > 1 ? 'are' : 'is'} practically equivalent to ${setara.length > 1 ? 'their' : 'its'} ` +
-        `removal, within 2 per cent, and ${daftar(tidakSetara)} ${tidakSetara.length > 1 ? 'are' : 'is'} inconclusive. `
-      : 'None of the three pipeline components is shown to help. ') +
-    'Equal-weight combinations do not improve on the leader. ' +
+      ? `For ${daftar(setara)}, pooled effects larger than 2 per cent can be ruled out, and for ` +
+        `${daftar(tidakSetara)} not even that. `
+      : '') +
+    'No equal-weight combination is shown to improve on the leader. ' +
     `Market data, supplied at prediction time, raise error by ${n(g8.delta_benar, 1)} per cent on average, ` +
     `mostly through two series.`));
-  c.push(LEAD('What it implies',
+  c.push(LEAD('Conclusions',
     'For one-day flow forecasting, a well-tested learner run alongside strong statistical benchmarks is a ' +
     'reasonable default, and pipeline components should be tested by removal before they are trusted. ' +
-    'The 30-day test block limits the resolution of every conclusion, so a longer evaluation should precede ' +
-    'operational decisions.'));
+    'A six-week test block resolves differences of a few per cent, not smaller ones.'));
   c.push(new Paragraph({
     spacing: { before: 110, after: 60 },
     children: [new TextRun({ text: 'Keywords: ', bold: true, size: 20, color: INK }),
@@ -413,7 +431,9 @@ function build() {
     'identifying a set of best models (Hansen, Lunde and Nason, 2011), and rolling-origin designs (Tashman, ' +
     '2000; Bergmeir and Benítez, 2012). Applied studies rarely use them together.'));
   c.push(P('On the economics, order flow carries information about exchange-rate moves (Evans and Lyons, ' +
-    '2002; Lyons, 2001). Whether prices, in turn, help forecast next-day flows on top of the flows’ own history ' +
+    '2002; Lyons, 2001), and customer flows differ in that information by counterparty, with financial ' +
+    'customers’ trades more informative than those of corporates (Menkhoff et al., 2016). Whether prices, in ' +
+    'turn, help forecast next-day flows on top of the flows’ own history ' +
     'is the question this paper tests.'));
   c.push(TCAP(1, 'Hypotheses, the design choice each one isolates, and the test used.'));
   c.push(TBL([620, 3300, 2500, 2940],
@@ -436,8 +456,8 @@ function build() {
     'supply.** Exporters, for example, sell the foreign currency they earn, so the export cells are negative ' +
     'on average, while importers buy it and the import cells are positive. Figure 2 shows every series.'));
   c.push(IMG('fig_seri.png', 560, 499));
-  c.push(FCAP(2, 'The fifteen series, each divided by its own standard deviation. Vertical scales are omitted ' +
-    'because the level of each flow is confidential. The shaded strip at the right is the 30-day test block.'));
+  c.push(FCAP(2, 'The fifteen series in millions of US dollars, each panel on its own scale. The shaded strip ' +
+    'at the right is the 30-day test block.'));
   const late = T.skala_koreksi.seri;
   const tglEN = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   const kelompokMulai = [...new Set(late.map(r => r.mulai))].sort().reverse()
@@ -455,7 +475,13 @@ function build() {
     `the mean absolute daily flow of A.2.a, corporate exports, falls from ${fmt(Math.round(T.patahan_2022['A.2.a'].abs_21))} million US dollars ` +
     `in 2021 to ${fmt(Math.round(T.patahan_2022['A.2.a'].abs_22))} million in 2022, while that of A.2.b, corporate transactions without underlying, rises from ` +
     `${fmt(Math.round(T.patahan_2022['A.2.b'].abs_21))} to ${fmt(Math.round(T.patahan_2022['A.2.b'].abs_22))} million. ` +
-    'We report this as it appears in the data and do not model it. Table 2 summarises the series.'));
+    `Their sum changes much less, from a mean daily net supply of ${fmt(Math.round(-T.patahan_2022.jumlah_a.des21))} ` +
+    `million US dollars in December 2021 to ${fmt(Math.round(-T.patahan_2022.jumlah_a.jan22))} million in January 2022. ` +
+    'A.2.a is also at its most volatile just before the test block. The standard deviation of its daily flow ' +
+    `is ${fmt(Math.round(T.patahan_2022.a1_sd.min_19_24))} to ${fmt(Math.round(T.patahan_2022.a1_sd.max_19_24))} million ` +
+    `in each year from 2019 to 2024, ${fmt(Math.round(T.patahan_2022.a1_sd.th2025))} million in 2025 and ` +
+    `${fmt(Math.round(T.patahan_2022.a1_sd.th2026))} million in 2026. ` +
+    'We report these features as they appear in the data and do not model them. Table 2 summarises the series.'));
   c.push(TCAP(2, `Descriptive statistics for the ${T.n_leaf} series over the full sample. Values in millions of US dollars.`));
   c.push(descTable());
   c.push(P(`The market data cover the same ${fmt(T.n_hari)} dates. ${Kata(T.pasar ? T.pasar.n_var : 8)} ` +
@@ -482,8 +508,10 @@ function build() {
     'for a given day are complete before the forecast for the next day is made. ' +
     `The 30 test origins run from ${tglEN(T.tgl_uji_awal)} to ${tglEN(T.tgl_akhir)}, about six weeks, and on ` +
     'them the random walk itself scores a mean MASE of ' +
-    `${n(T.e2_summary.find(r => r.model === 'Naive').mase, 3)}, which marks the block as more volatile than ` +
-    'the training history on which the MASE scale is set.'));
+    `${n(T.e2_summary.find(r => r.model === 'Naive').mase, 3)} on the scale of the full training history but ` +
+    `${n(T.skala_2022.rw, 3)} on the scale of 2022 onwards. The block is therefore volatile relative to the long ` +
+    'history and calm relative to recent years, and Section 4.7 shows that the comparison between methods ' +
+    'does not depend on which scale is used.'));
 
   c.push(H2('3.3. The Machine-Learning Pipeline'));
   c.push(P('The pipeline has five parts. A pool of features is engineered from each series’ own history. A ' +
@@ -518,7 +546,9 @@ function build() {
     'target. Its redundancy is its mean absolute Spearman correlation with the features already chosen. ' +
     'Selection is greedy. The most relevant candidate is taken first, and each later step adds the candidate ' +
     'with the highest score'));
-  c.push(EQ('score(f)  =  |ρ(f, y)|  −  β · (1 ⁄ |S|) ∑ₛ∈S |ρ(f, s)|', 1));
+  c.push(EQM([MR('score(f) = |ρ(f, y)| − β '),
+    new D.MathFraction({ numerator: [MR('1')], denominator: [MR('|S|')] }),
+    new D.MathSum({ children: [MR('|ρ(f, s)|')], subScript: [MR('s∈S')] })], 1));
   c.push(P('where y is the target, S the set already chosen and β = 1. Setting β = 0 recovers the univariate ' +
     'rule that ranks candidates by relevance alone. The search runs over a shortlist of the max(3k, 40) most ' +
     'relevant candidates, and all correlations are computed on the training sample of each origin. Spearman ' +
@@ -559,9 +589,9 @@ function build() {
       ['Random walk', 'Naive', 'Forecast equals yesterday.'],
       ['Rolling mean', 'Naive', 'Mean of the last 90 days.'],
       ['Random walk with drift', 'Naive', 'Yesterday plus the average change over the whole history.'],
-      ['Croston', 'Intermittent', 'The bias-corrected Croston method (Croston, 1972) with a fixed smoothing constant of 0.1, applied to the signed flow. On a series with few zeros it reduces to exponential smoothing.'],
+      ['Croston', 'Intermittent', 'Croston’s method (Croston, 1972) in the bias-corrected form of Syntetos and Boylan (2005), with a fixed smoothing constant α = 0.1, applied to the signed flow. On a series without zeros it equals 0.95 times simple exponential smoothing.'],
       ['Seasonal decomposition', 'Structural', 'An in-house baseline that multiplies a month-of-year share, a day-of-month share and an annual level.'],
-      ['ARIMA', 'Statistical', 'Order chosen by information criterion, with stationarity checked by KPSS and no calendar regressors.'],
+      ['ARIMA', 'Statistical', 'statsmodels SARIMAX without seasonal or calendar terms. The order of differencing is set by successive KPSS tests, as in the Hyndman-Khandakar algorithm, and p and q up to 3 by AIC on the last 750 observations.'],
       ['Prophet', 'Statistical', 'Trend and seasonal terms (Taylor and Letham, 2018), with its default settings.'],
     ], { rightFrom: 99 }));
 
@@ -574,7 +604,11 @@ function build() {
   c.push(P('Accuracy is the mean absolute scaled error, MASE (Hyndman and Koehler, 2006). With Yₜ the actual ' +
     'value and Fₜ the forecast, the scaled error divides eₜ = Yₜ − Fₜ by the mean absolute first difference of ' +
     'the training sample of n observations,'));
-  c.push(EQ('qₜ  =  eₜ  ⁄  [ (1 ⁄ (n − 1)) ∑ᵢ₌₂ⁿ |Yᵢ − Yᵢ₋₁| ]', 2));
+  c.push(EQM([MSUB('q', 't'), MR(' = '),
+    new D.MathFraction({ numerator: [MSUB('e', 't')], denominator: [
+      new D.MathFraction({ numerator: [MR('1')], denominator: [MR('n − 1')] }),
+      new D.MathSum({ children: [MR('|'), MSUB('Y', 'i'), MR(' − '), MSUB('Y', 'i−1'), MR('|')],
+        subScript: [MR('i=2')], superScript: [MR('n')] })] })], 2));
   c.push(P('and MASE is the mean of |qₜ| over the test points. It is scale-free, defined when actual values ' +
     'are zero, and equal to one for a forecast as good as the in-sample random walk. For the series reported ' +
     'only from 2013, the training sample includes years of structural zeros, which shrink the denominator and ' +
@@ -587,16 +621,18 @@ function build() {
     `${T.n_leaf} × 30 = ${nPasangMetode} units. Consecutive days of one series and different series on one ` +
     'day are still dependent, and four tools address that.'));
   c.push(...BUL([
-    '**Wilcoxon signed-rank tests** (Wilcoxon, 1945), two-sided, with the Hodges-Lehmann shift as the matching effect size. The test concerns the pseudo-median of the paired differences, not the mean, which is why a small mean change can be significant and a larger one not.',
-    '**Block-bootstrap confidence intervals** for the percentage change in mean MASE. Test dates are resampled in circular blocks of five business days, with all series of a date kept together, so dependence across days and across series is preserved.',
-    '**Equivalence tests.** A difference is declared practically equivalent to zero when its 90 per cent interval lies within ±2 per cent, the two one-sided tests procedure of Lakens (2017). A non-significant difference that fails this test is reported as inconclusive, not as absent.',
-    '**Diebold-Mariano tests per series**, with the small-sample correction of Harvey, Leybourne and Newbold (1997), and a **90 per cent model confidence set** (Hansen, Lunde and Nason, 2011) on the daily mean MASE of all ten methods, which identifies the set of methods that cannot be told apart from the best.',
+    '**Wilcoxon signed-rank tests** (Wilcoxon, 1945), two-sided, on the 450 units, with the Hodges-Lehmann shift (Hodges and Lehmann, 1963) as the matching effect size, reported in Appendix G. The test concerns the pseudo-median of the paired differences, not the mean, which is why a small mean change can be significant and a larger one not.',
+    '**Block-bootstrap confidence intervals** for the percentage change in mean MASE, with 2,000 replications. Test dates are resampled in circular blocks of five business days (Künsch, 1989; Politis and Romano, 1994), with all series of a date kept together, so dependence across days and across series is preserved. Thirty dates give only six blocks, so percentile intervals may be too narrow, and Appendix G repeats them with blocks of two and ten days.',
+    `**Equivalence tests.** A difference is declared practically equivalent to zero when its 90 per cent interval lies within ±2 per cent, the two one-sided tests procedure of Lakens (2017). For the leading method 2 per cent of the mean absolute error is about ${n(0.02 * T.desk.find(d => d.model === T.champion_juara).mae, 1)} million US dollars per series and day, and about ${n(0.02 * T.desk.find(d => d.model === T.champion_juara).mae_total, 1)} million on the daily total, ${0.02 * T.desk.find(d => d.model === T.champion_juara).mae < 1 ? 'less than the one-million rounding unit of each reported series' : 'close to the one-million rounding unit of each reported series'}. The margin was set after the results were seen, so Appendix G also reports ±1 and ±3 per cent. A non-significant difference that fails the test is reported as inconclusive, not as absent.`,
+    '**Diebold-Mariano tests per series**, with the small-sample correction of Harvey, Leybourne and Newbold (1997), and a **90 per cent model confidence set** (Hansen, Lunde and Nason, 2011) on the daily mean MASE of all ten methods, which identifies the set of methods that cannot be told apart from the best. The set uses the T-max statistic with the same block bootstrap, and its p-value for each method is given in Table 5.',
   ]));
   c.push(P('Tests that answer one question are corrected together with the Holm-Bonferroni procedure (Holm, ' +
     '1979), which orders the m p-values of a family and compares the i-th smallest with α ⁄ (m − i + 1), ' +
-    'controlling the probability of any false rejection whatever the dependence among the tests. Four ' +
-    'families are corrected, namely the comparisons of every method with the leading one, the three pipeline ' +
-    `components, the ${kata(abl.length - 1)} feature counts and the five combinations. The Benjamini-Hochberg ` +
+    'controlling the probability of any false rejection whatever the dependence among the tests. Each table ' +
+    'is one family, namely the comparisons of every method with the leading one, the three pipeline ' +
+    `components, the ${kata(abl.length - 1)} feature counts, the five combinations, the four market-data ` +
+    'conditions, the two selection rules and the four zero-fill conditions. All p-values are computed on the ' +
+    'series-date units. The Benjamini-Hochberg ' +
     'adjustment (Benjamini and Hochberg, 1995) is reported for the method comparison as a less strict reading.'));
   c.push(H3('Ablation designs'));
   c.push(P('The reverse ablation removes one component at a time from the full pipeline. Redundancy-aware ' +
@@ -611,8 +647,9 @@ function build() {
 
   c.push(H2('4.1. Which Methods Lead'));
   c.push(TCAP(5, `The ten methods over 30 one-day origins, ${nPasangMetode} forecasts each. The learners use the full ` +
-    'pipeline. The last two columns compare each method with the leading one on units averaged by series ' +
-    'and date, with a 95 per cent block-bootstrap interval for the change in mean MASE.'));
+    'pipeline. The change and Wilcoxon columns compare each method with the leading one on units averaged ' +
+    'by series and date, with a 95 per cent block-bootstrap interval. The last column is the p-value of the ' +
+    '90 per cent model confidence set, and methods with a value of at least 0.10 are in the set.'));
   c.push(rankTable(e2rank));
   c.push(...h1Prose());
   c.push(IMG('fig_heatmap.png', 560, 348));
@@ -624,8 +661,8 @@ function build() {
   c.push(H2('4.2. Does Combining Methods Help?'));
   c.push(...ensembleProse1());
   c.push(TCAP(6, `Equal-weight combinations against ${nice(T.champion_juara)}. A negative change means the ` +
-    'combination is better. The interval is a 95 per cent block-bootstrap interval, and the Holm column ' +
-    'corrects for the five combinations.'));
+    'combination is better. The interval is a 95 per cent block-bootstrap interval, the Holm column ' +
+    'corrects for the five combinations, and the verdict applies the ±2 per cent equivalence test.'));
   c.push(ensembleTable());
   c.push(...ensembleProse2());
 
@@ -633,8 +670,9 @@ function build() {
   c.push(P('We remove the components one at a time, each arm switching off exactly one and leaving the other ' +
     'two in place.'));
   c.push(TCAP(7, 'Reverse ablation. A positive change means the full pipeline is better. Wins count the ' +
-    'forecasts on which the full pipeline is more accurate, outside tied pairs. The interval is a 95 per ' +
-    'cent block-bootstrap interval, and "equivalent" means the 90 per cent interval lies within ±2 per cent.'));
+    'series-date units on which the full pipeline is more accurate, outside tied units. The interval is a 95 per ' +
+    'cent block-bootstrap interval, the Holm p-value is computed on the same units, and "equivalent" means ' +
+    'the 90 per cent interval lies within ±2 per cent.'));
   c.push(reverseAblationTable());
   c.push(IMG('fig9_ablation.png', 560, 265));
   c.push(FCAP(6, 'What each component contributes, by learner and pooled. Bars above zero mean the full ' +
@@ -650,8 +688,8 @@ function build() {
   c.push(IMG('fig5_kablation.png', 560, 197));
   c.push(FCAP(8, 'Mean and median MASE against the number of features kept, pooled over three learners, ' +
     `${T.n_leaf} series and 30 origins.`));
-  c.push(TCAP(9, `Feature-count ablation against k = ${acuanK}. The interval is a 95 per cent block-bootstrap ` +
-    `interval, the Holm column corrects for the ${abl.length - 1} counts, and the series column tests the ` +
+  c.push(TCAP(8, `Feature-count ablation against k = ${acuanK}. The interval is a 95 per cent block-bootstrap ` +
+    `interval, the Holm column corrects the series-date tests for the ${abl.length - 1} counts, and the series column tests the ` +
     `${T.n_leaf} series means.`));
   c.push(ablationTable());
   c.push(...ablationProse());
@@ -660,12 +698,13 @@ function build() {
   c.push(P('One day ahead the market variables at every lag used here are known when the forecast is made, ' +
     'so they are supplied to the model both in training and at prediction. Box 1 in Section 5.2 describes ' +
     'what happens when they are not.'));
-  c.push(TCAP(10, 'Market data on against off, under both selection rules and both feature counts, pooled ' +
+  c.push(TCAP(9, 'Market data on against off, under both selection rules and both feature counts, pooled ' +
     'across the three learners. A positive change means market data make the forecast worse. Wins are ' +
-    'counted outside tied pairs, and the interval is a 95 per cent block-bootstrap interval.'));
+    'counted on series-date units outside tied units, the interval is a 95 per cent block-bootstrap interval, ' +
+    'and the Holm column corrects for the four conditions.'));
   c.push(marketTable());
   c.push(...marketProse());
-  c.push(TCAP(11, 'Series by series, engineered features only (FE) against engineered features plus market ' +
+  c.push(TCAP(10, 'Series by series, engineered features only (FE) against engineered features plus market ' +
     'data, under redundancy-aware selection. "Market slots" counts the market features kept at 25 features.'));
   c.push(perLeafTable());
   c.push(...perLeafProse());
@@ -676,18 +715,24 @@ function build() {
     'panel divides the slots between market variables, own lags and everything else. The right panel shows ' +
     'the market share of total absolute SHAP value.'));
   c.push(IMG('fig7_shapfamily.png', 560, 212));
-  c.push(FCAP(10, `Feature importance by family, from SHAP values on the fitted random forests, averaged ` +
-    `across the ${T.n_leaf} series at 25 features with market data on.`));
+  c.push(FCAP(10, `Feature importance by family, from SHAP values on the fitted random forests and LightGBM ` +
+    `models, averaged across the ${T.n_leaf} series at 25 features with market data on. The families are those ` +
+    'of Appendix D, with market variables as a separate family' +
+    (['RandomForest', 'LightGBM'].every(m => !(T.shap_dua.famili[m]['Calendar and Fourier'] > 0))
+      ? '. Calendar and Fourier features were not selected for any series, so they do not appear.'
+      : '.')));
   c.push(...famProse());
 
   c.push(H2('4.7. Operational Accuracy and Robustness'));
-  c.push(P('Scaled errors suit statistical comparison but are not what a desk reads. Table 12 reports, for ' +
+  c.push(P('Scaled errors suit statistical comparison but are not what a desk reads. Table 11 reports, for ' +
     'every method, the geometric mean across series of its mean absolute error relative to the random walk, ' +
     'the mean absolute error and bias in millions of US dollars, the share of days on which the forecast ' +
     'gets the direction of change right, and the error on the daily total of all fifteen series.'));
-  c.push(TCAP(12, 'Operational metrics over the 30 test origins. Relative MAE below one beats the random walk. ' +
-    'Bias is actual minus forecast, so a negative bias means over-forecasting. Direction accuracy excludes ' +
-    'days on which the actual or the forecast is unchanged.'));
+  c.push(TCAP(11, 'Operational metrics over the 30 test origins. Relative MAE is the geometric mean across ' +
+    `series of each method’s MAE relative to the random walk (Davydenko and Fildes, 2013), shown with and ` +
+    `without ${T.desk_tanpa.leaf}, and below one beats the random walk. Bias is actual minus forecast, so a ` +
+    'negative bias means over-forecasting. Direction accuracy excludes days on which the actual or the ' +
+    'forecast is unchanged, and an asterisk marks a Pesaran-Timmermann test significant at 1 per cent.'));
   c.push(deskTable());
   c.push(...deskProse());
   c.push(...skalaProse());
@@ -704,23 +749,24 @@ function build() {
   c.push(...BUL([
     `**Run a learner alongside strong statistical benchmarks.** The learners lead on average, but ${daftar(mcsStat.map(nice))} remain in the set of methods that cannot be told apart from the best.`,
     '**Do not assume one method suits every cell, and select per cell on validation data.** Different methods win different cells in Figure 5, but those winners were identified on the test block, so the choice has to be made on data the evaluation does not see.',
-    '**Test each pipeline component by removing it, and report equivalence as well as significance.** Here two of three components can be shown to add less than 2 per cent in either direction, which is a finding, while the third cannot be resolved.',
+    '**Test each pipeline component by removing it, and report equivalence as well as significance.** Here pooled effects above 2 per cent can be excluded for two of the three components, which is a finding, while the third cannot be resolved.',
     '**Check what the forecaster receives at prediction time.** Box 1 shows how a silent default nearly produced a wrong conclusion about market data.',
-    '**Treat the feature count as a hyperparameter to be tuned at the horizon that will be run.** More features tended to help one day ahead here, while an earlier internal and unpublished ablation found fewer features better sixty days ahead.',
+    '**Treat the feature count as a hyperparameter to be tuned at the horizon that will be run.** More features tended to help one day ahead here, and nothing in this design says the same count suits longer horizons.',
   ]));
 
   /* -------------------------------------------- 6. Conclusion */
   c.push(H1('6. Conclusion and Future Work'));
   c.push(...conclProse());
-  c.push(P('The main priority for future work is resolution. The following would each address a limitation ' +
-    'identified here.'));
-  c.push(...BUL([
-    'A test period of one to two years, with the validation block before it and results reported by sub-period, so that small pipeline effects can be resolved and regimes compared.',
-    'A factorial design for the pipeline components, an arm without feature selection and larger feature counts, several random seeds to measure model variance, and learners trained on an absolute or Huber loss that matches the evaluation metric.',
-    'Market features as daily changes rather than levels, one of each bid and ask pair, a selection rule that uses the maximum rather than the mean redundancy, and calendar features passed to the learner without selection.',
-    'Stronger benchmarks, including exponential smoothing, Theta, seasonal naive and regularised linear models on the same features, and CatBoost among the learners, together with real library defaults and a wider tuning grid.',
-    'Global models trained across all fifteen series, reconciliation with the published total, and a comparison of expanding and sliding training windows around regulatory changes.',
-  ]));
+  c.push(P('The main priority for future work is resolution, and most of the open points can be settled by ' +
+    'one further run of the same code. Its design is fixed in advance. The test block grows to at least 250 ' +
+    'one-day origins, with the validation block before it and results reported by sub-period. Market ' +
+    `features enter as daily changes of mid quotes rather than bid and ask levels. An arm without feature ` +
+    `selection, using all ${T.pool_internal} engineered candidates, joins the feature-count ablation. Every ` +
+    'learner runs with three random seeds, and training starts from each series’ first report, with a ' +
+    'sliding window after January 2022 as a further arm. Exponential smoothing, Theta, seasonal naive and a ' +
+    'ridge regression on the same features join the benchmarks, and the choice of method per series is made ' +
+    'on the validation block and scored on the test block. Global models trained across all fifteen series ' +
+    'and reconciliation with the published total are a separate study.'));
 
   /* ---------------------------------------------------- declarations */
   c.push(H1('Declarations'));
@@ -752,6 +798,7 @@ function build() {
   c.push(...appendixFitur());
   c.push(...appendixRezim());
   c.push(...appendixRepro());
+  c.push(...appendixInferensi());
 
   return c;
 }
@@ -773,19 +820,21 @@ function gridTable() {
 }
 
 function suppliedTable() {
+  const NK = Object.fromEntries(T.robust.nolkan_kondisi.map(r => [r.label, r]));
+  const NG = Object.fromEntries(T.robust.nolkan.map(r => [r.label, r]));
   const rows = T.tabel8b.map(r => [
     r.beta === 0 ? 'univariate' : 'mRMR', String(r.k),
     n(r.mati, 3), n(r.nol, 3), pct(r.delta_nol, 1),
     n(r.benar, 3), pct(r.delta_benar, 1),
-    `${n(r.rusak_hilang_pct, 0)}%`, pv(r.p_vs_mati),
+    `${n(r.rusak_hilang_pct, 0)}%`, pv(NK[`${r.beta === 1 ? 'mRMR' : 'univariate'}, k = ${r.k}`].p_holm),
   ]);
   const g = T.tabel8b_gabungan;
   rows.push(['pooled', '—', n(g.mati, 3), n(g.nol, 3), pct(g.delta_nol, 1),
     n(g.benar, 3), pct(g.delta_benar, 1), `${n(g.rusak_hilang_pct, 0)}%`,
-    pv(g.p_vs_mati)]);
+    pv(NG['zero-filled'].p)]);
   return TBL([1080, 560, 900, 900, 860, 900, 860, 900, 940],
     ['Selector', 'k', 'Market off', 'Zero-filled', 'Penalty',
-     'Supplied', 'Penalty', 'Recovered', 'p vs off'],
+     'Supplied', 'Penalty', 'Recovered', 'Holm p, zero-filled vs off'],
     rows, { rightFrom: 1 });
 }
 
@@ -800,30 +849,32 @@ function ensembleProse1() {
 
 function ensembleProse2() {
   const E = T.ensemble, J = T.champion_juara;
-  const lebihBaik = E.filter(e => e.delta < 0);
+  const RK = Object.fromEntries(T.robust.kombinasi.map(r => [r.label, r]));
   const nyataBaik = E.filter(e => e.delta < 0 && e.p_holm < 0.05);
   const nyataBuruk = E.filter(e => e.delta > 0 && e.p_holm < 0.05);
+  const setara = E.filter(e => RK[e.nama].setara);
+  const ragu = E.filter(e => putusan(RK[e.nama]) === 'inconclusive');
   const bawahSatu = E.filter(e => e.mase < 1);
   const c = [];
-  c.push(P(`Combining does not beat ${nice(J)}. ` +
-    (nyataBaik.length === 0
-      ? `None of the five combinations is significantly better after correction, and ` +
-        `${kata(E.length - lebihBaik.length)} of them are worse on average. `
-      : `${daftarN(nyataBaik.map(e => e.nama.toLowerCase()))} is significantly better after correction. `) +
+  c.push(P(`No combination is shown to beat ${nice(J)}. None is significantly better after correction` +
     (nyataBuruk.length
-      ? `The ${daftarN(nyataBuruk.map(e => e.nama.toLowerCase()))} is significantly worse ` +
+      ? `, and the ${daftarN(nyataBuruk.map(e => e.nama.toLowerCase()))} is significantly worse ` +
         `(Holm ${daftarN(nyataBuruk.map(e => n(e.p_holm, 3)))}), because it gives the weak benchmarks the ` +
         'same weight as the strong ones. '
+      : '. ') +
+    (setara.length
+      ? `By the equivalence test the ${daftarN(setara.map(e => e.nama.toLowerCase()))} ` +
+        `${setara.length > 1 ? 'are' : 'is'} equivalent to the leader within ±2 per cent. `
       : '') +
+    `The other ${kata(ragu.length)} are inconclusive` +
+    (bawahSatu.length === 1 && ragu.includes(bawahSatu[0])
+      ? `, including the ${bawahSatu[0].nama.toLowerCase()}, the only forecast in the study whose mean MASE ` +
+        `falls below one, at ${n(bawahSatu[0].mase, 3)}, but whose interval runs from ` +
+        `${n(RK[bawahSatu[0].nama].lo95, 1)} to ${n(RK[bawahSatu[0].nama].hi95, 1)} per cent. `
+      : '. ') +
     `No combination is better on more than ${Math.max(...E.map(e => e.leaf_lebih_baik))} of the ` +
-    `${T.n_leaf} series, so none of them improves consistently across the grid. ` +
-    (bawahSatu.length === 1
-      ? `One result is worth noting. The ${bawahSatu[0].nama.toLowerCase()} is the only forecast in the ` +
-        `study whose mean MASE falls below one, at ${n(bawahSatu[0].mase, 3)}, but its advantage over ` +
-        `${nice(J)} is far from significant (p = ${n(bawahSatu[0].p, 3)}). `
-      : '') +
-    'Combining is a cheap guard against choosing the wrong method for a series, not a way through the ' +
-    'ceiling that single methods meet.'));
+    `${T.n_leaf} series. Combining is a cheap guard against choosing the wrong method for a series, but ` +
+    'this test block cannot say whether it also improves accuracy.'));
   if (nyataBaik.length) throw new Error('ensembleProse2: ada kombinasi yang nyata lebih baik; tulis ulang');
   return c;
 }
@@ -838,7 +889,8 @@ function descTable() {
     rows, { rightFrom: 2 });
 }
 
-function ciTeks(r) { return `${pct(r.delta, 1)} [${n(r.lo95, 1)}, ${n(r.hi95, 1)}]`; }
+function nCI(v) { return v !== 0 && Math.abs(v) < 0.05 ? n(v, 2) : n(v, 1); }
+function ciTeks(r) { return `${pct(r.delta, 1)} [${nCI(r.lo95)}, ${nCI(r.hi95)}]`; }
 
 function rankTable(rank, denganUji = true) {
   const M = Object.fromEntries(T.robust.metode.map(r => [r.label, r]));
@@ -846,13 +898,13 @@ function rankTable(rank, denganUji = true) {
     const r = [String(i + 1), nice(d.model), n(d.mase, 3), n(d.med, 3)];
     if (denganUji) {
       const m = M[d.model];
-      r.push(m ? ciTeks(m) : 'leader', m ? pv(m.p) : '—');
+      r.push(m ? ciTeks(m) : 'leader', m ? pv(m.p) : '—', n(T.mcs.p[d.model], 3));
     }
     return r;
   });
   return denganUji
-    ? TBL([600, 2300, 1200, 1200, 2700, 1360],
-      ['Rank', 'Method', 'Mean MASE', 'Median MASE', 'Change vs leader [95% CI]', 'Wilcoxon p'], rows,
+    ? TBL([560, 2000, 1080, 1080, 2500, 1100, 1040],
+      ['Rank', 'Method', 'Mean MASE', 'Median MASE', 'Change vs leader [95% CI]', 'Wilcoxon p', 'MCS p'], rows,
       { rightFrom: 2, accRows: [0] })
     : TBL([700, 3000, 1900, 1900], ['Rank', 'Method', 'Mean MASE', 'Median MASE'], rows,
       { rightFrom: 2, accRows: [0] });
@@ -909,7 +961,11 @@ function winnersProse() {
   c.push(P(`One series stands apart. ${Object.entries(T.nol_sejak).sort((a, b) => b[1].nol_uji - a[1].nol_uji)[0][0]} ` +
     `is zero on ${n(Object.values(T.nol_sejak).sort((a, b) => b.nol_uji - a.nol_uji)[0].nol_uji, 0)} per cent ` +
     'of the test days, so a forecast of no change is almost always right and every other method loses to ' +
-    'the random walk there. Section 3.1 describes why the series is so sparse.'));
+    'the random walk there. Section 3.1 describes why the series is so sparse. The series also shows how ' +
+    'a method can be mismatched to the metric. Under absolute error the best forecast for a series that is ' +
+    'almost always zero is zero, while Croston’s method forecasts a smoothed average of the non-zero flows, ' +
+    `and its MASE on this series is ${n(T.per_leaf_model[T.desk_tanpa.leaf].Croston / T.per_leaf_model[T.desk_tanpa.leaf].Naive, 1)} ` +
+    'times that of the random walk.'));
   return c;
 }
 
@@ -917,18 +973,19 @@ function ensembleTable() {
   const RK = Object.fromEntries(T.robust.kombinasi.map(r => [r.label, r]));
   const rows = T.ensemble.map(e => [
     e.nama, n(e.mase, 3), n(e.med, 3), ciTeks(RK[e.nama]), pv(e.p_holm), `${e.leaf_lebih_baik} of ${T.n_leaf}`,
+    putusan(RK[e.nama]),
   ]);
-  return TBL([3300, 1000, 1000, 1900, 1000, 1160],
-    ['Combination', 'Mean MASE', 'Median MASE', 'Change [95% CI]', 'Holm p', 'Series better'],
+  return TBL([2900, 900, 900, 1800, 900, 980, 980],
+    ['Combination', 'Mean MASE', 'Median MASE', 'Change [95% CI]', 'Holm p', 'Series better', 'Verdict'],
     rows, { rightFrom: 1 });
 }
 
 function reverseAblationTable() {
   const RB = Object.fromEntries(T.robust.komponen.map(r => [r.label, r]));
   const rows = T.reverse_ablation.map(a => {
-    const t = T.reverse_ties[a.component], rb = RB[a.component];
-    return [a.component, n(a.opt, 4), n(a.off, 4), ciTeks(rb), `${t.wins} / ${t.n - t.ties}`,
-      pv(a.p_holm), rb.setara ? 'equivalent' : (rb.beda ? 'different' : 'inconclusive')];
+    const rb = RB[a.component];
+    return [a.component, n(a.opt, 4), n(a.off, 4), ciTeks(rb), `${rb.a_lebih_baik} / ${rb.a_lebih_baik + rb.b_lebih_baik}`,
+      pv(rb.p_holm), putusan(rb, 'different', 'different')];
   });
   return TBL([2300, 1150, 1250, 1900, 1150, 900, 1310],
     ['Component removed', 'MASE with it', 'MASE without it', 'Change [95% CI]', 'Wins for full', 'Holm p', 'Verdict'],
@@ -936,42 +993,50 @@ function reverseAblationTable() {
 }
 
 function reverseAblationProse() {
-  const RA = T.reverse_ablation, bm = T.reverse_by_model, lw = T.reverse_leaf_worse;
+  const RA = T.reverse_ablation, lw = T.reverse_leaf_worse;
   const RB = Object.fromEntries(T.robust.komponen.map(r => [r.label, r]));
   const setara = RA.filter(a => RB[a.component].setara), lain = RA.filter(a => !RB[a.component].setara);
-  const tie = T.reverse_ties['Tuned hyperparameters'];
-  const bagian = RA.map(a => {
-    const v = bm[a.component];
-    const bantu = URUT_POHON.filter((_, i) => v[i] > 0).map(m => NM_POHON[m]);
-    const rugi = URUT_POHON.filter((_, i) => v[i] <= 0).map(m => NM_POHON[m]);
-    if (!bantu.length) return `${NAMA_KOMP[a.component]} helps none of the learners`;
-    if (!rugi.length) return `${NAMA_KOMP[a.component]} helps all three`;
-    return `${NAMA_KOMP[a.component]} helps ${daftarN(bantu)} and hurts ${daftarN(rugi)}`;
-  });
+  const tb = T.robust.tuning_bersyarat, nPas = T.n_leaf * 3;
+  const PM = T.robust.komponen_per_model;
+  const luar = [];
+  Object.entries(PM).forEach(([k, v]) => Object.entries(v).forEach(([m, r]) => {
+    if (Math.abs(r.delta) > 2) luar.push({ k, m, r });
+  }));
   const c = [];
-  c.push(P('No component is shown to improve accuracy, but the three results are not the same kind of null. ' +
+  c.push(P('No component is shown to improve accuracy, and the three nulls differ in kind. ' +
     (setara.length
-      ? `For ${daftarN(setara.map(a => NAMA_KOMP[a.component]))} the whole 90 per cent interval lies within ` +
-        '±2 per cent, so the component can be said to change pooled accuracy by less than 2 per cent in either ' +
-        'direction. '
+      ? `For ${daftarN(setara.map(a => NAMA_KOMP[a.component]))} the 90 per cent interval lies within ` +
+        '±2 per cent, so pooled effects larger than 2 per cent can be ruled out, while smaller ones cannot be ' +
+        'resolved. '
       : '') +
     (lain.length
       ? `For ${daftarN(lain.map(a => NAMA_KOMP[a.component]))} the interval ` +
         `(${daftarN(lain.map(a => `${n(RB[a.component].lo95, 1)} to ${n(RB[a.component].hi95, 1)} per cent`))}) ` +
-        'is too wide to decide, and it leans towards the pipeline being better without it. '
+        'is too wide to decide even at that margin, and it leans towards the pipeline being better without it. '
       : '') +
-    'H2 is not supported. By learner the picture is mixed, since ' +
-    `${bagian[0]}, ${bagian[1]}, and ${bagian[2]}. Across series, ` +
+    `After Holm correction no component differs significantly from the full pipeline, the smallest p-value ` +
+    `being ${n(Math.min(...T.robust.komponen.map(r => r.p_holm)), 3)}. H2 is not supported. Across series, ` +
     daftarN(RA.map(a => `${NAMA_KOMP[a.component]} helps ${T.n_leaf - lw[a.component]} of ${T.n_leaf}`)) + '.'));
-  c.push(P(`Tuning moved away from configuration 1 in ${tie.n / 30 - tie.ties / 30} of ${tie.n / 30} series ` +
-    `and learner pairs, and in the other ${tie.ties / 30} the two arms are identical, which is why ${tie.ties} ` +
-    'tied pairs are excluded from the win count. The chosen configurations differ from the baseline but are ' +
-    'not measurably better on the test block.'));
+  c.push(P(`Tuning moved away from configuration 1 in ${tb.n_pasangan} of the ${nPas} series and learner ` +
+    `pairs, and in the other ${nPas - tb.n_pasangan} the two arms are identical, which dilutes the pooled ` +
+    `effect. Restricted to the ${tb.n_pasangan} pairs that changed, removing tuning changes error by ` +
+    `${ciTeks(tb)}, which is equivalent only within ±${Number(Object.entries(tb.setara_margin).find(([, v]) => v)?.[0] ?? 3)} ` +
+    'per cent. ' +
+    (luar.length
+      ? 'The pooled verdicts also need not hold for each learner. ' +
+        [...new Set(luar.map(x => x.k))].map(k => `Removing ${NAMA_KOMP[k]} changes the error of ` +
+          daftarN(luar.filter(x => x.k === k).map(x => `${NM_POHON[x.m]} by ${pct(x.r.delta, 1)} ` +
+            `(90 per cent interval ${nCI(x.r.lo90)} to ${nCI(x.r.hi90)})`)) + '. ').join('')
+      : '') +
+    'Each learner was run with a single random seed, so part of these learner-level differences may be ' +
+    'model variance rather than an effect of the component. Appendix G gives every learner separately.'));
+  if (!T.robust.komponen.every(r => r.p_holm >= 0.05)) throw new Error('reverseAblationProse: ada komponen nyata setelah Holm');
   return c;
 }
 
 function selectorProse() {
-  const S = T.selector_tests, su = T.slot_uptake_new;
+  const S0 = T.selector_tests, su = T.slot_uptake_new;
+  const S = S0.map(r => ({ ...r, p: T.robust.selektor.find(q => q.label === `k = ${r.k}`).p }));
   const rSel = T.reverse_ablation.find(a => a.component === 'Redundancy-aware selection');
   const c = [];
   c.push(P('Compared directly, at one fit per block and with market data off, the redundancy-aware rule is ' +
@@ -995,7 +1060,7 @@ function ablationTable() {
   const rows = abl.map(a => {
     const acuan = a.k === T.ablation_acuan, rk = RK[`k = ${a.k}`];
     return [String(a.k), n(a.mase, 3), n(a.median, 3), acuan ? 'reference' : ciTeks(rk),
-      acuan ? '—' : pv(a.p_holm), acuan ? '—' : n(a.p_leaf, 3)];
+      acuan ? '—' : pv(rk.p_holm), acuan ? '—' : n(a.p_leaf, 3)];
   });
   return TBL([900, 1300, 1300, 2400, 1300, 1300],
     ['k', 'Mean MASE', 'Median MASE', 'Change [95% CI]', 'Holm p', 'Series p'],
@@ -1013,7 +1078,8 @@ function ablationProse() {
     `to ${n(Math.max(...bawah.map(r => r.delta)), 1)} per cent, and larger ones better, by ` +
     `${n(Math.min(...atas.map(r => -r.delta)), 1)} to ${n(Math.max(...atas.map(r => -r.delta)), 1)} per cent. ` +
     `The block-bootstrap interval excludes zero only for ${daftarN([...bawahBeda, ...atasBeda].map(r => `k = ${r.k}`))}, ` +
-    'and with the series as the unit no count differs significantly from the reference, the smallest ' +
+    `but after Holm correction no count differs significantly from the reference (smallest p = ` +
+    `${n(Math.min(...T.robust.k.map(r => r.p_holm)), 3)}), and with the series as the unit none does either, the smallest ` +
     `p-value being ${n(Math.min(...atas.map(r => r.p_leaf)), 3)}. The gain above ${A} is also not shared by ` +
     `every learner. For XGBoost the change at ${daftarN(atas.map(r => String(r.k)))} features is ` +
     `${daftarN(atas.map(r => pct(r.per_model.XGBoost)))}.`));
@@ -1028,14 +1094,15 @@ function marketTable() {
   const RP = Object.fromEntries(T.robust.pasar.map(r => [r.label, r]));
   const rows = T.tabel8b.map(r => {
     const lab = `${r.beta === 1 ? 'mRMR' : 'univariate'}, k = ${r.k}`;
+    const q = RP[lab];
     return [r.beta === 0 ? 'univariate' : 'mRMR', String(r.k), n(r.mati, 3), n(r.benar, 3),
-      ciTeks(RP[lab]), `${r.menang_benar} / ${r.menang_benar + r.kalah_benar}`];
+      ciTeks(q), `${q.b_lebih_baik} / ${q.a_lebih_baik + q.b_lebih_baik}`, pv(q.p_holm)];
   });
-  const g = T.tabel8b_gabungan;
-  rows.push(['pooled', '—', n(g.mati, 3), n(g.benar, 3), ciTeks(RP.pooled),
-    `${g.menang_benar} / ${g.menang_benar + g.kalah_benar}`]);
-  return TBL([1500, 700, 1400, 1400, 2200, 1660],
-    ['Rule', 'k', 'Without market data', 'With market data', 'Change [95% CI]', 'Wins for market data'],
+  const g = T.tabel8b_gabungan, q = RP.pooled;
+  rows.push(['pooled', '—', n(g.mati, 3), n(g.benar, 3), ciTeks(q),
+    `${q.b_lebih_baik} / ${q.a_lebih_baik + q.b_lebih_baik}`, '—']);
+  return TBL([1300, 600, 1300, 1300, 2100, 1500, 1260],
+    ['Rule', 'k', 'Without market data', 'With market data', 'Change [95% CI]', 'Wins for market data', 'Holm p'],
     rows, { rightFrom: 1 });
 }
 
@@ -1047,7 +1114,7 @@ function marketProse() {
     `${n(RP[0].delta, 1)} per cent, with a 95 per cent interval of ${n(RP[0].lo95, 1)} to ${n(RP[0].hi95, 1)}. ` +
     'The cost is concentrated. Among the four ' +
     `conditions only ${daftarN(beda.map(r => r.label))} ${beda.length > 1 ? 'differ' : 'differs'} clearly ` +
-    'from zero, and series by series most of it comes from two cells.'));
+    `from zero (Holm ${daftarN(beda.map(r => pv(r.p_holm)))}), and series by series most of it comes from two cells.`));
   return c;
 }
 
@@ -1085,48 +1152,85 @@ function perLeafProse() {
 }
 
 function famProse() {
-  const ks = famKeys, G = T.shap_per_kelompok, sv = T.shap_vs_change;
+  const G = T.shap_per_kelompok, sv = T.shap_dua, sc = T.shap_vs_change;
+  const F = sv.famili, RF = F.RandomForest, LG = F.LightGBM;
+  const urut = Object.keys(RF);
+  const FAMP = { 'Exponentially weighted mean': 'exponentially weighted means', 'Rolling statistics': 'rolling statistics',
+    Lag: 'lags', Market: 'market variables', Interaction: 'interaction terms' };
+  const fp = k => FAMP[k] || k.toLowerCase();
   const c = [];
-  c.push(P(`Pooled across all ${T.n_leaf} series, ${ks[0].toLowerCase()} features carry ` +
-    `${n(fam[ks[0]], 1)} per cent of all feature importance and ${ks[1].toLowerCase()} features ` +
-    `${n(fam[ks[1]], 1)} per cent, while market data carry ${n(fam['External'] ?? 0, 1)} per cent. ` +
+  c.push(P(`Pooled across all ${T.n_leaf} series, the random forest draws ${n(RF[urut[0]], 1)} per cent of its ` +
+    `importance from ${fp(urut[0])} and ${n(RF[urut[1]], 1)} per cent from ${fp(urut[1])}, ` +
+    `and LightGBM ${n(LG[urut[0]], 1)} and ${n(LG[urut[1]], 1)} per cent. Market data carry ` +
+    `${n(RF.Market, 1)} per cent for the random forest and ${n(LG.Market, 1)} per cent for LightGBM. ` +
     `Lags take ${n(T.mean_lag_slots, 1)} of the 25 slots on average and market variables ` +
-    `${n(T.mean_ext_slots, 1)}. The model draws its signal from the series’ own recent level, which is ` +
-    `partly a consequence of selection, since about ${n(25 - T.mean_ext_slots, 0)} of the 25 slots go to ` +
-    'features built from that history. ' +
-    'These are in-sample SHAP values from the random forest, and they describe what the fitted model uses, ' +
-    'not what improves its forecasts.'));
-  c.push(P(`The answer to RQ4 is that the market share differs by counterparty group. It averages ` +
-    `${n(G.A, 1)} per cent for corporates, ${n(G.C, 1)} per cent for non-residents and ${n(G.B, 1)} per cent ` +
-    'for individuals, whose flows the models explain almost entirely from their own history. The market ' +
-    'share of a series does not predict whether market data help its forecast, however (rank correlation ' +
-    `${n(sv.rho, 2)}, p = ${n(sv.p, 2)}).`));
+    `${n(T.mean_ext_slots, 1)}, so the models draw their signal mostly from the series’ own recent level, ` +
+    'which is partly a consequence of selection. ' +
+    'SHAP values were first computed for the random forest, whose averaging over many deep trees gives ' +
+    'stable attributions, and Figure 10 adds LightGBM, the leading method, fitted on the same features with ' +
+    `its tuned configuration. Both were recomputed in a second environment, which reproduces the published ` +
+    `random-forest attributions exactly on ${sv.rf_cocok_vps} of the ${T.n_leaf} series, the rest differing through ` +
+    'library versions as Appendix F explains. The two learners agree on which series lean on market data (rank correlation ' +
+    `${n(sv.rho_pasar, 2)} across series), while LightGBM gives market variables more weight. These are ` +
+    'in-sample attributions, and they describe what the fitted models use, not what improves their forecasts.'));
+  const GL = sv.kelompok.LightGBM;
+  c.push(P(`The answer to RQ4 is that the market share differs by counterparty group. For the random forest it ` +
+    `averages ${n(G.A, 1)} per cent for corporates, ${n(G.C, 1)} per cent for non-residents and ${n(G.B, 1)} per ` +
+    `cent for individuals, and for LightGBM ${n(GL.A, 1)}, ${n(GL.C, 1)} and ${n(GL.B, 1)} per cent. ` +
+    'Individuals’ flows are explained almost entirely from their own history. The market share of a series ' +
+    `does not predict whether market data help its forecast, however (rank correlation ${n(sc.rho, 2)}, ` +
+    `p = ${n(sc.p, 2)}).`));
+  if (!(sv.rho_pasar > 0.5)) throw new Error('famProse: RF dan LightGBM tidak lagi sepakat; tulis ulang');
+  if (!(LG.Market > RF.Market)) throw new Error('famProse: LightGBM tidak lagi memberi bobot pasar lebih besar');
   return c;
 }
 
 function deskTable() {
-  const rows = T.desk.map(d => [nice(d.model), n(d.rel_mae_geo, 3), n(d.mae, 1), n(d.bias, 1),
-    d.arah == null ? '—' : n(d.arah, 1), n(d.mae_total, 1)]);
-  return TBL([2300, 1500, 1350, 1300, 1450, 1460],
-    ['Method', 'Relative MAE (geo. mean)', 'MAE (USD m)', 'Bias (USD m)', 'Direction correct (%)', 'MAE of total (USD m)'],
+  const tanpa = Object.fromEntries(T.desk_tanpa.rows.map(d => [d.model, d]));
+  const rows = T.desk.map(d => [nice(d.model), n(d.rel_mae_geo, 3), n(tanpa[d.model].rel_mae_geo, 3),
+    n(d.mae, 1), n(d.bias, 1),
+    d.arah == null ? '—' : `${n(d.arah, 1)}${d.pt_p != null && d.pt_p < 0.01 ? '*' : ''}`, n(d.mae_total, 1)]);
+  return TBL([1900, 1250, 1350, 1150, 1150, 1300, 1260],
+    ['Method', 'Relative MAE', `Relative MAE without ${T.desk_tanpa.leaf}`, 'MAE (USD m)', 'Bias (USD m)',
+      'Direction correct (%)', 'MAE of total (USD m)'],
     rows, { rightFrom: 1, accRows: [0] });
 }
 
 function deskProse() {
-  const D = T.desk, rw = D.find(d => d.model === 'Naive');
+  const D = T.desk, rw = D.find(d => d.model === 'Naive'), J = T.champion_juara;
   const top = D[0], tot = [...D].sort((a, b) => a.mae_total - b.mae_total)[0];
+  const TN = T.desk_tanpa, tn = TN.rows, l = TN.leaf;
+  const jTn = tn.find(d => d.model === J), kedua = tn[1];
+  const lamaKedua = D.find(d => d.model === kedua.model);
   const arahML = D.filter(d => POHON.includes(d.model)).map(d => d.arah);
-  return [P(`On these measures ${nice(top.model)} is also first, with errors ${n(100 * (1 - top.rel_mae_geo), 0)} ` +
-    `per cent below the random walk in the geometric mean across series and a mean absolute error of ` +
-    `${n(top.mae, 1)} million US dollars against ${n(rw.mae, 1)} for the random walk. The learners get the ` +
-    `direction of change right on ${n(Math.min(...arahML), 0)} to ${n(Math.max(...arahML), 0)} per cent of ` +
-    'days. All methods over-forecast slightly on average. The total of all fifteen series, which is what ' +
-    `a desk reports upwards, is forecast best by ${niceK(tot.model)}, with a mean absolute error of ` +
-    `${n(tot.mae_total, 1)} million, which shows that the best method for the cells need not be the best ` +
-    'for their sum.')].concat((() => {
-    if (!D.every(d => d.bias < 0)) throw new Error('deskProse: tidak semua bias negatif; tulis ulang "over-forecast"');
-    return [];
-  })());
+  const arahTop = [...D].filter(d => d.arah != null).sort((a, b) => b.arah - a.arah);
+  const mean = D.find(d => d.model === 'NaiveMean');
+  const tidakPT = D.filter(d => d.arah != null && !(d.pt_p < 0.01)).map(d => niceK(d.model));
+  const biasKecil = [...D].filter(d => d.model !== 'NaiveDrift').sort((a, b) => Math.abs(a.bias) - Math.abs(b.bias)).slice(0, 2);
+  const td = T.topdown, jt = D.find(d => d.model === J), ar = D.find(d => d.model === 'ARIMA');
+  const c = [];
+  c.push(P(`${nice(top.model)} has the lowest relative MAE, ${n(100 * (1 - top.rel_mae_geo), 0)} per cent below ` +
+    `the random walk, and a mean absolute error of ${n(top.mae, 1)} million US dollars against ${n(rw.mae, 1)} ` +
+    `for the random walk. Much of that margin comes from ${l}, where every method other than the random walk ` +
+    `does badly. Without it ${nice(J)} scores ${n(jTn.rel_mae_geo, 3)} and ${niceK(kedua.model)} ` +
+    `${n(kedua.rel_mae_geo, 3)}, so the leader and the best benchmark are level, and ${niceK(kedua.model)} moves ` +
+    `from place ${lamaKedua.peringkat} to place ${kedua.peringkat}.`));
+  c.push(P(`The direction of change is called correctly more often than chance by every method except ` +
+    `${daftarN(tidakPT)}, by the Pesaran-Timmermann test (Pesaran and Timmermann, 1992), pooled over series and ` +
+    'ignoring dependence. The margin over a simple baseline is modest, however. The rolling mean is right on ' +
+    `${n(mean.arah, 1)} per cent of days, the learners on ${n(Math.min(...arahML), 0)} to ` +
+    `${n(Math.max(...arahML), 0)} per cent, and the best score, ${n(arahTop[0].arah, 1)} per cent, belongs to ` +
+    `${niceK(arahTop[0].model)}. All methods over-forecast slightly, ${daftarN(biasKecil.map(d => niceK(d.model)))} ` +
+    `least. The total of all fifteen series, which is what a desk reports upwards, is forecast best by ` +
+    `${niceK(tot.model)}, with a mean absolute error of ${n(tot.mae_total, 1)} million. Forecasting the total ` +
+    `directly with ARIMA gives ${n(td.arima, 1)} million, better than summing the ${nice(J)} forecasts ` +
+    `(${n(jt.mae_total, 1)}) but not the ${niceK(tot.model)} ones, and the random walk gives ${n(td.rw, 1)}. ` +
+    'The best method for the cells is therefore not the best for their sum.'));
+  if (top.model !== J) throw new Error('deskProse: juara MASE tidak lagi juara MAE relatif');
+  if (!D.every(d => d.bias < 0)) throw new Error('deskProse: tidak semua bias negatif; tulis ulang "over-forecast"');
+  if (!(td.arima < jt.mae_total && td.arima > tot.mae_total)) throw new Error('deskProse: urutan top-down berubah');
+  if (!(Math.abs(jTn.rel_mae_geo - kedua.rel_mae_geo) < 0.01)) throw new Error('deskProse: tanpa seri jarang, selisih tidak lagi kecil');
+  return c;
 }
 
 function skalaProse() {
@@ -1140,7 +1244,12 @@ function skalaProse() {
     `${daftarN(bawahSatu.map(niceK))} now average below one, the component effects move by less than half ` +
     `a percentage point, and the market-data cost becomes ${n(S.pasar, 1)} per cent. The statement that no ` +
     'method beats the in-sample scale is therefore an artefact of the structural zeros, while the ' +
-    'comparisons between methods are not.')].concat((() => {
+    'comparisons between methods are not. Computing the scale from 2022 onwards for every series, which ' +
+    'removes the January 2022 break from the denominator, lowers the random walk from ' +
+    `${n(T.skala_2022.rw_lama, 3)} to ${n(T.skala_2022.rw, 3)} and leaves the first four places unchanged.`)].concat((() => {
+    const a4 = T.skala_2022.peringkat.slice(0, 4).map(r => r.model).join();
+    const b4 = [...S.peringkat].sort((a, b) => a.lama - b.lama).slice(0, 4).map(r => r.model).join();
+    if (a4 !== b4) throw new Error('skalaProse: empat teratas berubah dengan skala 2022');
     const lamaUrut = [...S.peringkat].sort((a, b) => a.lama - b.lama).slice(0, 6).map(r => r.model).join();
     const baruUrut = [...S.peringkat].sort((a, b) => a.baru - b.baru).slice(0, 6).map(r => r.model).join();
     if (lamaUrut !== baruUrut) throw new Error('skalaProse: urutan enam teratas berubah');
@@ -1151,19 +1260,30 @@ function skalaProse() {
 }
 
 function synthProse() {
-  const mcs = T.mcs.tersisa, g = T.tabel8b_gabungan;
+  const mcs = T.mcs.tersisa, g = T.tabel8b_gabungan, J = T.champion_juara, D = T.desk;
+  const tot = [...D].sort((a, b) => a.mae_total - b.mae_total)[0];
+  const arah = [...D].filter(d => d.arah != null).sort((a, b) => b.arah - a.arah);
+  const arahAtas = arah.filter(d => d.arah > D.find(x => x.model === J).arah).map(d => niceK(d.model));
+  const e1 = [...T.e1_summary].sort((a, b) => a.mase - b.mase)[0];
+  const tn = T.desk_tanpa.rows;
   return [
-    P(`The learners are a reasonable default and not a proven improvement. ${nice(T.champion_juara)} leads ` +
-      `on every summary, but the best statistical methods stay in the ${kata(mcs.length)}-method confidence ` +
-      'set, simple combinations do no better, and the best method changes from series to series.'),
-    P('The machinery around the learner contributes little that this design can measure. Two components ' +
-      'can be shown to matter by less than 2 per cent, the selection rule cannot be resolved, and the ' +
-      'feature count leans towards more features rather than fewer. Market data cost ' +
-      `${n(g.delta_benar, 1)} per cent on average, most of it in two residual cells.`),
-    P('These are statements about a 30-day window. They describe a problem with a low ceiling, in which ' +
-      'the recent level of each series carries most of the predictable signal, but the window is too short ' +
-      'to rule out effects of one or two per cent, and a longer evaluation could change the verdict on any ' +
-      'single component.'),
+    P(`The learners are a reasonable default and not a proven improvement. ${nice(J)} leads on mean MASE and ` +
+      `relative MAE, but not on every measure. ${Kata1(niceK(tot.model))} has the lowest error on the daily ` +
+      `total, ${daftarN(arahAtas)} call the direction of change more often, ` +
+      (e1.model !== J ? `${niceK(e1.model)} leads on the single test date of Appendix A, ` : '') +
+      `and without ${T.desk_tanpa.leaf} ${niceK(tn[1].model)} is level with it. The best statistical methods ` +
+      `stay in the ${kata(mcs.length)}-method confidence set, no combination does better, and the best method ` +
+      'changes from series to series.'),
+    P('The machinery around the learner contributes little that this design can measure. For daily ' +
+      're-fitting and tuning, pooled effects larger than 2 per cent can be ruled out, but smaller ones ' +
+      'cannot be resolved, and per learner, or on the series where tuning changed the configuration, ' +
+      'effects of up to about 3 per cent remain possible. For the selection rule not even the 2 per cent ' +
+      'margin can be established. The feature count leans towards more features rather than fewer. Market ' +
+      `data cost ${n(g.delta_benar, 1)} per cent on average, most of it in two residual cells.`),
+    P('These are statements about a six-week window. They describe a problem with a low ceiling, in which ' +
+      'the recent level of each series carries most of the predictable signal. The window resolves ' +
+      'differences of a few per cent but not smaller ones, and a longer evaluation could change the verdict ' +
+      'on any single component.'),
   ];
 }
 
@@ -1187,7 +1307,8 @@ function kotakPitfall() {
 
 function batasan() {
   return [
-    'The test block has 30 consecutive days, about 0.6 per cent of the sample, in a single and relatively volatile regime. Every conclusion has limited resolution, and effects of one or two per cent cannot be resolved.',
+    'The test block has 30 consecutive days, about 0.6 per cent of the sample, in a single regime. Pooled differences of a few per cent can be detected or excluded, but smaller ones cannot, and per-learner effects are less precise still.',
+    'The ±2 per cent equivalence margin was chosen after the results were seen. Appendix G shows which verdicts change at ±1 and ±3 per cent.',
     'The validation block lies immediately before the test block and also covers one regime. Tuning chosen on it need not suit the test period.',
     'The p-values treat series-date units as independent. The block bootstrap and the per-series tests address this in part, but with 30 dates the intervals are wide.',
     'Four series have years of structural zeros before their first report, which the models were trained on. Section 4.7 corrects the evaluation scale for this but not the training data.',
@@ -1204,8 +1325,8 @@ function conclProse() {
     'machine-learning pipeline and seven statistical benchmarks, and took the pipeline apart one component ' +
     `at a time. ${nice(T.champion_juara)} leads, but a 90 per cent confidence set retains ` +
     `${kata(mcs.length)} methods, including ${daftarN(mcs.filter(m => !POHON.includes(m)).map(niceK))}. ` +
-    'Daily re-fitting and tuning change accuracy by less than 2 per cent, the effect of the selection rule ' +
-    'is unresolved, and more features tend to help rather than fewer. Market data cost ' +
+    'For daily re-fitting and tuning, pooled effects larger than 2 per cent can be ruled out, the effect of ' +
+    'the selection rule is unresolved, and more features tend to help rather than fewer. Market data cost ' +
     `${n(g.delta_benar, 1)} per cent on average, concentrated in two cells, and a silent handling default ` +
     'had nearly turned that into a much larger apparent penalty. The value of the study for practice is less ' +
     'in any single ranking than in the discipline it illustrates, namely testing each component by removal, ' +
@@ -1226,7 +1347,8 @@ function appendixZeroFill() {
     'at training but zero-filled at prediction, and market data supplied at both, as summarised in Box 1.'));
   c.push(TCAP('C1', 'Market data off, zero-filled at prediction and supplied at prediction, pooled across the ' +
     'three learners. "Recovered" is the share of the zero-filled penalty that disappears once the features ' +
-    'are supplied.'));
+    'are supplied. The last column tests the zero-filled arm against market data off on series-date units, ' +
+    'Holm-corrected across the four conditions (unadjusted for the pooled row).'));
   c.push(suppliedTable());
   c.push(IMG('fig6b_pasar_benar.png', 560, 212));
   c.push(FCAP('C1', 'Mean MASE for the three arms (left) and each market arm as a penalty against the ' +
@@ -1284,6 +1406,62 @@ function appendixRepro() {
     'so replication should pin the library versions as well as the threads.')];
 }
 
+function appendixInferensi() {
+  const RB = T.robust;
+  const ya = b => (b ? 'yes' : 'no');
+  const ci = (a, b) => `[${nCI(a)}, ${nCI(b)}]`;
+  const baris = (grup, r, label) => [grup, label ?? r.label, ciTeks(r),
+    `${n(r.hl, 3)} [${n(r.hl_lo, 3)}, ${n(r.hl_hi, 3)}]`,
+    ci(...r.blok_sens['2'].slice(0, 2)), ci(...r.blok_sens['10'].slice(0, 2)),
+    ['1.0', '2.0', '3.0'].map(m => ya(r.setara_margin[m])).join(' / ')];
+  const rows = [
+    ...RB.komponen.map(r => baris('Component removed', r)),
+    baris('Component removed', RB.tuning_bersyarat, 'Tuned hyperparameters, changed pairs only'),
+    ...RB.k.map(r => baris('Feature count vs 25', r)),
+    ...RB.kombinasi.map(r => baris('Combination vs leader', r)),
+    ...RB.pasar.map(r => baris('Market data on vs off', r)),
+    ...RB.selektor.map(r => baris('mRMR vs univariate', r)),
+  ];
+  const lebar = rows.map(r => {
+    const w = s => { const m = s.match(/\[(-?[\d.]+), (-?[\d.]+)\]/); return m ? +m[2] - +m[1] : NaN; };
+    return [w(r[2].replace(/^[^[]*/, '')), w(r[4]), w(r[5])];
+  });
+  const rasio = lebar.map(([a, b, c]) => Math.max(b / a, c / a)).filter(Number.isFinite);
+  const c = [];
+  c.push(H1('Appendix G. Robustness of the Inference'));
+  const semua = [...RB.komponen, RB.tuning_bersyarat, ...RB.k, ...RB.kombinasi, ...RB.pasar, ...RB.selektor];
+  const nol = (lo, hi) => lo > 0 || hi < 0;
+  const pindah = semua.filter(r => ['2', '10'].some(b => nol(r.blok_sens[b][0], r.blok_sens[b][1]) !== r.beda)).length;
+  const ragu2 = semua.filter(r => !r.setara_margin['2.0'] && !r.beda);
+  const jadi3 = ragu2.filter(r => r.setara_margin['3.0']).length;
+  const setara1 = semua.filter(r => r.setara_margin['1.0']).length;
+  c.push(P('Table G1 repeats every pooled comparison with the Hodges-Lehmann shift, the effect size that ' +
+    'matches the Wilcoxon test, in MASE units, with block-bootstrap intervals for blocks of two and ten ' +
+    'days instead of five, and with the equivalence verdict at margins of ±1, ±2 and ±3 per cent. The ' +
+    `intervals are of similar width for every block length, the widest being ${n(Math.max(...rasio), 1)} times ` +
+    `the five-day interval, although for ${kata(pindah)} of the ${semua.length} comparisons, all with intervals ` +
+    'close to zero, the block length decides whether the interval excludes zero. The margin matters more. ' +
+    (setara1 === 0 ? 'At ±1 per cent no comparison is equivalent' : `At ±1 per cent ${kata(setara1)} comparisons are equivalent`) +
+    `, and at ±3 per cent ${kata(jadi3)} of the ${ragu2.length} comparisons that are inconclusive at ±2 per ` +
+    'cent become equivalent. Table G2 gives the component effects for each learner.'));
+  c.push(TCAP('G1', 'Robustness of the pooled comparisons. Change and intervals in per cent of mean MASE, ' +
+    'Hodges-Lehmann shift in MASE units. The last column gives the equivalence verdict at ±1, ±2 and ±3 per cent.'));
+  c.push(TBL([1500, 2100, 1650, 1700, 950, 950, 1110],
+    ['Family', 'Comparison', 'Change [95% CI]', 'Hodges-Lehmann [95% CI]', 'CI, 2-day blocks', 'CI, 10-day blocks', 'Equivalent at ±1 / ±2 / ±3'],
+    rows, { rightFrom: 2 }));
+  const PM = RB.komponen_per_model;
+  const rows2 = [];
+  Object.entries(PM).forEach(([k, v]) => URUT_POHON.forEach(m => {
+    const r = v[m];
+    rows2.push([k, nice(m), ciTeks(r), ci(r.lo90, r.hi90), pv(r.p), putusan(r, 'different', 'different')]);
+  }));
+  c.push(TCAP('G2', 'Component effects by learner, 450 series-date units each. A positive change means the ' +
+    'full pipeline is better. Unadjusted Wilcoxon p-values.'));
+  c.push(TBL([2500, 1300, 1900, 1500, 1000, 1160],
+    ['Component removed', 'Learner', 'Change [95% CI]', '90% CI', 'Wilcoxon p', 'Verdict'], rows2, { rightFrom: 2 }));
+  return c;
+}
+
 function appendixBeeswarm() {
   /* Satu beeswarm per seri. Dilewati seluruhnya kalau gambarnya tidak lengkap:
      lampiran yang memuat sebagian seri tanpa mengatakan seri mana yang hilang
@@ -1302,7 +1480,7 @@ function appendixBeeswarm() {
   c.push(P('Figure 9 shows how the 25 selected features divide between market variables, own lags and ' +
     'everything else, and how much of the fitted importance the market variables carry. ' +
     'It cannot show direction, and the beeswarms below can. Each dot is one of the last 300 training days, ' +
-    'placed by that feature contribution to the predicted next-day flow in millions of US dollars, and ' +
+    'placed by that feature’s contribution to the predicted next-day flow in millions of US dollars, and ' +
     'coloured by whether the feature value was low (blue) or high (red) that day. ' +
     'Feature names in orange are market variables, and names in black are engineered from the series’ own ' +
     'history. A wide spread means the feature moves the forecast from day to day, while a narrow band ' +
@@ -1330,6 +1508,7 @@ function refs() {
     'Chen, T. and Guestrin, C. (2016). XGBoost: a scalable tree boosting system. In *Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining*, 785–794.',
     'Claeskens, G., Magnus, J. R., Vasnev, A. L. and Wang, W. (2016). The forecast combination puzzle: a simple theoretical explanation. *International Journal of Forecasting*, 32(3), 754–762.',
     'Croston, J. D. (1972). Forecasting and stock control for intermittent demands. *Operational Research Quarterly*, 23(3), 289–303.',
+    'Davydenko, A. and Fildes, R. (2013). Measuring forecasting accuracy: the case of judgmental adjustments to SKU-level demand forecasts. *International Journal of Forecasting*, 29(3), 510–522.',
     'Diebold, F. X. and Mariano, R. S. (1995). Comparing predictive accuracy. *Journal of Business and Economic Statistics*, 13(3), 253–263.',
     'Evans, M. D. D. and Lyons, R. K. (2002). Order flow and exchange rate dynamics. *Journal of Political Economy*, 110(1), 170–180.',
     'Fratzscher, M., Gloede, O., Menkhoff, L., Sarno, L. and Stöhr, T. (2019). When is foreign exchange intervention effective? Evidence from 33 countries. *American Economic Journal: Macroeconomics*, 11(1), 132–156.',
@@ -1337,10 +1516,12 @@ function refs() {
     'Hansen, P. R., Lunde, A. and Nason, J. M. (2011). The model confidence set. *Econometrica*, 79(2), 453–497.',
     'Harvey, D., Leybourne, S. and Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting*, 13(2), 281–291.',
     'Hastie, T., Tibshirani, R. and Friedman, J. (2009). *The Elements of Statistical Learning*, 2nd edition. New York: Springer.',
+    'Hodges, J. L. and Lehmann, E. L. (1963). Estimates of location based on rank tests. *Annals of Mathematical Statistics*, 34(2), 598–611.',
     'Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics*, 6(2), 65–70.',
     'Hyndman, R. J. and Koehler, A. B. (2006). Another look at measures of forecast accuracy. *International Journal of Forecasting*, 22(4), 679–688.',
     'Ke, G., Meng, Q., Finley, T., Wang, T., Chen, W., Ma, W., Ye, Q. and Liu, T.-Y. (2017). LightGBM: a highly efficient gradient boosting decision tree. In *Advances in Neural Information Processing Systems*, 30, 3146–3154.',
     'Kohavi, R. and John, G. H. (1997). Wrappers for feature subset selection. *Artificial Intelligence*, 97(1–2), 273–324.',
+    'Künsch, H. R. (1989). The jackknife and the bootstrap for general stationary observations. *Annals of Statistics*, 17(3), 1217–1241.',
     'Lakens, D. (2017). Equivalence tests: a practical primer for t tests, correlations, and meta-analyses. *Social Psychological and Personality Science*, 8(4), 355–362.',
     'Lundberg, S. M. and Lee, S.-I. (2017). A unified approach to interpreting model predictions. In *Advances in Neural Information Processing Systems*, 30, 4765–4774.',
     'Lyons, R. K. (2001). *The Microstructure Approach to Exchange Rates*. Cambridge, MA: MIT Press.',
@@ -1349,10 +1530,14 @@ function refs() {
     'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2022). M5 accuracy competition: results, findings, and conclusions. *International Journal of Forecasting*, 38(4), 1346–1364.',
     'Meese, R. A. and Rogoff, K. (1983). Empirical exchange rate models of the seventies: do they fit out of sample? *Journal of International Economics*, 14(1–2), 3–24.',
     'Menkhoff, L. (2013). Foreign exchange intervention in emerging markets: a survey of empirical studies. *The World Economy*, 36(9), 1187–1208.',
+    'Menkhoff, L., Sarno, L., Schmeling, M. and Schrimpf, A. (2016). Information flows in foreign exchange markets: dissecting customer currency trades. *Journal of Finance*, 71(2), 601–634.',
     'Montero-Manso, P. and Hyndman, R. J. (2021). Principles and algorithms for forecasting groups of time series: locality and globality. *International Journal of Forecasting*, 37(4), 1632–1653.',
     'Peng, H., Long, F. and Ding, C. (2005). Feature selection based on mutual information: criteria of max-dependency, max-relevance, and min-redundancy. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 27(8), 1226–1238.',
+    'Pesaran, M. H. and Timmermann, A. (1992). A simple nonparametric test of predictive performance. *Journal of Business and Economic Statistics*, 10(4), 461–465.',
+    'Politis, D. N. and Romano, J. P. (1994). The stationary bootstrap. *Journal of the American Statistical Association*, 89(428), 1303–1313.',
     'Sculley, D., Holt, G., Golovin, D., Davydov, E., Phillips, T., Ebner, D., Chaudhary, V., Young, M., Crespo, J.-F. and Dennison, D. (2015). Hidden technical debt in machine learning systems. In *Advances in Neural Information Processing Systems*, 28, 2503–2511.',
     'Smith, J. and Wallis, K. F. (2009). A simple explanation of the forecast combination puzzle. *Oxford Bulletin of Economics and Statistics*, 71(3), 331–355.',
+    'Syntetos, A. A. and Boylan, J. E. (2005). The accuracy of intermittent demand estimates. *International Journal of Forecasting*, 21(2), 303–314.',
     'Tashman, L. J. (2000). Out-of-sample tests of forecasting accuracy: an analysis and review. *International Journal of Forecasting*, 16(4), 437–450.',
     'Taylor, S. J. and Letham, B. (2018). Forecasting at scale. *The American Statistician*, 72(1), 37–45.',
     'Turing, A. M. (1950). Computing machinery and intelligence. *Mind*, 59(236), 433–460.',

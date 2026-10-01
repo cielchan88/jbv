@@ -392,6 +392,31 @@ _R['pasar'] = [INF.banding(_gi.mati, _gi.benar, 'pooled')] + [
 
 # 5. kombinasi melawan juara
 _R['kombinasi'] = [INF.banding(_ref, _mase(pr), nama) for nama, pr in _KOMB]
+
+# 5b. (review ketiga) keluarga tambahan, semuanya pada unit (seri, tanggal)
+#     dan SESUDAH panggilan di atas, supaya urutan RNG CI utama tidak berubah.
+_ex = ext[~ext.ext.astype(bool)].set_index(['leaf', 'model', 'origin', 'beta', 'top_k']).mase
+_R['selektor'] = [INF.banding(_ex.xs((0.0, k_), level=['beta', 'top_k']),
+                              _ex.xs((1.0, k_), level=['beta', 'top_k']), f'k = {k_}')
+                  for k_ in sorted(ext.top_k.unique())]
+_R['nolkan'] = [INF.banding(_gi.mati, _gi.nol, 'zero-filled'), INF.banding(_gi.mati, _gi.benar, 'supplied')]
+_R['nolkan_kondisi'] = [INF.banding(g_.mati, g_.nol, f"{'mRMR' if b_ == 1 else 'univariate'}, k = {int(k_)}")
+                        for (b_, k_), g_ in _gi.groupby(level=['beta', 'top_k'])]
+# efek tuning bersyarat: hanya pasangan seri-learner yang setelannya berubah
+_tn = _ab[_ab.arm == 'tanpa_setelan'].set_index(['leaf', 'model', 'origin']).mase
+_jt = pd.concat([_full, _tn], axis=1, keys=['o', 'x']).dropna()
+_beda = pd.Series(~np.isclose(_jt.o, _jt.x, rtol=0, atol=1e-12), index=_jt.index).groupby(level=['leaf', 'model']).any()
+_pakai = np.array([bool(_beda[(l_, m_)]) for l_, m_, _o_ in _jt.index])
+_R['tuning_bersyarat'] = INF.banding(_jt.o[_pakai], _jt.x[_pakai], 'Tuned hyperparameters, changed pairs')
+_R['tuning_bersyarat']['n_pasangan'] = int(_beda.sum())
+# per learner (n = 450 per learner): ekuivalensi pooled belum tentu berlaku per learner
+_R['komponen_per_model'] = {
+    lab_: {m: INF.banding(_full.xs(m, level='model'),
+                          _ab[(_ab.arm == arm) & (_ab.model == m)].set_index(['leaf', 'origin']).mase,
+                          f'{lab_}, {m}') for m in _ML3}
+    for arm, lab_ in _KOMP.items()}
+for fam_ in ('metode', 'komponen', 'k', 'pasar', 'kombinasi', 'selektor', 'nolkan_kondisi'):
+    INF.holm(_R[fam_])
 T['robust'] = _R
 
 # 6. Diebold-Mariano (HLN) per seri: juara melawan metode lain
@@ -448,22 +473,59 @@ T['skala_koreksi'] = dict(
     pasar=float(100 * (_g2.benar.mean() / _g2.mati.mean() - 1)))
 
 # 9. metrik untuk desk (juta USD dan relatif terhadap random walk)
+#    Review ketiga: B.1 (93 persen nol di blok uji) mendominasi rata-rata
+#    geometrik, jadi semuanya dihitung dengan dan tanpa B.1; akurasi arah
+#    diuji dengan Pesaran-Timmermann (pooled, mengabaikan ketergantungan).
 _rw = roll[roll.model == 'Naive'].set_index(['leaf', 'origin'])
-_desk = []
-for m, g_ in roll.groupby('model'):
-    g_ = g_.set_index(['leaf', 'origin'])
-    prev = _rw.pred.reindex(g_.index)                      # ramalan RW = nilai kemarin
-    mae_s = g_.ae.groupby(level='leaf').mean()
-    rw_s = _rw.ae.groupby(level='leaf').mean()
-    rel = (mae_s / rw_s).replace([np.inf], np.nan).dropna()
-    arah_a, arah_p = np.sign(g_.actual - prev), np.sign(g_.pred - prev)
-    ok = (arah_a != 0) & (arah_p != 0)
-    tot = g_.groupby(level='origin')[['actual', 'pred']].sum()
-    _desk.append(dict(model=m, rel_mae_geo=float(np.exp(np.log(rel[rel > 0]).mean())),
-                      mae=float(g_.ae.mean()), bias=float((g_.actual - g_.pred).mean()),
-                      arah=(float((arah_a[ok] == arah_p[ok]).mean() * 100) if ok.sum() else None),
-                      mae_total=float((tot.actual - tot.pred).abs().mean())))
-T['desk'] = sorted(_desk, key=lambda r: r['rel_mae_geo'])
+
+
+def _metrik_desk(buang=()):
+    hasil = []
+    for m, g_ in roll[~roll.leaf.isin(buang)].groupby('model'):
+        g_ = g_.set_index(['leaf', 'origin'])
+        prev = _rw.pred.reindex(g_.index)                  # ramalan RW = nilai kemarin
+        mae_s = g_.ae.groupby(level='leaf').mean()
+        rw_s = _rw.ae.groupby(level='leaf').mean().reindex(mae_s.index)
+        rel = (mae_s / rw_s).replace([np.inf], np.nan).dropna()
+        arah_a, arah_p = np.sign(g_.actual - prev), np.sign(g_.pred - prev)
+        ok = (arah_a != 0) & (arah_p != 0)
+        pt_, ptp_ = INF.pesaran_timmermann(arah_a[ok], arah_p[ok]) if ok.sum() > 10 else (None, None)
+        tot = g_.groupby(level='origin')[['actual', 'pred']].sum()
+        hasil.append(dict(model=m, rel_mae_geo=float(np.exp(np.log(rel[rel > 0]).mean())),
+                          mae=float(g_.ae.mean()), bias=float((g_.actual - g_.pred).mean()),
+                          arah=(float((arah_a[ok] == arah_p[ok]).mean() * 100) if ok.sum() else None),
+                          n_arah=int(ok.sum()), pt=pt_, pt_p=ptp_,
+                          mae_total=float((tot.actual - tot.pred).abs().mean())))
+    hasil = sorted(hasil, key=lambda r: r['rel_mae_geo'])
+    for i, r in enumerate(hasil):
+        r['peringkat'] = i + 1
+    return hasil
+
+
+T['desk'] = _metrik_desk()
+_jarang = str((_rw.actual == 0).groupby(level='leaf').mean().idxmax())   # seri paling jarang di blok uji
+T['desk_tanpa'] = dict(leaf=_jarang, rows=_metrik_desk((_jarang,)))
+_td = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keluaran', 'topdown.json')
+assert os.path.exists(_td), 'jalankan dulu: python scripts/paper/naskah/topdown.py'
+_td = pd.DataFrame(json.load(open(_td)))
+_tot = roll[roll.model == 'Naive'].groupby('origin').actual.sum()
+assert np.allclose(_tot.values, _td.sort_values('origin').actual.values), 'total top-down tidak cocok dengan jumlah seri'
+T['topdown'] = dict(arima=float((_td.actual - _td.arima).abs().mean()),
+                    rw=float((_td.actual - _td.rw).abs().mean()))
+
+# 9b. patahan 2022 dan penyebut MASE: skala dihitung hanya dari 2022 ke
+#     depan untuk semua seri (sensitivitas, bukan hasil utama).
+_fak22 = {}
+for _, rr in lv.iterrows():
+    dd_, yy_ = series_of(rr, dcols, dall)
+    cut_ = len(yy_) - 30
+    m22 = np.asarray(pd.DatetimeIndex(dd_[:cut_]).year >= 2022)
+    _fak22[rr.Row_ID] = scale_denom(yy_[:cut_]) / scale_denom(yy_[:cut_][m22])
+_rk22 = _rk * _rk.index.get_level_values('leaf').map(_fak22).values
+_r22 = _rk22.groupby(level='model').mean().sort_values()
+T['skala_2022'] = dict(faktor={k: float(v) for k, v in _fak22.items()},
+                       peringkat=[dict(model=m, mase=float(v)) for m, v in _r22.items()],
+                       rw=float(_r22['Naive']), rw_lama=float(_rk.groupby(level='model').mean()['Naive']))
 
 # 10. RQ4: pangsa SHAP pasar per kelompok pihak transaksi
 _sh = pd.Series({r['leaf']: r['share'] for r in S['shap_ext_share']})
@@ -503,7 +565,49 @@ for _, rr in lv.iterrows():
                           abs_22=float(np.mean(np.abs(yy_[th == 2022]))))
 assert _pt['B.a']['nol_14_21'] < 10 and _pt['B.a']['nol_22'] > 75, _pt['B.a']
 assert _pt['A.2.a']['abs_22'] < 0.2 * _pt['A.2.a']['abs_21'] and _pt['A.2.b']['abs_22'] > _pt['A.2.b']['abs_21']
+_a1 = _a2 = None
+for _, rr in lv.iterrows():
+    if rr.Row_ID in ('A.2.a', 'A.2.b'):
+        dd_, yy_ = series_of(rr, dcols, dall)
+        ss_ = pd.Series(yy_, index=pd.DatetimeIndex(dd_))
+        if rr.Row_ID == 'A.2.a':
+            _a1 = ss_
+        else:
+            _a2 = ss_
+_jm = (_a1 + _a2)
+_pt['jumlah_a'] = dict(des21=float(_jm['2021-12'].mean()), jan22=float(_jm['2022-01'].mean()),
+                       a1_des21=float(_a1['2021-12'].mean()), a1_jan22=float(_a1['2022-01'].mean()))
+_sd = _a1.groupby(_a1.index.year).std()
+_pt['a1_sd'] = dict(min_19_24=float(_sd.loc[2019:2024].min()), max_19_24=float(_sd.loc[2019:2024].max()),
+                    th2025=float(_sd.loc[2025]), th2026=float(_sd.loc[2026]))
+assert abs(_pt['jumlah_a']['jan22'] / _pt['jumlah_a']['des21'] - 1) < 0.25, _pt['jumlah_a']
+assert _pt['a1_sd']['th2026'] > _pt['a1_sd']['max_19_24'], _pt['a1_sd']
 T['patahan_2022'] = _pt
+
+# 13c. SHAP dua learner, taksonomi Lampiran D (shap_dua.py, dihitung lokal)
+_sdj = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keluaran', 'shap_dua.json')
+assert os.path.exists(_sdj), 'jalankan dulu: python scripts/paper/naskah/shap_dua.py'
+_SD = json.load(open(_sdj))
+assert set(_SD) == set(lv.Row_ID), 'shap_dua.json tidak lengkap'
+_famd = {}
+for nm_ in ('RandomForest', 'LightGBM'):
+    df_ = pd.DataFrame({l: v[nm_] for l, v in _SD.items()}).fillna(0.0)
+    _famd[nm_] = df_.mean(axis=1).sort_values(ascending=False).to_dict()
+_mk = pd.DataFrame({l: {nm_: v[nm_].get('Market', 0.0) for nm_ in ('RandomForest', 'LightGBM')}
+                    for l, v in _SD.items()}).T
+# pangsa pasar RF lokal harus sama dengan SHAP VPS (shap_ringkas.json)
+_vps = pd.Series({r['leaf']: r['share'] for r in S['shap_ext_share']})
+# Dihitung di lingkungan lain (versi pustaka berbeda, lihat Lampiran F), jadi
+# tidak harus identik dengan SHAP VPS di setiap seri. Jumlah seri yang identik
+# dilaporkan di naskah; penjaga ini hanya menolak kalau sebagian besar meleset.
+_meleset = (np.abs(_mk.RandomForest.reindex(_vps.index) - _vps) > 0.15)
+assert (~_meleset).sum() >= 12, f'SHAP RF lokal terlalu jauh dari VPS: {list(_vps.index[_meleset])}'
+_rf_vps_cocok = int((~_meleset).sum())
+_rr, _pp = spearmanr(_mk.RandomForest, _mk.LightGBM)
+T['shap_dua'] = dict(famili=_famd, rf_cocok_vps=_rf_vps_cocok, pasar=_mk.to_dict(orient='index'),
+                     rho_pasar=float(_rr), p_pasar=float(_pp),
+                     kelompok={nm_: {g: float(_mk[nm_][_mk.index.str[0] == g].mean()) for g in 'ABC'}
+                               for nm_ in ('RandomForest', 'LightGBM')})
 _w = pd.DataFrame(T['winners']).set_index('leaf')
 _w['nol_sejak'] = [_z[l]['nol_sejak'] for l in _w.index]
 _rr, _pp = spearmanr(_w.nol_sejak, _w.mase)

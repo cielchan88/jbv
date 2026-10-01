@@ -59,9 +59,17 @@ cek('abstrak: kerusakan hilang', f"{g['rusak_hilang_pct']:.0f}")
 cek('abstrak: leaf membaik', str(T['n_leaf_membaik']))
 cek('slot-kerusakan dinolkan rho', f"{T['slot_damage']['nol']['rho']:.3f}")
 cek('slot-kerusakan disuplai rho', f"{T['slot_damage']['benar']['rho']:.3f}")
-for k in ('Moving average', 'Lag', 'External'):      # hanya yang disebut prosa
-    if k in T['shap_family']:
-        cek(f'SHAP {k}', f"{T['shap_family'][k]:.1f}")
+# Sejak review ketiga prosa 4.6 memakai SHAP dua learner (shap_dua.json).
+for lrn in ('RandomForest', 'LightGBM'):
+    cek(f'SHAP {lrn} pasar', f"{T['shap_dua']['famili'][lrn]['Market']:.1f}")
+cek('SHAP rho RF-LGBM', f"{T['shap_dua']['rho_pasar']:.2f}")
+d0 = next(d for d in T['desk'] if d['model'] == T['champion_juara'])
+dt = next(d for d in T['desk_tanpa']['rows'] if d['model'] == T['champion_juara'])
+cek('desk rel MAE juara', f"{d0['rel_mae_geo']:.3f}")
+cek('desk rel MAE juara tanpa seri jarang', f"{dt['rel_mae_geo']:.3f}")
+cek('top-down ARIMA', f"{T['topdown']['arima']:.1f}")
+cek('RW skala 2022', f"{T['skala_2022']['rw']:.3f}")
+cek('tuning bersyarat', f"{T['robust']['tuning_bersyarat']['delta']:.1f}%")
 cek('slot lag rata', f"{T['mean_lag_slots']:.1f}")
 cek('slot pasar rata', f"{T['mean_ext_slots']:.1f}")
 cek('kandidat internal', str(T['pool_internal']))
@@ -133,7 +141,9 @@ if t:
         if r:
             banding(f'T10 {row[0]} opt', num(row[1]), round(r['opt'], 4))
             banding(f'T10 {row[0]} off', num(row[2]), round(r['off'], 4))
-            banding(f'T10 {row[0]} wins', num(row[4].split('/')[0]), r['wins'], 0.5)
+            rb = next(x for x in T['robust']['komponen'] if x['label'] == row[0])
+            banding(f'T7 {row[0]} wins', num(row[4].split('/')[0]), rb['a_lebih_baik'], 0.5)
+            banding(f'T7 {row[0]} holm', num(row[5]), round(rb['p_holm'], 4))
 
 # Tabel 5 dan 6 punya header yang IDENTIK - keduanya peringkat metode - dan
 # angkanya memang berbeda karena desainnya berbeda. Versi pertama pemeriksa

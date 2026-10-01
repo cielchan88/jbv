@@ -11,7 +11,9 @@ berurutan saling bergantung. Tidak ada model yang dilatih ulang di sini.
       bersama, jadi ketergantungan antar-seri dan antar-hari sama-sama
       dipertahankan. Dengan hanya 30 tanggal, CI-nya lebar, dan itu jujur.
     - EKUIVALENSI (TOST) dengan margin +-2 persen pada perubahan mean MASE:
-      setara bila CI 90 persen seluruhnya di dalam margin.
+      setara bila CI 90 persen seluruhnya di dalam margin. Margin dipilih
+      SESUDAH hasil terlihat (review ketiga), jadi dilaporkan juga +-1 dan
+      +-3 persen, dan CI dengan blok 2 dan 10 hari.
     - HODGES-LEHMANN: penaksir lokasi selisih berpasangan yang sesuai dengan
       Wilcoxon (yang menguji pseudo-median, bukan mean).
     - DIEBOLD-MARIANO dengan koreksi Harvey-Leybourne-Newbold, per seri.
@@ -27,6 +29,9 @@ RNG = np.random.default_rng(20260930)
 B = 2000
 BLOK = 5
 MARGIN = 2.0
+MARGIN_SENS = (1.0, 2.0, 3.0)
+BLOK_SENS = (2, 10)
+RNG_SENS = np.random.default_rng(20261001)
 
 
 def _indeks_blok(n, b=B, blok=BLOK, rng=RNG):
@@ -68,12 +73,48 @@ def banding(a, b, label):
     per_tgl = [d[tgl == u] for u in uniq]
     hl_boot = [hodges_lehmann(np.concatenate([per_tgl[k] for k in row])) for row in idx[:500]]
     p = float(wilcoxon(j.b, j.a).pvalue) if np.any(d != 0) else float('nan')
+    seri = np.isclose(j.a.values, j.b.values, rtol=0, atol=1e-12)
+    # Sensitivitas: RNG TERPISAH, supaya CI utama tidak bergeser.
+    sens = {}
+    for bl in BLOK_SENS:
+        ix = _indeks_blok(len(uniq), blok=bl, rng=RNG_SENS)
+        bt = 100 * (sb[ix].sum(1) / sa[ix].sum(1) - 1)
+        sens[bl] = [float(x) for x in np.percentile(bt, [2.5, 97.5, 5, 95])]
     return dict(label=label, n=int(len(j)), delta=float(delta), lo95=float(lo95), hi95=float(hi95),
                 lo90=float(lo90), hi90=float(hi90),
                 setara=bool(lo90 > -MARGIN and hi90 < MARGIN),
                 beda=bool(lo95 > 0 or hi95 < 0),
+                setara_margin={str(m): bool(lo90 > -m and hi90 < m) for m in MARGIN_SENS},
+                blok_sens={str(k): v for k, v in sens.items()},
+                a_lebih_baik=int((j.a.values < j.b.values)[~seri].sum()),
+                b_lebih_baik=int((j.b.values < j.a.values)[~seri].sum()), seri=int(seri.sum()),
                 hl=hodges_lehmann(d), hl_lo=float(np.percentile(hl_boot, 2.5)),
                 hl_hi=float(np.percentile(hl_boot, 97.5)), p=p)
+
+
+def holm(daftar):
+    """Tambahkan p_holm ke setiap dict dalam satu keluarga uji."""
+    urut, jalan = sorted(range(len(daftar)), key=lambda i: daftar[i]['p']), 0.0
+    for r, i in enumerate(urut):
+        jalan = max(jalan, min(1.0, (len(daftar) - r) * daftar[i]['p']))
+        daftar[i]['p_holm'] = jalan
+    return daftar
+
+
+def pesaran_timmermann(aktual, ramal):
+    """Uji arah Pesaran-Timmermann (1992). Masukan: tanda perubahan (+1/-1)."""
+    from scipy.stats import norm
+    y, x = np.asarray(aktual) > 0, np.asarray(ramal) > 0
+    n = len(y)
+    P, py, px = np.mean(y == x), y.mean(), x.mean()
+    ps = py * px + (1 - py) * (1 - px)
+    vp = ps * (1 - ps) / n
+    vps = ((2 * py - 1) ** 2 * px * (1 - px) / n + (2 * px - 1) ** 2 * py * (1 - py) / n
+           + 4 * py * px * (1 - py) * (1 - px) / n ** 2)
+    if vp - vps <= 0:
+        return float('nan'), float('nan')
+    st = (P - ps) / np.sqrt(vp - vps)
+    return float(st), float(norm.sf(st))
 
 
 def dm_hln(e1, e2):
