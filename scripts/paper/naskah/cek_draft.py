@@ -28,6 +28,9 @@ for j in (TABLES, DOCX):
     if not os.path.exists(j):
         raise SystemExit(f'BERHENTI: {j} belum ada.')
 T = json.load(open(TABLES))
+# Badan naskah sejak review ketiga memakai jalan ulang v2 (tables_v2.json);
+# tables.json tinggal untuk deskriptif, Kotak 1 dan lampiran desain 30 origin.
+T2 = json.load(open(os.path.join(os.path.dirname(TABLES), 'tables_v2.json')))
 d = Document(DOCX)
 
 prosa = '\n'.join(p.text for p in d.paragraphs)
@@ -56,24 +59,26 @@ g = T['tabel8b_gabungan']
 cek('abstrak: penalti dinolkan', f"{g['delta_nol']:.1f}")
 cek('abstrak: penalti disuplai', f"{g['delta_benar']:.1f}")
 cek('abstrak: kerusakan hilang', f"{g['rusak_hilang_pct']:.0f}")
-cek('abstrak: leaf membaik', str(T['n_leaf_membaik']))
 cek('slot-kerusakan dinolkan rho', f"{T['slot_damage']['nol']['rho']:.3f}")
 cek('slot-kerusakan disuplai rho', f"{T['slot_damage']['benar']['rho']:.3f}")
-# Sejak review ketiga prosa 4.6 memakai SHAP dua learner (shap_dua.json).
-for lrn in ('RandomForest', 'LightGBM'):
-    cek(f'SHAP {lrn} pasar', f"{T['shap_dua']['famili'][lrn]['Market']:.1f}")
-cek('SHAP rho RF-LGBM', f"{T['shap_dua']['rho_pasar']:.2f}")
-d0 = next(d for d in T['desk'] if d['model'] == T['champion_juara'])
-dt = next(d for d in T['desk_tanpa']['rows'] if d['model'] == T['champion_juara'])
-cek('desk rel MAE juara', f"{d0['rel_mae_geo']:.3f}")
-cek('desk rel MAE juara tanpa seri jarang', f"{dt['rel_mae_geo']:.3f}")
-cek('top-down ARIMA', f"{T['topdown']['arima']:.1f}")
-cek('RW skala 2022', f"{T['skala_2022']['rw']:.3f}")
-cek('tuning bersyarat', f"{T['robust']['tuning_bersyarat']['delta']:.1f}%")
-cek('slot lag rata', f"{T['mean_lag_slots']:.1f}")
-cek('slot pasar rata', f"{T['mean_ext_slots']:.1f}")
+# ---- v2 (badan naskah)
+pr2 = {r['model']: r for r in T2['peringkat']}
+cek('v2 juara MASE', f"{pr2[T2['juara']]['mase']:.3f}")
+kp2 = {r['label']: r for r in T2['komponen']}
+cek('v2 refit', f"{kp2['Daily re-fitting']['delta']:.1f}")
+ps2 = {r['label']: r for r in T2['pasar']}
+cek('v2 pasar level', f"{ps2['Market data as levels']['delta']:.1f}")
+cek('v2 jendela 2022', f"{T2['jendela']['delta']:.1f}")
+med2 = next(r for r in T2['kombinasi'] if r['label'].startswith('Median'))
+cek('v2 median', f"{-med2['delta']:.1f}")
+cek('v2 seed RF', f"{T2['seed_rf']['rentang_persen']:.2f}")
+cek('v2 RW MASE', f"{pr2['Naive']['mase']:.3f}")
+if T2.get('shap'):
+    cek('v2 SHAP rho', f"{T2['shap']['rho']:.2f}")
+if T2.get('topdown'):
+    cek('v2 top-down ARIMA', f"{T2['topdown']['arima']:.1f}")
+cek('v2 jumlah unit', f"{T2['n_leaf'] * T2['nroll']:,}")
 cek('kandidat internal', str(T['pool_internal']))
-cek('kandidat total', str(T['pool_total']))
 cek('jumlah leaf', str(T['n_leaf']))
 # Naskah memakai repro.json, bukan arima_repro. Memeriksa yang tidak dipakai
 # naskah membuat pemeriksa ini melaporkan cocok atas angka yang tidak pernah
@@ -133,7 +138,7 @@ if t:
         banding(f'T9 {row[0]}/{row[1]} recovered', num(row[7]),
                 round(r['rusak_hilang_pct']), 0.5)
 
-t = judul('Component removed')
+t = judul('Component removed', 'MASE with it')
 if t:
     src = {r['component']: r for r in T['reverse_ablation']}
     for row in t[1:]:
@@ -142,8 +147,8 @@ if t:
             banding(f'T10 {row[0]} opt', num(row[1]), round(r['opt'], 4))
             banding(f'T10 {row[0]} off', num(row[2]), round(r['off'], 4))
             rb = next(x for x in T['robust']['komponen'] if x['label'] == row[0])
-            banding(f'T7 {row[0]} wins', num(row[4].split('/')[0]), rb['a_lebih_baik'], 0.5)
-            banding(f'T7 {row[0]} holm', num(row[5]), round(rb['p_holm'], 4))
+            banding(f'TA2 {row[0]} wins', num(row[4].split('/')[0]), rb['a_lebih_baik'], 0.5)
+            banding(f'TA2 {row[0]} holm', num(row[5]), round(rb['p_holm'], 4))
 
 # Tabel 5 dan 6 punya header yang IDENTIK - keduanya peringkat metode - dan
 # angkanya memang berbeda karena desainnya berbeda. Versi pertama pemeriksa
@@ -154,14 +159,49 @@ if t:
 # tabel headline (Tabel A1) di lampiran. Urutannya kini e2 lalu e1.
 peringkat = [t for t in tbs
              if t and t[0][:3] == ['Rank', 'Method', 'Mean MASE'] and len(t) > 10]
-for idx, (tb, kunci, tag) in enumerate(
-        zip(peringkat, ('e2_summary', 'e1_summary'), ('T5', 'TA1'))):
-    src = {m['model']: m for m in T[kunci]}
+# v2: Tabel 5 (14 metode) di badan naskah, lalu Tabel A1 (desain 30 origin).
+NICE.update({'Seasonal naive': 'SeasonalNaive', 'ETS': 'ETS', 'Theta': 'Theta',
+             'Ridge regression': 'Ridge', 'Random walk with drift': 'NaiveDrift',
+             'Rolling mean': 'NaiveMean', 'Seasonal decomposition': 'SeasonalDecomp'})
+assert len(peringkat) == 2, f'harus dua tabel peringkat, ketemu {len(peringkat)}'
+for tb, src, tag in ((peringkat[0], {m['model']: m for m in T2['peringkat']}, 'T5'),
+                     (peringkat[1], {m['model']: m for m in T['e2_summary']}, 'TA1')):
+    n_ok = 0
     for row in tb[1:]:
         key = NICE.get(row[1])
         if key in src:
+            n_ok += 1
             banding(f'{tag} {row[1]} mean', num(row[2]), round(src[key]['mase'], 3))
-            banding(f'{tag} {row[1]} median', num(row[3]), round(src[key]['med'], 3))
+            banding(f'{tag} {row[1]} median', num(row[3]), round(src[key].get('med', src[key].get('median', 0)), 3))
+    if n_ok != len(tb) - 1:
+        beda.append(f'{tag}: hanya {n_ok} dari {len(tb) - 1} metode dikenali')
+
+t = judul('Method', 'Relative MAE')
+if t:
+    src = {d_['model']: d_ for d_ in T2['desk']}
+    tn = {d_['model']: d_ for d_ in T2['desk_tanpa']['rows']}
+    for row in t[1:]:
+        key = NICE.get(row[0])
+        if key in src:
+            banding(f'T10 {row[0]} rel', num(row[1]), round(src[key]['rel_mae_geo'], 3))
+            banding(f'T10 {row[0]} rel tanpa', num(row[2]), round(tn[key]['rel_mae_geo'], 3))
+            banding(f'T10 {row[0]} mae', num(row[3]), round(src[key]['mae'], 1), 0.051)
+            banding(f'T10 {row[0]} total', num(row[6]), round(src[key]['mae_total'], 1), 0.051)
+
+t = judul('Component removed', 'Change [95% CI]')
+if t:
+    src = {r['label']: r for r in T2['komponen']}
+    for row in t[1:]:
+        r = src.get(row[0])
+        if r:
+            banding(f'T7 {row[0]} wins', num(row[3].split('/')[0]), r['a_lebih_baik'], 0.5)
+
+t = judul('Forecast', 'Mean MASE')
+if t:
+    src = {e['label']: e for e in T2['kombinasi']}
+    for row in t[1:]:
+        if row[0] in src:
+            banding(f'T6 {row[0][:25]} mean', num(row[1]), round(src[row[0]]['mase'], 3))
 
 t = judul('Series', 'Purpose', 'FE, k = 12')
 if t:
@@ -242,6 +282,7 @@ def jelajah(o):
 
 
 jelajah(T)
+jelajah(T2)
 sah |= {str(i) for i in range(0, 2100)}          # tahun sitasi dan angka kecil
 angka = re.findall(r'(?<![\w.])\d+(?:\.\d+)?(?![\w])', prosa)
 yatim = sorted({a for a in angka if a not in sah}, key=float)

@@ -332,3 +332,21 @@ menjalankan di `scripts/paper/revisi/JALANKAN_ULANG.md`. Temuan sampingan saat
 menguji: LightGBM dan XGBoost deterministik terhadap seed, jadi kalimat naskah
 "part of the learner-level differences may be model variance" hanya berlaku
 untuk random forest - diperbaiki sesudah hasil v2 masuk.
+
+---
+
+## Naskah dibangun ulang dari jalan ulang v2 (desain utama)
+
+Keputusan penulis: v2 (250 origin) jadi desain utama, desain 30 origin ke
+Lampiran A. Rantai: `buat_tables_v2.py` -> `keluaran/tables_v2.json`,
+`shap_v2.py` (SHAP RF/LightGBM model akhir), `topdown.py` dengan
+`JBV_TD_NROLL=250`, `figs_v2.py`, lalu `build.js`. Ridge dihitung ulang lokal
+dengan penjaga ekstrapolasi (`ridge_ulang.py`) sesudah satu ramalan meledak.
+
+Temuan utama v2: ridge pada fitur pipeline terdepan (MASE 1,304), MCS
+menyisakan tujuh metode dalam 2,4%; refit harian +3,1% (satu-satunya komponen
+yang nyata); tuning, mRMR, jumlah fitur dan pasar sebagai perubahan setara
+dalam +-2%; pasar sebagai level +4,3%; latih sejak 2022 saja +3,2%; median
+semua metode -1,7% terhadap yang terbaik; pemilihan per seri di validasi tidak
+membantu. Tiga kesimpulan desain 30 origin berbalik (keunggulan LightGBM,
+refit setara, kombinasi tidak membantu).

@@ -22,7 +22,8 @@ dcols = [c for c in p.columns if c[:2] == '20']
 ids = list(p.Row_ID)
 lv = p[[not any(j != i and j.startswith(i + '.') for j in ids) and i != 'D' for i in ids]]
 assert len(lv) == 15, len(lv)
-NROLL = 30
+NROLL = int(os.environ.get('JBV_TD_NROLL', '30'))
+NAMA = 'topdown.json' if NROLL == 30 else f'topdown_{NROLL}.json'
 d = pd.to_datetime(dcols)
 Y = lv[dcols].apply(pd.to_numeric, errors='coerce')
 assert not Y.isna().any().any()
@@ -34,6 +35,6 @@ for t in range(cut, len(y)):
     pr = float(m.predict(d[:t], y[:t], 1)[0][0])
     out.append(dict(origin=t - cut, actual=float(y[t]), arima=pr, rw=float(y[t - 1]), orde=list(m.order)))
     print(f'  origin {t-cut+1}/{NROLL} orde {m.order} ({time.time()-t0:.0f}s)', flush=True)
-tujuan = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keluaran', 'topdown.json')
+tujuan = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keluaran', NAMA)
 json.dump(out, open(tujuan, 'w'), indent=1)
 print('ditulis', tujuan)
