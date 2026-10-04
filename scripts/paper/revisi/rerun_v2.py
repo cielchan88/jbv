@@ -282,6 +282,28 @@ def ramal_learner(S, nama, cfg, seed, blok, fk='int', k=K_UTAMA, beta=1.0, jadwa
     return rg, out
 
 
+def ramal_ridge(S, t):
+    """Ridge pada fitur terpilih (k = 25, mRMR) yang sama dengan learner.
+
+    Dua penjaga, sesudah jalan v2 pertama memberi satu ramalan -1e9 (A.2.b,
+    21 Januari 2026): kolom yang (hampir) konstan di data latih dibuang, dan
+    baris ramalan dipotong ke rentang data latih. Tanpa itu, fitur indikator
+    yang selalu nol di data latih lalu bernilai satu di hari ramalan dibagi
+    simpangan baku ~1e-12 dan meledak. Pohon tidak mengekstrapolasi, regresi
+    linear iya, jadi penjaga ini membuat perbandingannya adil.
+    """
+    kol = S.pilih('int', t, K_UTAMA, 1.0)
+    X = S.F['int'][kol].values
+    Xl, xt = X[:t], X[t:t + 1]
+    sd = Xl.std(0)
+    pakai = sd > 1e-8 * (np.abs(Xl).max(0) + 1)
+    Xl, xt, sd = Xl[:, pakai], xt[:, pakai], sd[pakai]
+    xt = np.clip(xt, Xl.min(0), Xl.max(0))
+    mu = Xl.mean(0)
+    rm = RidgeCV(alphas=np.logspace(-3, 3, 13)).fit((Xl - mu) / sd, S.y[:t])
+    return float(rm.predict((xt - mu) / sd)[0])
+
+
 def ramal_bench(S, nama, blok):
     """Benchmark statistik, refit di setiap origin pada data sejak laporan pertama."""
     d, y = S.d, S.y
@@ -297,11 +319,7 @@ def ramal_bench(S, nama, blok):
                 p = ThetaModel(y[:t], period=MINGGU, deseasonalize=False).fit().forecast(1)
                 p = float(np.asarray(p).ravel()[0])
             elif nama == 'Ridge':
-                kol = S.pilih('int', t, K_UTAMA, 1.0)
-                X = S.F['int'][kol].values
-                mu, sd = X[:t].mean(0), X[:t].std(0) + 1e-12
-                rm = RidgeCV(alphas=np.logspace(-3, 3, 13)).fit((X[:t] - mu) / sd, y[:t])
-                p = rm.predict((X[t:t + 1] - mu) / sd)[0]
+                p = ramal_ridge(S, t)
             else:
                 m = {'Naive': lambda: NaiveForecaster(method='last'),
                      'NaiveMean': lambda: NaiveForecaster(method='mean'),

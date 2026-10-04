@@ -47,9 +47,17 @@ def ke_unit(s):
     return s.groupby(level=['leaf', 'origin']).mean()
 
 
-def hodges_lehmann(d):
+def hodges_lehmann(d, maks=300_000):
+    """Median rata-rata Walsh. Persis untuk n kecil (450 unit naskah); di atas
+    `maks` pasangan dipakai sampel acak pasangan berseed tetap - 3.750 unit
+    (jalan v2) berarti 7 juta pasangan per hitungan, dikali 500 ulangan."""
     d = np.asarray(d, float)
-    i, j = np.triu_indices(len(d))
+    n = len(d)
+    if n * (n + 1) // 2 <= maks:
+        i, j = np.triu_indices(n)
+    else:
+        g = np.random.default_rng(n)
+        i, j = g.integers(0, n, maks), g.integers(0, n, maks)
     return float(np.median((d[i] + d[j]) / 2))
 
 
