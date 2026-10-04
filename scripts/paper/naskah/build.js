@@ -408,15 +408,56 @@ function build() {
 
   /* --------------------------------------------------- 2. Literature */
   c.push(H1('2. Related Literature'));
-  c.push(P('Forecasting competitions give a consistent but evolving message. In M4, pure machine-learning ' +
-    'methods did not outperform established statistical benchmarks, while combinations did well ' +
-    '(Makridakis, Spiliotis and Assimakopoulos, 2018, 2020). In M5, whose series were daily, grouped and ' +
-    'often intermittent, gradient-boosted trees trained across many series at once led the field ' +
-    '(Makridakis, Spiliotis and Assimakopoulos, 2022). Such global models can outperform series-by-series ' +
-    'models even when the series differ (Montero-Manso and Hyndman, 2021), and grouped series can be forecast ' +
-    'coherently with their totals by reconciliation (Wickramasuriya, Athanasopoulos and Hyndman, 2019). ' +
-    'This paper stays with local models, one per series, and Section 6 returns to global and reconciled ' +
-    'alternatives as the natural next step.'));
+  c.push(H2('2.1. Machine Learning against Classical Methods'));
+  c.push(P('Whether machine learning forecasts better than classical statistical methods has no general ' +
+    'answer, and the literature is most useful for what it says about when each wins. The evidence from large ' +
+    'comparisons of univariate series favours classical methods. Makridakis, Spiliotis and Assimakopoulos ' +
+    '(2018a) compared eight machine-learning methods with simple statistical ones on the monthly series of the ' +
+    'M3 competition and found the machine-learning methods less accurate at every horizon, while also far ' +
+    'more costly to compute. They attribute the gap to overfitting, since each model learns from one short ' +
+    'series and has many parameters to estimate from little data, and to the absence of the preprocessing ' +
+    'that statistical methods build in. Ahmed et al. (2010) had found the same sensitivity a decade earlier, ' +
+    'with the ranking of eight machine-learning models on the M3 data depending heavily on how the series were ' +
+    'preprocessed. In the M4 competition pure machine-learning entries did poorly, while combinations of ' +
+    'statistical methods did well, and the winning method was a hybrid that kept exponential smoothing for ' +
+    'level and seasonality and let a neural network learn across series (Smyl, 2020; Makridakis, Spiliotis and ' +
+    'Assimakopoulos, 2018b, 2020).'));
+  c.push(P('The picture reverses where data are plentiful. Cerqueira, Torgo and Soares (2022) show with ' +
+    'learning curves that the advantage of statistical methods in such comparisons holds mainly for very short ' +
+    'series and that machine-learning methods gain as the sample grows. In the M5 competition, on daily, ' +
+    'grouped and often intermittent retail sales, gradient-boosted trees trained across many series at once ' +
+    'led the field (Makridakis, Spiliotis and Assimakopoulos, 2022), and the winners of Kaggle forecasting ' +
+    'competitions share the same ingredients, namely many related series, exogenous information and tree ' +
+    'ensembles or neural networks trained globally (Bojer and Meldgaard, 2021). Global models can exploit ' +
+    'patterns shared across series that a local model never sees (Montero-Manso and Hyndman, 2021), and ' +
+    'recurrent networks become competitive only with enough series and careful preprocessing (Hewamalage, ' +
+    'Bergmeir and Bandara, 2021). On daily demand for individual products, Spiliotis et al. (2022) find some ' +
+    'machine-learning methods more accurate and less biased than Croston-type methods, with further gains from ' +
+    'learning across products.'));
+  c.push(P('In economics the gains, where they appear, are traced to specific features of the methods. For US ' +
+    'inflation, Medeiros et al. (2021) find random forests more accurate than shrinkage, factor and ' +
+    'autoregressive benchmarks, and attribute the gain to nonlinearity and to selecting among many ' +
+    'predictors. Goulet Coulombe et al. (2022) separate the ingredients of machine learning in macroeconomic ' +
+    'forecasting and conclude that nonlinearity is what matters, while the standard factor model remains the ' +
+    'best form of regularisation. At the Reserve Bank of New Zealand, machine-learning nowcasts of GDP growth ' +
+    'beat an autoregressive benchmark and a dynamic factor model in real time, and combining them helped ' +
+    'further (Richardson, van Florenstein Mulder and Vehbi, 2021). For exchange rates, where the random walk ' +
+    'is notoriously hard to beat (Meese and Rogoff, 1983), Amat, Michalski and Stoltz (2018) beat it one month ' +
+    'ahead with fundamentals, but the machine learning that achieved this was sequential ridge regression and ' +
+    'online averaging, chosen precisely because they limit overfitting.'));
+  c.push(P('Read together, these studies suggest four conditions under which machine learning outperforms ' +
+    'classical methods. It needs enough data to estimate flexible models, either long series or many related ' +
+    'series learned together. It needs a signal that is nonlinear or depends on interactions that a linear or ' +
+    'smoothing model cannot represent. It needs informative predictors beyond the series’ own past. And it ' +
+    'needs regularisation and validation strong enough to keep the extra flexibility from fitting noise. ' +
+    'Where these conditions fail, as with short, noisy series dominated by their own recent level, classical ' +
+    'methods are as accurate and much cheaper, and combinations of methods are hard to beat. Our setting ' +
+    'meets the first condition through long daily histories but tests the others, since the series are ' +
+    'forecast one at a time, one day ahead, where persistence carries most of the signal, and market data are ' +
+    'the candidate external predictors. This paper stays with local models, one per series, and Section 6 ' +
+    'returns to global models and to reconciliation with the published total (Wickramasuriya, Athanasopoulos ' +
+    'and Hyndman, 2019) as the natural next step.'));
+  c.push(H2('2.2. Feature Selection and Forecast Evaluation'));
   c.push(P('Feature selection is well studied in theory (Guyon and Elisseeff, 2003; Kohavi and John, 1997), ' +
     'and redundancy-aware criteria such as mRMR (Peng, Long and Ding, 2005) are designed for pools of ' +
     'overlapping candidates like the lags and moving averages of a time series. The bias-variance trade-off ' +
@@ -425,6 +466,7 @@ function build() {
     'tests of equal accuracy (Diebold and Mariano, 1995; Harvey, Leybourne and Newbold, 1997), procedures for ' +
     'identifying a set of best models (Hansen, Lunde and Nason, 2011), and rolling-origin designs (Tashman, ' +
     '2000; Bergmeir and Benítez, 2012). Applied studies rarely use them together.'));
+  c.push(H2('2.3. Order Flow and Market Data'));
   c.push(P('On the economics, order flow carries information about exchange-rate moves (Evans and Lyons, ' +
     '2002; Lyons, 2001), and customer flows differ in that information by counterparty, with financial ' +
     'customers’ trades more informative than those of corporates (Menkhoff et al., 2016). Whether prices, in ' +
@@ -1647,6 +1689,12 @@ function diskusiV2() {
     `model confidence set cannot separate ${kata(mcs.length)} of them. The engineered feature set is what the ` +
     'learners and the ridge regression share, and it is the plausible source of their small edge over the ' +
     'univariate statistical methods.'));
+  c.push(P('The four conditions of Section 2.1 explain why. Data are plentiful, with long daily histories, ' +
+    'but the series are learned one at a time, so the cross-learning that drove the M5 results is absent. The ' +
+    'nonlinearity that trees add over a linear model on the same features buys nothing here, since ridge ' +
+    'regression is at least as accurate, consistent with a signal dominated by persistence. The external ' +
+    'predictors are not informative, since market data as changes add nothing. What remains is the finding of ' +
+    'the M4 competition, that simple combinations are hard to beat.'));
   c.push(P('Within the pipeline one choice matters and most do not. Re-fitting every day rather than every 30 ' +
     `days is worth about ${n(KP['Daily re-fitting'].delta, 0)} per cent. Tuning, redundancy-aware selection, the ` +
     'number of features and market data as changes are each equivalent to their alternatives within ±2 per ' +
@@ -1802,10 +1850,14 @@ function appendixBeeswarmV2() {
 
 function refs() {
   return [
+    'Ahmed, N. K., Atiya, A. F., El Gayar, N. and El-Shishiny, H. (2010). An empirical comparison of machine learning models for time series forecasting. *Econometric Reviews*, 29(5–6), 594–621.',
+    'Amat, C., Michalski, T. and Stoltz, G. (2018). Fundamentals and exchange rate forecastability with simple machine learning methods. *Journal of International Money and Finance*, 88, 1–24.',
     'Benjamini, Y. and Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society, Series B*, 57(1), 289–300.',
     'Bergmeir, C. and Benítez, J. M. (2012). On the use of cross-validation for time series predictor evaluation. *Information Sciences*, 191, 192–213.',
+    'Bojer, C. S. and Meldgaard, J. P. (2021). Kaggle forecasting competitions: an overlooked learning opportunity. *International Journal of Forecasting*, 37(2), 587–603.',
     'Breiman, L. (2001). Random forests. *Machine Learning*, 45(1), 5–32.',
     'Calvo, G. A. and Reinhart, C. M. (2002). Fear of floating. *Quarterly Journal of Economics*, 117(2), 379–408.',
+    'Cerqueira, V., Torgo, L. and Soares, C. (2022). A case study comparing machine learning with statistical methods for time series forecasting: size matters. *Journal of Intelligent Information Systems*, 59(2), 415–433.',
     'Chen, T. and Guestrin, C. (2016). XGBoost: a scalable tree boosting system. In *Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining*, 785–794.',
     'Claeskens, G., Magnus, J. R., Vasnev, A. L. and Wang, W. (2016). The forecast combination puzzle: a simple theoretical explanation. *International Journal of Forecasting*, 32(3), 754–762.',
     'Croston, J. D. (1972). Forecasting and stock control for intermittent demands. *Operational Research Quarterly*, 23(3), 289–303.',
@@ -1813,10 +1865,12 @@ function refs() {
     'Diebold, F. X. and Mariano, R. S. (1995). Comparing predictive accuracy. *Journal of Business and Economic Statistics*, 13(3), 253–263.',
     'Evans, M. D. D. and Lyons, R. K. (2002). Order flow and exchange rate dynamics. *Journal of Political Economy*, 110(1), 170–180.',
     'Fratzscher, M., Gloede, O., Menkhoff, L., Sarno, L. and Stöhr, T. (2019). When is foreign exchange intervention effective? Evidence from 33 countries. *American Economic Journal: Macroeconomics*, 11(1), 132–156.',
+    'Goulet Coulombe, P., Leroux, M., Stevanovic, D. and Surprenant, S. (2022). How is machine learning useful for macroeconomic forecasting? *Journal of Applied Econometrics*, 37(5), 920–964.',
     'Guyon, I. and Elisseeff, A. (2003). An introduction to variable and feature selection. *Journal of Machine Learning Research*, 3, 1157–1182.',
     'Hansen, P. R., Lunde, A. and Nason, J. M. (2011). The model confidence set. *Econometrica*, 79(2), 453–497.',
     'Harvey, D., Leybourne, S. and Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting*, 13(2), 281–291.',
     'Hastie, T., Tibshirani, R. and Friedman, J. (2009). *The Elements of Statistical Learning*, 2nd edition. New York: Springer.',
+    'Hewamalage, H., Bergmeir, C. and Bandara, K. (2021). Recurrent neural networks for time series forecasting: current status and future directions. *International Journal of Forecasting*, 37(1), 388–427.',
     'Hodges, J. L. and Lehmann, E. L. (1963). Estimates of location based on rank tests. *Annals of Mathematical Statistics*, 34(2), 598–611.',
     'Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics*, 6(2), 65–70.',
     'Hyndman, R. J. and Koehler, A. B. (2006). Another look at measures of forecast accuracy. *International Journal of Forecasting*, 22(4), 679–688.',
@@ -1826,9 +1880,11 @@ function refs() {
     'Lakens, D. (2017). Equivalence tests: a practical primer for t tests, correlations, and meta-analyses. *Social Psychological and Personality Science*, 8(4), 355–362.',
     'Lundberg, S. M. and Lee, S.-I. (2017). A unified approach to interpreting model predictions. In *Advances in Neural Information Processing Systems*, 30, 4765–4774.',
     'Lyons, R. K. (2001). *The Microstructure Approach to Exchange Rates*. Cambridge, MA: MIT Press.',
-    'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2018). The M4 competition: results, findings, conclusion and way forward. *International Journal of Forecasting*, 34(4), 802–808.',
+    'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2018a). Statistical and machine learning forecasting methods: concerns and ways forward. *PLOS ONE*, 13(3), e0194889.',
+    'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2018b). The M4 competition: results, findings, conclusion and way forward. *International Journal of Forecasting*, 34(4), 802–808.',
     'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2020). The M4 competition: 100,000 time series and 61 forecasting methods. *International Journal of Forecasting*, 36(1), 54–74.',
     'Makridakis, S., Spiliotis, E. and Assimakopoulos, V. (2022). M5 accuracy competition: results, findings, and conclusions. *International Journal of Forecasting*, 38(4), 1346–1364.',
+    'Medeiros, M. C., Vasconcelos, G. F. R., Veiga, Á. and Zilberman, E. (2021). Forecasting inflation in a data-rich environment: the benefits of machine learning methods. *Journal of Business and Economic Statistics*, 39(1), 98–119.',
     'Meese, R. A. and Rogoff, K. (1983). Empirical exchange rate models of the seventies: do they fit out of sample? *Journal of International Economics*, 14(1–2), 3–24.',
     'Menkhoff, L. (2013). Foreign exchange intervention in emerging markets: a survey of empirical studies. *The World Economy*, 36(9), 1187–1208.',
     'Menkhoff, L., Sarno, L., Schmeling, M. and Schrimpf, A. (2016). Information flows in foreign exchange markets: dissecting customer currency trades. *Journal of Finance*, 71(2), 601–634.',
@@ -1836,8 +1892,11 @@ function refs() {
     'Peng, H., Long, F. and Ding, C. (2005). Feature selection based on mutual information: criteria of max-dependency, max-relevance, and min-redundancy. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 27(8), 1226–1238.',
     'Pesaran, M. H. and Timmermann, A. (1992). A simple nonparametric test of predictive performance. *Journal of Business and Economic Statistics*, 10(4), 461–465.',
     'Politis, D. N. and Romano, J. P. (1994). The stationary bootstrap. *Journal of the American Statistical Association*, 89(428), 1303–1313.',
+    'Richardson, A., van Florenstein Mulder, T. and Vehbi, T. (2021). Nowcasting GDP using machine-learning algorithms: a real-time assessment. *International Journal of Forecasting*, 37(2), 941–948.',
     'Sculley, D., Holt, G., Golovin, D., Davydov, E., Phillips, T., Ebner, D., Chaudhary, V., Young, M., Crespo, J.-F. and Dennison, D. (2015). Hidden technical debt in machine learning systems. In *Advances in Neural Information Processing Systems*, 28, 2503–2511.',
     'Smith, J. and Wallis, K. F. (2009). A simple explanation of the forecast combination puzzle. *Oxford Bulletin of Economics and Statistics*, 71(3), 331–355.',
+    'Smyl, S. (2020). A hybrid method of exponential smoothing and recurrent neural networks for time series forecasting. *International Journal of Forecasting*, 36(1), 75–85.',
+    'Spiliotis, E., Makridakis, S., Semenoglou, A.-A. and Assimakopoulos, V. (2022). Comparison of statistical and machine learning methods for daily SKU demand forecasting. *Operational Research*, 22(3), 3037–3061.',
     'Syntetos, A. A. and Boylan, J. E. (2005). The accuracy of intermittent demand estimates. *International Journal of Forecasting*, 21(2), 303–314.',
     'Tashman, L. J. (2000). Out-of-sample tests of forecasting accuracy: an analysis and review. *International Journal of Forecasting*, 16(4), 437–450.',
     'Taylor, S. J. and Letham, B. (2018). Forecasting at scale. *The American Statistician*, 72(1), 37–45.',
