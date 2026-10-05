@@ -1447,8 +1447,16 @@ function sisaV2(acuanK) {
   c.push(P('Three tree ensembles are fitted on the selected features. Random forest averages bagged ' +
     'regression trees (Breiman, 2001). LightGBM (Ke et al., 2017) and XGBoost (Chen and Guestrin, 2016) fit ' +
     `gradient-boosted trees. Every learner keeps k = ${acuanK} features, and Section 4.4 tests that choice. The ` +
-    'learners are trained on squared error, while accuracy is measured by absolute scaled error. Section 4.1 ' +
-    're-trains them on absolute and Huber loss, a test added after the main results.'));
+    'learners are trained on squared error, while accuracy is measured by absolute scaled error.'));
+  c.push(P('The training loss is the measure of error that a learner minimises when it is fitted, and it ' +
+    'decides what the learner forecasts. Squared error, the sum of squared forecast errors, is minimised by ' +
+    'the conditional mean, so a few large values pull the forecast toward them. Absolute error, the sum of ' +
+    'absolute forecast errors, is minimised by the conditional median and is little affected by such values. ' +
+    'Huber loss is squared for small errors and absolute for large ones, a compromise between the two ' +
+    '(Huber, 1964). For a series that is zero on most days but has occasional large settlements, the mean is ' +
+    'a small positive number every day while the median is zero. Because MASE scores absolute error, a ' +
+    'learner trained on squared error pursues a target that differs from the one it is judged by. Section 4.1 ' +
+    're-trains the learners on absolute and Huber loss, a test added after the main results.'));
   c.push(P(`Hyperparameters are tuned for each series and learner separately over the four configurations in ` +
     `Table 3, on the ${T2.nval}-origin validation block, with daily re-fitting, and the configuration with the ` +
     'lowest mean scaled error is carried forward unchanged. Random forest is run with three random seeds and ' +
@@ -2106,6 +2114,7 @@ function refs() {
     'Hewamalage, H., Bergmeir, C. and Bandara, K. (2021). Recurrent neural networks for time series forecasting: current status and future directions. *International Journal of Forecasting*, 37(1), 388–427.',
     'Hodges, J. L. and Lehmann, E. L. (1963). Estimates of location based on rank tests. *Annals of Mathematical Statistics*, 34(2), 598–611.',
     'Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics*, 6(2), 65–70.',
+    'Huber, P. J. (1964). Robust estimation of a location parameter. *Annals of Mathematical Statistics*, 35(1), 73–101.',
     'Hyndman, R. J. and Khandakar, Y. (2008). Automatic time series forecasting: the forecast package for R. *Journal of Statistical Software*, 27(3), 1–22.',
     'Hyndman, R. J. and Koehler, A. B. (2006). Another look at measures of forecast accuracy. *International Journal of Forecasting*, 22(4), 679–688.',
     'Hyndman, R. J., Koehler, A. B., Ord, J. K. and Snyder, R. D. (2008). *Forecasting with Exponential Smoothing: The State Space Approach*. Berlin: Springer.',
