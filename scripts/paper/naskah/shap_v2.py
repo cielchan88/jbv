@@ -56,7 +56,7 @@ for _, r in lv.iterrows():
     S = V.Seri(r, dcols, dall, pl, pu, tp)
     N = len(S.y)
     hasil = {}
-    for fk in ('int', 'ubah'):
+    for fk in ('int', 'ubah', 'level'):
         kol = S.pilih(fk, N, V.K_UTAMA, 1.0)
         X = S.F[fk][kol]
         yv = S.F[fk]['value'].values

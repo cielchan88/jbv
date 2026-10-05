@@ -81,7 +81,13 @@ lab = dict(zip(panel.Row_ID, panel.Row_Label))
 T['desc'] = []
 for _, r in lv.iterrows():
     d, y = series_of(r, dcols, dall)
-    T['desc'].append(dict(leaf=r['Row_ID'], label=str(lab[r['Row_ID']]),
+    # Dari laporan pertama (review ketujuh): nol struktural sebelum kategori
+    # masuk kerangka pelaporan tidak ikut statistik deskriptif, sama dengan
+    # desain v2 yang melatih sejak laporan pertama. Aturan >= 250 hari nol.
+    _nz = np.nonzero(y)[0]
+    _s0 = int(_nz[0]) if len(_nz) and _nz[0] >= 250 else 0
+    y = y[_s0:]
+    T['desc'].append(dict(leaf=r['Row_ID'], label=str(lab[r['Row_ID']]), s0=_s0,
         mean=float(y.mean()), sd=float(y.std()), med=float(np.median(y)),
         zero=float(100*(y == 0).mean()), skew=float(skew(y)),
         kurt=float(kurtosis(y)), acf1=float(pd.Series(y).autocorr(1))))

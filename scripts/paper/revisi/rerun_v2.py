@@ -84,6 +84,9 @@ warnings.filterwarnings('ignore')
 
 CEPAT = os.environ.get('JBV_V2_CEPAT') == '1'
 NROLL = 10 if CEPAT else int(os.environ.get('JBV_V2_NROLL', '250'))
+# Replikasi tahun kedua (review ketujuh): potong GESER hari terakhir panel, jadi
+# blok uji dan validasi bergeser mundur tanpa tumpang tindih dengan jalan pertama.
+GESER = int(os.environ.get('JBV_V2_GESER', '0'))
 NVAL = 5 if CEPAT else int(os.environ.get('JBV_NVAL', '60'))
 MINGGU = 5            # refit lengan mingguan
 SUBBLOK = 30          # lengan tanpa refit: satu fit per 30 origin, seperti jalan lama
@@ -118,7 +121,7 @@ SKALA = jalur('v2_skala.csv')
 def sidik():
     return dict(nroll=NROLL, nval=NVAL, minggu=MINGGU, subblok=SUBBLOK, seed_rf=list(SEED_RF),
                 k_utama=K_UTAMA, k_lengan=[str(k) for k in K_LENGAN], awal_2022=AWAL_2022,
-                benchmark=BENCH, cepat=CEPAT)
+                benchmark=BENCH, cepat=CEPAT, **({'geser': GESER} if GESER else {}))
 
 
 def periksa_sidik():
@@ -193,6 +196,8 @@ class Seri:
 
     def __init__(self, r, dcols, dall, pasar_level, pasar_ubah, tgl_pasar):
         d, y = series_of(r, dcols, dall)
+        if GESER:
+            d, y = d[:-GESER], y[:-GESER]
         nz = np.nonzero(y)[0]
         self.s0 = int(nz[0]) if len(nz) and nz[0] >= MIN_NOL_STRUKTURAL else 0
         self.leaf = r['Row_ID']
@@ -425,12 +430,37 @@ def kerjakan(S, selesai, t0):
                     rg, pr = ramal_learner(S, nm, cfg, sd, 'uji', jadwal=MINGGU, **kw)
                     simpan('uji', nm, lg, sd, rg, pr)
 
+    # 5. lengan tambahan review ketujuh (varian Ridge, loss L1/Huber LightGBM).
+    #    Fungsinya di tambahan_v2.py; di sini ditulis ke berkas utama.
+    import tambahan_v2 as TB
+    if not ada('uji', 'LightGBM', 'loss_huber', 0):
+        D = TB.dummy(S)
+        lag = [c for c in S.kand_int if c.startswith('lag_') and '_x_' not in c]
+        semua = TB.kal_aman(S.kand_int)
+        g = GRID['LightGBM'][pilihan['LightGBM']]
+        pr = {k: [] for k in ('ridge_lag', 'ridge_kal', 'ridge_semua', 'loss_l1', 'loss_huber')}
+        rg = list(S.rentang('uji'))
+        for t in rg:
+            kol = S.pilih('int', t, K_UTAMA, 1.0)
+            X, yv = S.F['int'][kol].values, S.F['int']['value'].values
+            pr['ridge_lag'].append(TB.ridge(S, t, lag))
+            pr['ridge_kal'].append(TB.ridge(S, t, TB.kal_aman(kol), D))
+            pr['ridge_semua'].append(TB.ridge(S, t, semua, D))
+            for nama, obj in (('loss_l1', dict(objective='l1')),
+                              ('loss_huber', dict(objective='huber', alpha=1.345 * S.den))):
+                m = LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, **g, **obj).fit(X[:t], yv[:t])
+                pr[nama].append(float(m.predict(X[t:t + 1])[0]))
+        for k in ('ridge_lag', 'ridge_kal', 'ridge_semua'):
+            simpan('uji', 'Ridge', k, 0, rg, pr[k])
+        for k in ('loss_l1', 'loss_huber'):
+            simpan('uji', 'LightGBM', k, 0, rg, pr[k])
+
 
 def target_baris(n_leaf=15):
     """Jumlah baris v2_ramalan.csv yang harus dicapai (dipakai vps.py)."""
     n_seed = {'RandomForest': len(SEED_RF), 'LightGBM': 1, 'XGBoost': 1}
     per = NVAL * (len(BENCH) + 4 * len(LEARNER)) + NROLL * (
-        len(BENCH) + sum(n_seed.values()) * (4 + len(K_LENGAN) + 3))
+        len(BENCH) + sum(n_seed.values()) * (4 + len(K_LENGAN) + 3) + 5)
     return n_leaf * per
 
 

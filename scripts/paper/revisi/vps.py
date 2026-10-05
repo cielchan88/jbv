@@ -109,12 +109,14 @@ def arms_k():
 V2_NROLL, V2_NVAL = 250, 60
 V2_BENCH, V2_LEARNER, V2_SEED_RF = 11, 3, 3
 V2_LENGAN_HARIAN, V2_LENGAN_MINGGUAN = 4, 7
+V2_TAMBAHAN = 5
+GESER_AKTIF = 0          # diisi main() dari --geser          # review ketujuh: tiga varian Ridge, dua loss LightGBM
 
 
 def target_v2(n_leaf=N_LEAF):
     sel_learner = V2_SEED_RF + 2            # RF tiga seed, LightGBM dan XGBoost satu
     per = (V2_NVAL * (V2_BENCH + 4 * V2_LEARNER)
-           + V2_NROLL * (V2_BENCH + sel_learner * (V2_LENGAN_HARIAN + V2_LENGAN_MINGGUAN)))
+           + V2_NROLL * (V2_BENCH + sel_learner * (V2_LENGAN_HARIAN + V2_LENGAN_MINGGUAN) + V2_TAMBAHAN))
     return n_leaf * per
 
 
@@ -230,6 +232,8 @@ def env_tahap(hasil, nval):
     for k in ('JBV_SHARD', 'JBV_LEAF', 'JBV_BACA_SAJA', 'JBV_VERSI_PAKSA'):
         e.pop(k, None)
     e.update(JBV_PANEL=PANEL, JBV_HASIL=hasil, JBV_NVAL=str(nval), PYTHONUNBUFFERED='1')
+    if GESER_AKTIF:
+        e['JBV_V2_GESER'] = str(GESER_AKTIF)
     return e
 
 
@@ -473,7 +477,7 @@ def mulai(a):
     if not a.shard:
         a.shard = saran
     log = os.path.join(folder_vps(a.hasil), 'vps.log')
-    cmd = [sys.executable, '-u', os.path.abspath(__file__), '_kerja', '--rencana', a.rencana,
+    cmd = [sys.executable, '-u', os.path.abspath(__file__), '_kerja', '--rencana', a.rencana, '--geser', str(a.geser),
            '--hasil', a.hasil, '--slot', a.slot, '--nval', str(a.nval), '--shard', str(a.shard)]
     f = open(log, 'a')
     p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
@@ -483,7 +487,7 @@ def mulai(a):
     tulis_status(a.hasil, st)
     rel = os.path.relpath(__file__, REPO)
     if a.rencana == 'v2':
-        rel += ' --rencana v2' + ('' if a.hasil == 'hasil_v2' else f' --hasil {a.hasil}')
+        rel += ' --rencana v2' + (f' --geser {a.geser}' if a.geser else '') + ('' if a.hasil in ('hasil_v2', f'hasil_v2_geser{a.geser}') else f' --hasil {a.hasil}')
     elif (a.hasil, a.slot) != ('hasil_w5', 'hasil_slot_w5'):
         rel += f' --hasil {a.hasil} --slot {a.slot}'
     print(f'\nBERJALAN di latar belakang, pid {p.pid}, {a.shard} shard.')
@@ -712,6 +716,8 @@ def main():
     ap.add_argument('perintah', choices=['periksa', 'mulai', 'status', 'pantau', 'berhenti', 'kemas', '_kerja'])
     ap.add_argument('--rencana', choices=['naskah', 'v2'], default='naskah',
                     help='naskah = tujuh tahap naskah sekarang; v2 = jalan ulang review ketiga (rerun_v2.py)')
+    ap.add_argument('--geser', type=int, default=0,
+                    help='rencana v2: geser blok uji N hari kerja ke belakang (replikasi tahun kedua: 250)')
     ap.add_argument('--hasil', default=None, help='folder hasil (bawaan hasil_w5, atau hasil_v2 untuk --rencana v2)')
     ap.add_argument('--slot', default='hasil_slot_w5', help='folder slot pasar (bawaan hasil_slot_w5)')
     ap.add_argument('--nval', type=int, default=NVAL, help='panjang blok validasi (bawaan 60)')
@@ -719,8 +725,10 @@ def main():
     ap.add_argument('--selang', type=int, default=60, help='detik antar-pembaruan untuk `pantau`')
     ap.add_argument('--paksa', action='store_true', help='`kemas` walau belum lengkap')
     a = ap.parse_args()
+    global GESER_AKTIF
+    GESER_AKTIF = a.geser if a.rencana == 'v2' else 0
     if a.hasil is None:
-        a.hasil = 'hasil_v2' if a.rencana == 'v2' else 'hasil_w5'
+        a.hasil = ('hasil_v2' + (f'_geser{a.geser}' if a.geser else '')) if a.rencana == 'v2' else 'hasil_w5'
     if a.perintah == '_kerja':
         # SIGTERM dari `berhenti` dijadikan SystemExit(143) supaya status tercatat.
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))

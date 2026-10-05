@@ -249,15 +249,130 @@ if os.path.exists(_sv):
                      n_lag={l: v['int']['n_lag'] for l, v in SV.items()},
                      kelompok={nm: {g: float(pasar[nm][pasar.index.str[0] == g].mean()) for g in 'ABC'}
                                for nm in ('RandomForest', 'LightGBM')})
+    if all('level' in v for v in SV.values()):
+        lv_ = pd.DataFrame({l: {nm: v['level'][nm].get('Market', 0.0) for nm in ('RandomForest', 'LightGBM')}
+                            for l, v in SV.items()}).T
+        T['shap']['level'] = dict(pasar=lv_.to_dict(orient='index'), n_ext={l: v['level']['n_ext'] for l, v in SV.items()},
+                                  kelompok={nm: {g: float(lv_[nm][lv_.index.str[0] == g].mean()) for g in 'ABC'}
+                                            for nm in ('RandomForest', 'LightGBM')},
+                                  rata={nm: float(lv_[nm].mean()) for nm in ('RandomForest', 'LightGBM')})
     rr, pp = spearmanr([T['shap']['pasar'][l]['RandomForest'] for l in _sel_pasar.index], _sel_pasar.values)
     T['shap']['vs_efek'] = dict(rho=float(rr), p=float(pp))
 else:
     print(f'  {_sv} belum ada - SHAP dilewati')
 
+# ================================================================ review ketujuh
+UNIV = ['Naive', 'NaiveDrift', 'NaiveMean', 'SeasonalNaive', 'Croston', 'SeasonalDecomp', 'ARIMA', 'ETS', 'Theta', 'Prophet']
+BEDA = [m for m in metode if m not in ('Theta', 'NaiveDrift')]      # buang duplikat praktis
+_ref = ms(P[juara])
+_med_all = ms(P.median(1))
+T['median_varian'] = INF.holm([
+    dict(INF.banding(_ref, ms(P[UNIV].median(1)), 'Median of the ten univariate methods'), mase=float(ms(P[UNIV].median(1)).mean())),
+    dict(INF.banding(_ref, ms(P[BEDA].median(1)), f'Median of {len(BEDA)} distinct methods'), mase=float(ms(P[BEDA].median(1)).mean()))])
+T['median_univ_vs_semua'] = INF.banding(_med_all, ms(P[UNIV].median(1)), 'univariate median vs all-method median')
+_ed = P[['ETS', 'Theta']]
+T['duplikat'] = dict(ets_theta_maks=float((_ed.ETS - _ed.Theta).abs().max()),
+                     ets_theta_kor=float(_ed.corr().iloc[0, 1]),
+                     rw_rwd_maks=float((P.Naive - P.NaiveDrift).abs().max()))
+
+# Ridge tanpa penjaga: ramalan VPS asli, sebelum ridge_ulang.py
+_lama = os.path.join(H, 'v2_ramalan_ridge_lama.csv')
+if os.path.exists(_lama):
+    RL = pd.read_csv(_lama, float_precision='round_trip')
+    RL = RL[(RL.blok == 'uji') & (RL.metode == 'Ridge')].set_index(['leaf', 'origin'])
+    baru = U[(U.metode == 'Ridge')].set_index(['leaf', 'origin'])
+    ml = (RL.actual - RL.pred).abs() / RL.index.get_level_values('leaf').map(sk['den']).values
+    mb = (baru.actual - baru.pred).abs() / baru.index.get_level_values('leaf').map(sk['den']).values
+    beda_ = (RL.pred - baru.pred.reindex(RL.index)).abs() > 1e-9
+    terburuk = ml.idxmax()
+    T['ridge_tanpa_penjaga'] = dict(mase=float(ml.mean()), mase_tanpa_satu=float(ml.drop(terburuk).mean()),
+                                    mase_baru=float(mb.mean()), n_berubah=int(beda_.sum()), n=int(len(ml)),
+                                    leaf_terburuk=str(terburuk[0]), mase_terburuk=float(ml.max()),
+                                    banding_lgbm_tanpa_satu=float(100 * (ml.drop(terburuk).mean() / mase_u['LightGBM'].drop(terburuk).mean() - 1)))
+
+# per kuartal untuk semua perbandingan utama
+def _perk(a, b):
+    o = a.index.get_level_values('origin')
+    out = {}
+    for q in sorted(set(kw)):
+        msk = np.array([kmap[x] == q for x in o])
+        out[q] = float(100 * (b[msk].mean() / a[msk].mean() - 1))
+    return out
+
+
+T['kuartal_banding'] = {
+    'Median of all methods vs leader': _perk(_ref, _med_all),
+    'ARIMA vs leader': _perk(mase_u[juara], mase_u['ARIMA']),
+    'LightGBM vs leader': _perk(mase_u[juara], mase_u['LightGBM']),
+    **{f'Without {v.lower()}': _perk(seri_lengan('utama'), seri_lengan(k)) for k, v in KOMP.items()},
+    'k = 12': _perk(seri_lengan('k25'), seri_lengan('k12')),
+    'All candidates': _perk(seri_lengan('k25'), seri_lengan('k_semua')),
+    'Market data as changes': _perk(seri_lengan('k25'), seri_lengan('pasar_ubah')),
+    'Market data as levels': _perk(seri_lengan('k25'), seri_lengan('pasar_level')),
+    'Training from 2022 only': _perk(seri_lengan('k25'), seri_lengan('jendela_2022')),
+}
+
+# jendela 30 hari (panjang blok desain lama): siapa unggul, efek refit, median
+_o = mase_u.index.get_level_values('origin')
+_jw = []
+for a0 in range(0, T['nroll'] - 29, 30):
+    msk = (_o >= a0) & (_o < a0 + 30)
+    m = mase_u[msk].mean()
+    fo = seri_lengan('utama'); no = seri_lengan('tanpa_refit')
+    mo = (fo.index.get_level_values('origin') >= a0) & (fo.index.get_level_values('origin') < a0 + 30)
+    _jw.append(dict(awal=str(tgl.iloc[a0]), akhir=str(tgl.iloc[a0 + 29]), juara=str(m.idxmin()),
+                    arima_vs_lgbm=float(100 * (m['ARIMA'] / m['LightGBM'] - 1)),
+                    refit=float(100 * (no[mo].mean() / fo[mo].mean() - 1)),
+                    median_vs_terbaik=float(100 * (_med_all[msk].mean() / m.min() - 1))))
+# 30 origin terakhir: tanggal yang sama dengan blok uji desain lama
+msk = _o >= T['nroll'] - 30
+m = mase_u[msk].mean()
+T['tiga_puluh_terakhir'] = dict(urutan=list(m.sort_values().index[:5]),
+                                arima_vs_lgbm=float(100 * (m['ARIMA'] / m['LightGBM'] - 1)),
+                                awal=str(tgl.iloc[-30]))
+T['jendela30'] = _jw
+
+# per seri: pasar level, jendela 2022, dan DM pasar perubahan
+def _per_seri(k, acuan='k25'):
+    a = seri_lengan(acuan).groupby(level='leaf').mean(); b = seri_lengan(k).groupby(level='leaf').mean()
+    return {l: float(100 * (b[l] / a[l] - 1)) for l in a.index}
+
+
+T['pasar_level_per_seri'] = _per_seri('pasar_level')
+T['jendela_per_seri'] = _per_seri('jendela_2022')
+_dmp = {}
+for l in sorted(T['per_leaf_model']):
+    a = seri_lengan('k25').xs(l, level='leaf').groupby(level='origin').mean()
+    b = seri_lengan('pasar_ubah').xs(l, level='leaf').groupby(level='origin').mean()
+    st_, p_ = INF.dm_hln(b.values, a.values)          # positif = tanpa pasar lebih buruk
+    _dmp[l] = dict(stat=float(st_), p=float(p_), delta=T['pasar_ubah_per_seri'][l])
+T['dm_pasar_ubah'] = _dmp
+T['hl_pasar_level'] = next(r for r in T['pasar'] if r['label'] == 'Market data as levels')['hl']
+
+# lengan tambahan (tambahan_v2.py, dihitung lokal)
+_tb = [p_ for p_ in [H + 'v2_tambahan.csv'] + sorted(__import__('glob').glob(H + 'v2_tambahan.shard-*.csv')) if os.path.exists(p_)]
+if _tb:
+    TB = pd.concat([pd.read_csv(p_, float_precision='round_trip') for p_ in _tb]).drop_duplicates(['leaf', 'metode', 'lengan', 'origin'])
+    TB['mase'] = (TB.actual - TB.pred).abs() / TB.leaf.map(sk['den'])
+    tb = TB.set_index(['leaf', 'origin', 'metode', 'lengan']).mase
+    lengkap = TB.groupby('lengan').leaf.nunique().to_dict()
+    T['tambahan_lengkap'] = lengkap
+    if all(v == T['n_leaf'] for v in lengkap.values()):
+        rid = mase_u['Ridge']
+        T['ridge_varian'] = INF.holm([
+            dict(INF.banding(rid, tb.xs(('Ridge', k), level=['metode', 'lengan']), lab), mase=float(tb.xs(('Ridge', k), level=['metode', 'lengan']).mean()))
+            for k, lab in (('ridge_lag', 'Own lags only (18 lags)'), ('ridge_kal', 'Calendar as dummies, same 25 features'),
+                           ('ridge_semua', 'All 116 candidates, calendar as dummies'))])
+        lg = mase_u['LightGBM']
+        T['loss_varian'] = INF.holm([
+            dict(INF.banding(lg, tb.xs(('LightGBM', k), level=['metode', 'lengan']), lab), mase=float(tb.xs(('LightGBM', k), level=['metode', 'lengan']).mean()))
+            for k, lab in (('loss_l1', 'LightGBM, absolute loss'), ('loss_huber', 'LightGBM, Huber loss'))])
+
 # versi pustaka: jalan v2 di VPS, dan lingkungan lokal tempat Ridge dan SHAP v2 dihitung ulang
 T['versi'] = json.load(open(H + 'versi.json')) if os.path.exists(H + 'versi.json') else {}
 import platform, sklearn, lightgbm, shap as _shap                     # noqa: E402
-T['versi_lokal'] = dict(python=platform.python_version(), sklearn=sklearn.__version__,
+import numpy as _np, pandas as _pd                                    # noqa: E402
+T['versi_lokal'] = dict(python=platform.python_version(), numpy=_np.__version__, pandas=_pd.__version__, sklearn=sklearn.__version__,
                         lightgbm=lightgbm.__version__, shap=_shap.__version__)
 json.dump(T, open(os.path.join(KEL, 'tables_v2.json'), 'w'), indent=1, default=float)
 print(f"ditulis tables_v2.json  juara {juara}  ({T['n_leaf']} seri x {T['nroll']} origin)")
