@@ -21,6 +21,7 @@ import pandas as pd                          # noqa: E402
 from sklearn.linear_model import QuantileRegressor   # noqa: E402
 
 OUT = V.jalur('v2_tambahan_l1.csv')
+CADANGAN = []
 
 
 def median_lin(S, t, kol):
@@ -31,8 +32,18 @@ def median_lin(S, t, kol):
     Xl, xt, sd = Xl[:, pakai], xt[:, pakai], sd[pakai]
     xt = np.clip(xt, Xl.min(0), Xl.max(0))
     mu = Xl.mean(0)
-    qr = QuantileRegressor(quantile=0.5, alpha=0.0, solver='highs').fit((Xl - mu) / sd, S.y[:t])
-    return float(qr.predict((xt - mu) / sd)[0])
+    # Target diskalakan demi kestabilan numerik (regresi median ekuivarian
+    # terhadap skala). Bila LP tanpa penalti gagal, pakai penalti L1 sangat kecil.
+    sy = float(np.std(S.y[:t])) or 1.0
+    for alfa in (0.0, 1e-6, 1e-4):
+        try:
+            qr = QuantileRegressor(quantile=0.5, alpha=alfa, solver='highs').fit((Xl - mu) / sd, S.y[:t] / sy)
+            if alfa:
+                CADANGAN.append((S.leaf, t, alfa))
+            return float(qr.predict((xt - mu) / sd)[0]) * sy
+        except TypeError:
+            continue
+    raise RuntimeError(f'regresi median gagal {S.leaf} t={t}')
 
 
 def main():
@@ -56,7 +67,7 @@ def main():
             rows.append(S.baris('uji', t, 'XGBoost', 'loss_l1', 0, float(m.predict(X[t:t + 1])[0])))
             rows.append(S.baris('uji', t, 'Ridge', 'median_lin', 0, median_lin(S, t, kol)))
         pd.DataFrame(rows)[V.KOLOM_OUT].to_csv(OUT, mode='a', header=not os.path.exists(OUT), index=False)
-        print(f'selesai {S.leaf}', flush=True)
+        print(f'selesai {S.leaf}  penalti cadangan di {sum(c[0] == S.leaf for c in CADANGAN)} origin', flush=True)
 
 
 if __name__ == '__main__':
