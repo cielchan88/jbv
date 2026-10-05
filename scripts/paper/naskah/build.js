@@ -494,7 +494,7 @@ function build() {
   c.push(P(`Not every series is reported from the start. ${kelompokMulai.join(', and ')}, ` +
     'which reflects when the category entered the reporting framework rather than an absence ' +
     'of flows. Measured from each series’ first report, the share of zero days is small except in ' +
-    `${daftar(Object.entries(T.nol_sejak).filter(([, v]) => v.nol_sejak > 15).map(([l, v]) => `${l} (${n(v.nol_sejak, 1)} per cent)`))}. ` +
+    `${daftar(T.desc.filter(d => d.zero > 15).map(d => `${d.leaf} (${n(d.zero, 1)} per cent)`))}. ` +
     'Because values are rounded to whole millions, part of the remaining zeros in the smallest cells are ' +
     'rounding rather than inactivity. ' +
     'B.a, sales of foreign currency by individuals for export, is thin by nature, because individuals ' +
@@ -1202,7 +1202,7 @@ function appendixRepro() {
     `${v2.scipy}, scikit-learn ${v2.sklearn}, LightGBM ${v2.lightgbm}, XGBoost ${v2.xgboost}, statsmodels ` +
     `${v2.statsmodels} and Prophet ${v2.prophet}, one thread per process. Ridge regression, after the guards ` +
     `described in Section 3.4 were added, and the SHAP values of Section 4.6 were recomputed under Python ` +
-    `${vl.python}, NumPy ${vl.numpy}, pandas ${vl.pandas}, scikit-learn ${vl.sklearn}, LightGBM ${vl.lightgbm} and SHAP ${vl.shap}, ` +
+    `${vl.python}, NumPy ${vl.numpy}, pandas ${vl.pandas}, scikit-learn ${vl.sklearn}, LightGBM ${vl.lightgbm}, XGBoost ${vl.xgboost} and SHAP ${vl.shap}, ` +
     'as were the ridge variants and loss functions of Sections 4.1 and 4.3. The code that ' +
     'produced the main results reproduces the forecasts of the earlier pipeline exactly when run on that ' +
     'pipeline’s design in the same environment.'), P(
@@ -1577,7 +1577,7 @@ function sisaV2(acuanK) {
     'ETS and Theta give almost identical forecasts, as do the random walk with and without drift, which is ' +
     'also why the confidence set assigns ETS and Theta different p-values: the procedure eliminates one of ' +
     `two near-duplicates first. The ranking is not an artefact of the scale. Computed over the full history or from 2022 onwards, the first ` +
-    `place goes to ${nmL(T2.urutan_mase_penuh[0])} in both cases, and the same ${kata(mcs2().length - 2)} methods ` +
+    `place goes to ${nmL(T2.urutan_mase_penuh[0])} in both cases, and the same ${kata(mcs2().length - 1)} methods ` +
     'follow in a slightly different order.'));
   c.push(IMG('fig_heatmap_v2.png', 560, 363));
   c.push(FCAP(5, 'Accuracy by series and method, as MASE relative to the random walk on the same series. The ' +
@@ -1631,13 +1631,14 @@ function sisaV2(acuanK) {
   const uvs = T2.median_univ_vs_semua;
   c.push(P(`The median’s advantage does not come from counting near-duplicates twice. The median of the ` +
     `${MV.beda.label.match(/\d+/)[0]} distinct methods, without Theta and the random walk with drift, changes ` +
-    `error against the leader by ${ciTeks(MV.beda)}. It does depend on the feature-based models, however. The ` +
+    `error against the leader by ${ciTeks(MV.beda)}. Nor does it need the feature-based models. The ` +
     `median of the ten univariate methods alone changes error by ${ciTeks(MV.univ)} against the leader and by ` +
     `${ciTeks(uvs)} against the median of all methods. ` +
     (uvs.beda && uvs.delta > 0
       ? 'A median of simple univariate methods is therefore not a substitute for the pipeline, and the best ' +
         'combination is one that includes it.'
-      : 'A median of simple univariate methods is therefore about as good as one that includes the pipeline.')));
+      : 'A median of simple univariate methods is therefore about as good as one that includes the pipeline, ' +
+        'and the strength of the median lies in combining many methods rather than in any one of them.')));
 
   /* ----------------------------------------------- 4.3 components */
   c.push(H2('4.3. What Each Pipeline Component Contributes'));
@@ -1707,7 +1708,7 @@ function sisaV2(acuanK) {
       [T2.jendela.label, ciTeks(T2.jendela), `[${nCI(T2.jendela.lo90)}, ${nCI(T2.jendela.hi90)}]`, pv(T2.jendela.p), putusan(T2.jendela)]],
     { rightFrom: 1 }));
   c.push(P(`Market data do not help. As daily changes they are equivalent to no market data within ` +
-    `±${ub.setara_margin['1.0'] ? 1 : 2} per cent (${ciTeks(ub)}). As levels they raise error by ` +
+    `±2 per cent (${ciTeks(ub)}). As levels they raise error by ` +
     `${n(lvl.delta, 1)} per cent (${ciTeks(lvl)}, Holm ${pv(lvl.p_holm)}), and for every learner ` +
     `(${daftarN(L2.map(m => `${pct(T2.pasar_per_model['Market data as levels'][m].delta, 1)} for ${NM_POHON[m]}`))}). ` +
     'The levels of the exchange rate and the equity index trend over the sample and correlate strongly with ' +
@@ -1879,7 +1880,7 @@ function diskusiV2() {
     'The lesson echoes the M5 competition, where the leading LightGBM models were trained on a loss chosen ' +
     'for the shape of the data, the Tweedie loss for intermittent sales, rather than on squared error ' +
     '(Makridakis et al., 2022).'));
-  c.push(P('Within the pipeline one choice matters and most do not. Re-fitting every day rather than every 30 ' +
+  c.push(P('Besides the training loss, one choice within the pipeline matters and most do not. Re-fitting every day rather than every 30 ' +
     `days is worth about ${n(KP['Daily re-fitting'].delta, 0)} per cent. Tuning, redundancy-aware selection, the ` +
     'number of features and market data as changes are each equivalent to their alternatives within ±2 per ' +
     `cent. Two choices hurt, market data as levels (${pct(PS['Market data as levels'].delta, 1)}) and discarding ` +
@@ -1915,7 +1916,9 @@ function diskusiV2() {
     '**Train on the loss the forecasts are judged by.** For skewed, often-zero flows scored by absolute error, absolute-loss training was the largest single improvement in this study, and it costs nothing.',
     `**Run statistical benchmarks and a linear model on the same features alongside any tree ensemble.** Here ${daftarN(mcs.filter(m => !L2.includes(m)).map(nmL))} remain in the set of methods that cannot be told apart from the best.`,
     '**Re-fit daily.** It is cheap and, besides the loss, the one pipeline choice with a clear, consistent effect.',
-    `**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast of the design as planned and needs no choice of weights${uvs.beda && uvs.delta > 0 ? ', while a median of the univariate methods alone was less accurate' : ''}.`,
+    (uvs.beda && uvs.delta > 0
+      ? '**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast of the design as planned and needs no choice of weights, while a median of the univariate methods alone was less accurate.'
+      : '**Combine with a median.** The median of all methods was the most accurate forecast of the design as planned and needs no choice of weights, and a median of the univariate methods alone did about as well.'),
     '**Enter market data as changes, not levels, or not at all.** Levels act as a proxy for time and do harm.',
     '**Evaluate over a long block.** A six-week evaluation of the same pipeline reached three conclusions that a year of data reversed.',
   ]));
@@ -1996,7 +1999,7 @@ function appendix30() {
   c.push(TCAP('A2', 'The 30-origin design, reverse ablation pooled across the three learners. A positive ' +
     'change means the full pipeline is better.'));
   c.push(reverseAblationTable());
-  c.push(P('The short design ranked LightGBM first by about four per cent over ARIMA, found daily re-fitting ' +
+  c.push(P(`The short design ranked LightGBM first, ${n(T.robust.metode.find(r => r.label === 'ARIMA').delta, 1)} per cent ahead of ARIMA, found daily re-fitting ` +
     'equivalent to its removal within ±2 per cent, and found no combination that beat the leader. The ' +
     'one-year design reverses all three, which is the reason it replaced the short one.'));
   return c;

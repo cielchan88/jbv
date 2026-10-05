@@ -417,10 +417,10 @@ if _tb:
 
 # versi pustaka: jalan v2 di VPS, dan lingkungan lokal tempat Ridge dan SHAP v2 dihitung ulang
 T['versi'] = json.load(open(H + 'versi.json')) if os.path.exists(H + 'versi.json') else {}
-import platform, sklearn, lightgbm, shap as _shap                     # noqa: E402
+import platform, sklearn, lightgbm, xgboost, shap as _shap            # noqa: E402
 import numpy as _np, pandas as _pd                                    # noqa: E402
 T['versi_lokal'] = dict(python=platform.python_version(), numpy=_np.__version__, pandas=_pd.__version__, sklearn=sklearn.__version__,
-                        lightgbm=lightgbm.__version__, shap=_shap.__version__)
+                        lightgbm=lightgbm.__version__, xgboost=xgboost.__version__, shap=_shap.__version__)
 json.dump(T, open(os.path.join(KEL, 'tables_v2.json'), 'w'), indent=1, default=float)
 print(f"ditulis tables_v2.json  juara {juara}  ({T['n_leaf']} seri x {T['nroll']} origin)")
 for r in T['peringkat'][:8]:
