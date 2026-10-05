@@ -403,13 +403,13 @@ function build() {
   c.push(P('Whether machine learning forecasts better than classical statistical methods has no general ' +
     'answer, and the literature is most useful for what it says about when each wins. The evidence from large ' +
     'comparisons of univariate series favours classical methods. Makridakis, Spiliotis and Assimakopoulos ' +
-    '(2018a) compared eight machine-learning methods with simple statistical ones on the monthly series of the ' +
+    '(2018a) compared ten machine-learning methods with eight statistical ones on 1,045 monthly series of the ' +
     'M3 competition and found the machine-learning methods less accurate at every horizon, while also far ' +
-    'more costly to compute. They attribute the gap to overfitting, since each model learns from one short ' +
-    'series and has many parameters to estimate from little data, and to the absence of the preprocessing ' +
-    'that statistical methods build in. Ahmed et al. (2010) had found the same sensitivity a decade earlier, ' +
-    'with the ranking of eight machine-learning models on the M3 data depending heavily on how the series were ' +
-    'preprocessed. In the M4 competition pure machine-learning entries did poorly, while combinations of ' +
+    'more costly to compute. They attribute the gap mainly to overfitting, since a flexible model fitted to ' +
+    'one short series is hard to keep from fitting noise, and recommend preprocessing such as ' +
+    'deseasonalisation before a machine-learning model is used. Eight of their ten methods come from Ahmed et ' +
+    'al. (2010), who had compared them on the same data a decade earlier and found that their accuracy ' +
+    'depended on how the series were preprocessed. In the M4 competition pure machine-learning entries did poorly, while combinations of ' +
     'statistical methods did well, and the winning method was a hybrid that kept exponential smoothing for ' +
     'level and seasonality and let a neural network learn across series (Smyl, 2020; Makridakis, Spiliotis and ' +
     'Assimakopoulos, 2018b, 2020).'));
@@ -421,10 +421,11 @@ function build() {
     'competitions share the same ingredients, namely many related series, exogenous information and tree ' +
     'ensembles or neural networks trained globally (Bojer and Meldgaard, 2021). Global models can exploit ' +
     'patterns shared across series that a local model never sees (Montero-Manso and Hyndman, 2021), and ' +
-    'recurrent networks become competitive only with enough series and careful preprocessing (Hewamalage, ' +
+    'recurrent networks are competitive with ETS and ARIMA in many situations but no silver bullet, and need ' +
+    'careful preprocessing, such as deseasonalisation when seasonal patterns differ across series (Hewamalage, ' +
     'Bergmeir and Bandara, 2021). On daily demand for individual products, Spiliotis et al. (2022) find some ' +
-    'machine-learning methods more accurate and less biased than Croston-type methods, with further gains from ' +
-    'learning across products.'));
+    'machine-learning methods more accurate and less biased than statistical ones, and learning across ' +
+    'products helps some of them further.'));
   c.push(P('In economics the gains, where they appear, are traced to specific features of the methods. For US ' +
     'inflation, Medeiros et al. (2021) find random forests more accurate than shrinkage, factor and ' +
     'autoregressive benchmarks, and attribute the gain to nonlinearity and to selecting among many ' +
@@ -455,8 +456,8 @@ function build() {
     'says that past some point added predictors reduce out-of-sample accuracy (Hastie, Tibshirani and ' +
     'Friedman, 2009), but not where that point lies. For comparing forecasts, the literature offers paired ' +
     'tests of equal accuracy (Diebold and Mariano, 1995; Harvey, Leybourne and Newbold, 1997), procedures for ' +
-    'identifying a set of best models (Hansen, Lunde and Nason, 2011), and rolling-origin designs (Tashman, ' +
-    '2000; Bergmeir and Benítez, 2012). Applied studies rarely use them together.'));
+    'identifying a set of best models (Hansen, Lunde and Nason, 2011), and rolling-origin and cross-validation ' +
+    'designs for time series (Tashman, 2000; Bergmeir and Benítez, 2012). Applied studies rarely use them together.'));
   c.push(H2('2.3. Order Flow and Market Data'));
   c.push(P('On the economics, order flow carries information about exchange-rate moves (Evans and Lyons, ' +
     '2002; Lyons, 2001), and customer flows differ in that information by counterparty, with financial ' +
@@ -1093,8 +1094,9 @@ function kotakPitfall() {
     'In the earlier 30-origin design of Appendix A, with market data as levels, the forecasters built their ' +
     'features afresh at prediction time, and in the first ' +
     'version the routine that does so could not accept the market series. The model was trained on market ' +
-    'features and then received zeros in their place when it forecast, with no error or warning. This is a ' +
-    'case of training-serving skew, a known hazard of machine-learning systems (Sculley et al., 2015).',
+    'features and then received zeros in their place when it forecast, with no error or warning. Practitioners ' +
+    'call this training-serving skew. It is one form of the hidden dependencies between data and code that ' +
+    'Sculley et al. (2015) describe as technical debt in machine-learning systems.',
     `The effect was large. Market data appeared to raise pooled error by ${n(g.delta_nol, 1)} per cent, ` +
     `against ${n(g.delta_benar, 1)} per cent once the features were supplied, so ` +
     `${n(g.rusak_hilang_pct, 0)} per cent of the apparent cost was the handling. The tell-tale sign was that ` +
@@ -1189,7 +1191,7 @@ function appendixRezim() {
     'to next-day private flows that market features rely on. Three conjectures follow.'));
   c.push(...BUL([
     `**Regime depth.** In a deep free-floating market, lagged prices should carry more information about next-day flows, and the market share of importance, ${n(extRF, 1)} per cent for the random forest and ${n(extLG, 1)} per cent for LightGBM here, should be larger.`,
-    '**Counterparty sensitivity.** Market variables should matter most for counterparties that trade on prices. In this panel the largest market share with daily changes is for individuals, notably B.2, transactions without underlying documents, rather than for non-resident portfolio investors, while non-resident investment (C.1) admits no market feature in its final model, possibly because its flows are dominated by government bond transactions with their own drivers. Retail flows that respond to recent exchange-rate moves would fit a managed float in which the rate itself moves little from day to day.',
+    '**Counterparty sensitivity.** Market variables should matter most for counterparties that trade on prices. In this panel the largest market share with daily changes is for individuals, notably B.2, transactions without underlying documents, rather than for non-resident portfolio investors, while non-resident investment (C.1) admits no market feature in its final model, possibly because its flows are dominated by government bond transactions with their own drivers. Retail flows that respond to recent exchange-rate moves would fit a managed float in which the rate itself moves little from day to day, and Menkhoff et al. (2016) find that individual investors trade as contrarians to past currency returns, while the flows of corporations and individuals carry little information about future rates.',
     '**Policy episodes.** Around interventions and macroprudential measures the importance of market variables should shift, which could be tested with SHAP values and test origins placed inside and outside such episodes.',
   ]));
   return c;
@@ -1879,7 +1881,10 @@ function diskusiV2() {
       : '') +
     'The lesson echoes the M5 competition, where the leading LightGBM models were trained on a loss chosen ' +
     'for the shape of the data, the Tweedie loss for intermittent sales, rather than on squared error ' +
-    '(Makridakis et al., 2022).'));
+    '(Makridakis et al., 2022). In macroeconomic forecasting, by contrast, Goulet Coulombe et al. (2022) find ' +
+    'squared loss preferable to the ε-insensitive loss of support vector regression, so the value of a robust ' +
+    'loss depends on the shape of the target, and flows with many zeros and rare large settlements are the ' +
+    'case where it pays.'));
   c.push(P('Besides the training loss, one choice within the pipeline matters and most do not. Re-fitting every day rather than every 30 ' +
     `days is worth about ${n(KP['Daily re-fitting'].delta, 0)} per cent. Tuning, redundancy-aware selection, the ` +
     'number of features and market data as changes are each equivalent to their alternatives within ±2 per ' +
