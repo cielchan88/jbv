@@ -1819,7 +1819,7 @@ function diskusiV2() {
   c.push(H2('5.3. Limitations'));
   const RP = T2.ridge_tanpa_penjaga;
   c.push(...BUL([
-    `The test block covers one year, ${tgl2(T2.tgl_uji_awal)} to ${tgl2(T2.tgl_uji_akhir)}, and the leading method changes from quarter to quarter (Appendix H). The main claims should be replicated on a second, non-overlapping year, with the ridge guards fixed in advance, and the code for that replication is ready.`,
+    `The test block covers one year, ${tgl2(T2.tgl_uji_awal)} to ${tgl2(T2.tgl_uji_akhir)}, and the leading method changes from quarter to quarter (Appendix H). The claims rest on this one year. They have not been replicated on a second, non-overlapping year, so whether the ranking, the effect of daily re-fitting and the equivalence of the other components hold in other periods remains open.`,
     'The ±2 per cent equivalence margin was first used after the results of an earlier design were seen. Appendix G shows the verdicts at ±1 and ±3 per cent.',
     'The validation block lies immediately before the test block and is short, which is one reason why choosing methods per series on it does not help.',
     `Ridge regression, the leading method, includes two guards against extrapolation that were added after its first run produced one extreme forecast.${RP ? ` They changed ${RP.n_berubah} of its ${fmtN(RP.n)} forecasts, and without them and that one forecast its mean MASE is ${n(RP.mase_tanpa_satu, 3)}.` : ''} They follow from the method, which, unlike a tree, extrapolates, but the order of events is reported here.`,
@@ -1845,7 +1845,10 @@ function diskusiV2() {
     'equivalent to their alternatives, and market data as levels harm. For a central bank the practical ' +
     'message is to keep a diverse set of well-maintained methods, re-fit them daily, combine them by the ' +
     'median, and test each component of a pipeline by removal over a long evaluation before trusting it.'));
-  c.push(P('Future work should replicate the design on a second year, train models across all fifteen series ' +
+  c.push(P('The first task for future work is to replicate the design on a second, non-overlapping year, ' +
+    'for example August 2024 to August 2025 with its own validation block in front and the ridge guards fixed ' +
+    'before the run, and to check whether the median, daily re-fitting and the equivalence of the components ' +
+    'survive. Beyond that, future work should train models across all fifteen series ' +
     'at once and reconcile them with the published total, model reclassified purposes jointly, and extend the ' +
     'evaluation to longer horizons, where market data and the feature count may matter more.'));
   return c;
@@ -1878,7 +1881,7 @@ function abstrakV2() {
     LEAD('Conclusions',
       'One day ahead, the nonlinearity of tree ensembles adds nothing over a linear model or strong statistical ' +
       'methods. A median combination, daily re-fitting and a long evaluation matter more than elaborate ' +
-      'pipeline components.'),
+      'pipeline components. The evidence covers one year, and replication on a second year is left for future work.'),
   ];
 }
 
