@@ -384,7 +384,7 @@ function build() {
     'regional standards, so a single large settlement can move the daily total in one cell.'));
   c.push(IMG('fig1_taxonomy.png', 560, 258));
   c.push(FCAP(1, `The ${T.n_leaf} forecast units. Rows are counterparty groups, columns declared purposes, ` +
-    'and each filled cell is one series, labelled with its sample mean in millions of US dollars. ' +
+    'and each filled cell is one series, labelled with its mean since its first report, in millions of US dollars. ' +
     'Blue cells are net demand for foreign exchange on average and orange cells net supply. ' +
     'Dashed cells do not occur.'));
   c.push(P('The monitoring cycle is daily, so the forecast that matters is one business day ahead. ' +
@@ -397,7 +397,7 @@ function build() {
   c.push(P('We therefore put the pipeline at the centre and ask four questions of it.'));
   c.push(...BUL([
     '**RQ1.** Does a tuned machine-learning pipeline forecast the counterparty and purpose series more accurately than established statistical methods one day ahead?',
-    '**RQ2.** Which parts of the pipeline earn their place? We test redundancy-aware feature selection, hyperparameter tuning, daily re-fitting and the number of features kept.',
+    '**RQ2.** Which parts of the pipeline earn their place? We test redundancy-aware feature selection, hyperparameter tuning, daily re-fitting, the number of features kept and, added after the main results, the training loss.',
     '**RQ3.** Do daily market data, such as the exchange rate, bond yields and equity prices, improve the forecasts?',
     '**RQ4.** Which features does the fitted model rely on, and does that differ across counterparty groups?',
   ]));
@@ -476,7 +476,7 @@ function build() {
   c.push(TBL([620, 3300, 2500, 2940],
     ['', 'Hypothesis', 'What is varied', 'Test'],
     [
-      ['H1', 'A machine-learning learner is the most accurate method.', 'Method', 'Paired tests against the leading method, block-bootstrap intervals and a model confidence set'],
+      ['H1', 'A machine-learning learner is the most accurate method.', 'Method, and the training loss', 'Paired tests against the leading method, block-bootstrap intervals and a model confidence set'],
       ['H2', 'Each component of the pipeline improves accuracy.', 'Selection rule, tuning, re-fitting, one at a time', 'Paired tests and equivalence tests, full pipeline against each removal'],
       ['H3', `A count of ${acuanK} features is the right size.`, `Feature count, 12, 40 and all ${T.pool_internal} candidates`, `Paired and equivalence tests against k = ${acuanK}`],
       ['H4', 'Adding market data improves accuracy.', 'Market data as changes, as levels, or none', 'Paired and equivalence tests against none'],
@@ -1322,6 +1322,58 @@ function appendixBeeswarm() {
 /* ====================================================================== v2
    Badan naskah sejak review ketiga: jalan ulang v2 (250 origin). Semua angka
    dari tables_v2.json; desain 30 origin lama tinggal di Lampiran A. */
+function lossTeks() {
+  const L = T2.l1, LL = T2.l1_lain, c = [];
+  if (!L) return c;
+  const rid = rk2().find(r => r.model === 'Ridge');
+  const per = Object.entries(L.per_seri).sort((a, b) => a[1] - b[1]);
+  const kw = Object.entries(L.kuartal), nKw = kw.filter(([, v]) => v.l1 < v.ridge).length;
+  c.push(H3('Training on the loss the forecasts are judged by'));
+  c.push(P('The learners above minimise squared error, which targets the conditional mean, while MASE scores ' +
+    'absolute error, which the conditional median minimises. For flows that are skewed and punctuated by ' +
+    'large settlements the two can differ a good deal. We therefore re-trained LightGBM on absolute loss and ' +
+    'on Huber loss, with the same features and configuration, and to see whether any gain belongs to the ' +
+    'trees or to the loss, also re-trained XGBoost on absolute loss and replaced ridge regression by its ' +
+    'absolute-loss counterpart, a linear median regression on the same 25 features with the same guards. ' +
+    'These variants were added after the main results had been seen, and Table 5c reports them against ' +
+    'ridge regression, the leader of Table 5.'));
+  const baris = [['Ridge regression (Table 5)', n(rid.mase, 3), 'reference', '—']];
+  const tambah = (lab, r, m) => baris.push([lab, n(m, 3), ciTeks(r), pv(r.p)]);
+  tambah('LightGBM, absolute loss', L.vs_ridge, L.mase);
+  if (LL) {
+    tambah('XGBoost, absolute loss', LL.xgb_vs_ridge, LL.xgb.mase);
+    tambah('Linear median regression', LL.median_lin, LL.median_lin.mase);
+  }
+  c.push(TCAP('5c', 'Methods trained on absolute loss, against ridge regression. A negative change means the ' +
+    'method is more accurate than ridge regression. The interval is a 95 per cent block-bootstrap interval and ' +
+    'p is the paired Wilcoxon p-value.'));
+  c.push(TBL([4200, 1300, 2300, 1560], ['Method', 'Mean MASE', 'Change [95% CI]', 'p'], baris, { rightFrom: 1, accRows: [0] }));
+  const LV = T2.loss_varian;
+  c.push(P(`On absolute loss LightGBM improves on its squared-error version by ${ciTeks(LV[0])}, and on Huber ` +
+    `loss by ${ciTeks(LV[1])}. Its mean MASE of ${n(L.mase, 3)} is the lowest of any method in the study, ` +
+    `${n(-L.vs_ridge.delta, 1)} per cent below ridge regression (${ciTeks(L.vs_ridge)}) and ` +
+    `${n(-L.vs_median.delta, 1)} per cent below the median of all methods, although the interval against the ` +
+    `median, ${ciTeks(L.vs_median)}, includes zero. When the two LightGBM variants are added to the model ` +
+    `confidence set, it retains ${L.mcs.tersisa.length === 2 ? 'only these two' : daftarN(L.mcs.tersisa)} and ` +
+    `excludes all other methods with p-values of ${n(Math.max(...Object.entries(L.mcs.p).filter(([m]) => !L.mcs.tersisa.includes(m)).map(([, v]) => v)), 3)} or less. ` +
+    (LL
+      ? `XGBoost on absolute loss changes its error by ${ciTeks(LL.xgb)} against its squared-error version, ` +
+        `and the linear median regression changes error by ${ciTeks(LL.median_lin)} against ridge regression, ` +
+        'so ' + (LL.median_lin.beda && LL.median_lin.delta < 0
+          ? 'the loss helps the linear model too. '
+          : 'the loss alone does not make a linear model better. ') +
+        `Absolute-loss LightGBM against the linear median regression gives ${ciTeks(LL.l1_vs_median_lin)}. `
+      : '')));
+  c.push(P(`The advantage is broad over time but concentrated across series. Absolute-loss LightGBM is ahead of ` +
+    `ridge regression in ${kata(nKw)} of the ${kata(kw.length)} quarters and on ${L.seri_lebih_baik_dari_ridge} ` +
+    `of the ${T2.n_leaf} series, but against squared-error LightGBM its largest gains are on ${per[0][0]} ` +
+    `(${pct(per[0][1], 0)}) and ${per[1][0]} (${pct(per[1][1], 0)}), and series-by-series Diebold-Mariano tests ` +
+    `find it better than ridge regression on ${L.dm_vs_ridge.l1_lebih_baik ? `${L.dm_vs_ridge.l1_lebih_baik} series` : 'no series'} and worse on ` +
+    `${L.dm_vs_ridge.ridge_lebih_baik}. The pooled lead is therefore real but rests on a few series where ` +
+    'squared loss is badly suited, and on most series the two methods cannot be told apart.'));
+  return c;
+}
+
 function ridgeVarianTeks() {
   const RV = T2.ridge_varian;
   const RP = T2.ridge_tanpa_penjaga;
@@ -1402,7 +1454,8 @@ function sisaV2(acuanK) {
   c.push(P('Three tree ensembles are fitted on the selected features. Random forest averages bagged ' +
     'regression trees (Breiman, 2001). LightGBM (Ke et al., 2017) and XGBoost (Chen and Guestrin, 2016) fit ' +
     `gradient-boosted trees. Every learner keeps k = ${acuanK} features, and Section 4.4 tests that choice. The ` +
-    'learners are trained on squared error, while accuracy is measured by absolute scaled error.'));
+    'learners are trained on squared error, while accuracy is measured by absolute scaled error. Section 4.1 ' +
+    're-trains them on absolute and Huber loss, a test added after the main results.'));
   c.push(P(`Hyperparameters are tuned for each series and learner separately over the four configurations in ` +
     `Table 3, on the ${T2.nval}-origin validation block, with daily re-fitting, and the configuration with the ` +
     'lowest mean scaled error is carried forward unchanged. Random forest is run with three random seeds and ' +
@@ -1517,8 +1570,9 @@ function sisaV2(acuanK) {
     `Series by series, Diebold-Mariano tests find ${nmL(J)} better than LightGBM on ${dm.LightGBM.juara_lebih_baik} ` +
     `of ${T2.n_leaf} series and worse on ${dm.LightGBM.juara_lebih_buruk}, and better than ARIMA on ` +
     `${dm.ARIMA.juara_lebih_baik} and worse on ${dm.ARIMA.juara_lebih_buruk}.`));
-  c.push(P('H1 is not supported. Over a year of daily forecasts the tree ensembles are no more accurate ' +
-    'than ridge regression on the same features, nor than ARIMA, ETS and Theta. ' + ridgeVarianTeks() +
+  c.push(P('As designed, with squared-error training, H1 is not supported. Over a year of daily forecasts the ' +
+    'tree ensembles are no more accurate than ridge regression on the same features, nor than ARIMA, ETS and ' +
+    'Theta. The answer changes with the training loss, which the next subsection takes up. ' + ridgeVarianTeks() +
     'ETS and Theta give almost identical forecasts, as do the random walk with and without drift, which is ' +
     'also why the confidence set assigns ETS and Theta different p-values: the procedure eliminates one of ' +
     `two near-duplicates first. The ranking is not an artefact of the scale. Computed over the full history or from 2022 onwards, the first ` +
@@ -1544,6 +1598,8 @@ function sisaV2(acuanK) {
     `${daftarN(Object.entries(qj).map(([q, m]) => `${nmL(m)} in ${q}`))}. All methods find the second quarter ` +
     'of 2026 hardest and the last weeks of the sample easiest, and they move together, which is why their ' +
     'differences are small relative to the variation over time.'));
+
+  c.push(...lossTeks());
 
   /* ----------------------------------------------- 4.2 combining */
   c.push(H2('4.2. Combining and Selecting Methods'));
@@ -1606,17 +1662,15 @@ function sisaV2(acuanK) {
     'is slightly better.'));
   if (T2.loss_varian) {
     const LV = T2.loss_varian;
-    c.push(P('The learners are trained on squared error while the evaluation uses absolute error. Re-training ' +
+    c.push(P('The training loss, tested in Section 4.1, is a component of a different order. Re-training ' +
       `LightGBM on absolute loss changes its error by ${ciTeks(LV[0])}, and on Huber loss by ${ciTeks(LV[1])} ` +
-      `(Holm ${daftarN(LV.map(r => pv(r.p_holm)))}), so ` +
-      (LV.some(r => r.beda && r.delta < 0) ? 'matching the loss to the metric helps.' :
-        LV.every(r => r.setara) ? 'the loss function is equivalent within ±2 per cent.' :
-          'the evidence on the loss function is mixed.')));
+      `(Holm ${daftarN(LV.map(r => pv(r.p_holm)))}), more than any other component in Table 7. All other ` +
+      'arms of this study use squared error, so their effects are measured for that loss.'));
   }
   c.push(IMG('fig_komponen_v2.png', 560, 204));
   c.push(FCAP(7, 'Change in mean MASE when each component is removed, by learner with 95 per cent intervals. ' +
     'The dashed lines are the pooled effects and the grey band is the ±2 per cent equivalence margin.'));
-  c.push(P('H2 is supported for re-fitting only. Re-fitting is cheap, and the evidence for it is ' +
+  c.push(P('H2 is supported for re-fitting and for the training loss only. Re-fitting is cheap, and the evidence for it is ' +
     'consistent across learners, seeds and quarters. The random-forest effect of dropping daily re-fitting ' +
     `is ${daftarN(Object.values(sR.efek_komponen['Daily re-fitting']).map(v => pct(v, 1)))} for the three seeds ` +
     `taken one at a time, and by quarter it ranges from ${pct(Math.min(...Object.values(T2.refit_per_kuartal)), 1)} ` +
@@ -1785,18 +1839,40 @@ function diskusiV2() {
   const qAkhir = Object.keys(T2.refit_per_kuartal).sort().slice(-1)[0];
   c.push(H1('5. Discussion'));
   c.push(H2('5.1. Synthesis'));
-  c.push(P('Tree ensembles do not beat a linear model on the same features, nor ARIMA, ETS or Theta, and the ' +
-    `median of all methods beats them all. Over ${NR2()} days these methods lie within ${n(rentangMcs(), 1)} per ` +
-    `cent of the best, and a model confidence set cannot separate ${kata(mcs.length)} of them. ` +
+  const L1 = T2.l1, LL = T2.l1_lain;
+  const linL1 = LL && LL.median_lin.beda && LL.median_lin.delta < 0;
+  c.push(P('Trained on squared error, as designed, tree ensembles do not beat a linear model on the same ' +
+    `features, nor ARIMA, ETS or Theta, and the median of all methods beats them all. Over ${NR2()} days these ` +
+    `methods lie within ${n(rentangMcs(), 1)} per cent of the best, and a model confidence set cannot separate ` +
+    `${kata(mcs.length)} of them. ` +
+    (L1 ? `Trained on absolute loss, the loss that matches the metric, LightGBM becomes the most accurate method, ` +
+      `${n(-L1.vs_ridge.delta, 1)} per cent ahead of ridge regression and the only learner left in the model ` +
+      'confidence set together with its Huber-loss version. The answer to the question in the title therefore ' +
+      'depends less on the model class than on whether the learner is trained on the loss it is judged by. ' : '') +
     (fiturMembantu
-      ? `What the pipeline contributes is its engineered features, which are worth ${n(lag.delta, 1)} per cent ` +
+      ? `Under squared loss what the pipeline contributes is its engineered features, which are worth ${n(lag.delta, 1)} per cent ` +
         'to a linear model over its own lags alone, not the nonlinearity of its learners.'
       : 'Neither the engineered features nor the nonlinearity of the trees add much beyond the series’ own lags.')));
-  c.push(P('The four conditions of Section 2.1 explain why. Data are plentiful, with long daily histories, ' +
-    'but the series are learned one at a time, so the cross-learning that drove the M5 results is absent. The ' +
-    'nonlinearity that trees add over a linear model on the same features buys nothing here, consistent with ' +
-    'a signal dominated by persistence. The external predictors are informative for one series at most. What ' +
-    'remains is the finding of the M4 competition, that combinations are hard to beat.'));
+  c.push(P('The four conditions of Section 2.1 explain the squared-error result. Data are plentiful, with long ' +
+    'daily histories, but the series are learned one at a time, so the cross-learning that drove the M5 ' +
+    'results is absent. Under squared loss the nonlinearity that trees add over a linear model on the same ' +
+    'features buys nothing, consistent with a signal dominated by persistence. The external predictors are ' +
+    'informative for one series at most, and combinations are hard to beat, as in the M4 competition.'));
+  if (L1) c.push(P('The loss result has a simple explanation. The flows are skewed, often zero and punctuated by ' +
+    'large settlements. Squared loss pulls a forecast toward the conditional mean, and so toward the rare ' +
+    'large values, while absolute loss targets the conditional median, which is what MASE rewards. The gain ' +
+    `is largest on ${Object.entries(L1.per_seri).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([l]) => `${l}, zero on ${n(T2.nol_uji[l], 0)} per cent of the test days`).join(', and ')}. ` +
+    (LL
+      ? (linL1
+        ? 'The linear median regression gains too, so part of the effect is the loss itself, but '
+        : 'The linear median regression does not gain, so ') +
+        'the combination of trees and absolute loss is what leads. A tree fitted to absolute error can return ' +
+        'the median of a leaf, which a linear model with one slope per feature cannot mimic when the median ' +
+        'jumps between zero and a typical settlement. '
+      : '') +
+    'The lesson echoes the M5 competition, where the leading LightGBM models were trained on a loss chosen ' +
+    'for the shape of the data, the Tweedie loss for intermittent sales, rather than on squared error ' +
+    '(Makridakis et al., 2022).'));
   c.push(P('Within the pipeline one choice matters and most do not. Re-fitting every day rather than every 30 ' +
     `days is worth about ${n(KP['Daily re-fitting'].delta, 0)} per cent. Tuning, redundancy-aware selection, the ` +
     'number of features and market data as changes are each equivalent to their alternatives within ±2 per ' +
@@ -1822,33 +1898,41 @@ function diskusiV2() {
     `The test block covers one year, ${tgl2(T2.tgl_uji_awal)} to ${tgl2(T2.tgl_uji_akhir)}, and the leading method changes from quarter to quarter (Appendix H). The claims rest on this one year. They have not been replicated on a second, non-overlapping year, so whether the ranking, the effect of daily re-fitting and the equivalence of the other components hold in other periods remains open.`,
     'The ±2 per cent equivalence margin was first used after the results of an earlier design were seen. Appendix G shows the verdicts at ±1 and ±3 per cent.',
     'The validation block lies immediately before the test block and is short, which is one reason why choosing methods per series on it does not help.',
-    `Ridge regression, the leading method, includes two guards against extrapolation that were added after its first run produced one extreme forecast.${RP ? ` They changed ${RP.n_berubah} of its ${fmtN(RP.n)} forecasts, and without them and that one forecast its mean MASE is ${n(RP.mase_tanpa_satu, 3)}.` : ''} They follow from the method, which, unlike a tree, extrapolates, but the order of events is reported here.`,
+    'The absolute-loss and Huber-loss variants were added after the main results had been seen, and the loss was not chosen on the validation block. The case for absolute loss rests on the metric, not on these results, but the variants cover LightGBM, XGBoost and the linear model only, the random forest was not re-trained, and every ablation arm uses squared error, so the effect of each component under absolute loss is untested.',
+    `Ridge regression, the leading method under squared loss, includes two guards against extrapolation that were added after its first run produced one extreme forecast.${RP ? ` They changed ${RP.n_berubah} of its ${fmtN(RP.n)} forecasts, and without them and that one forecast its mean MASE is ${n(RP.mase_tanpa_satu, 3)}.` : ''} They follow from the method, which, unlike a tree, extrapolates, but the order of events is reported here.`,
     'The series are forecast one at a time, without models trained across series or reconciliation with the published total.',
     'The purpose labels are not stable over time. In January 2022 flows moved between corporate exports and corporate transactions without underlying documents (Section 3.1), and further reclassifications would change what each series measures.',
     'Only one horizon, one jurisdiction and one reporting framework are studied. Appendix E sets out how the exchange-rate regime might shape the market-data results.',
   ]));
   c.push(H2('5.4. Implications for Practice'));
   c.push(...BUL([
+    '**Train on the loss the forecasts are judged by.** For skewed, often-zero flows scored by absolute error, absolute-loss training was the largest single improvement in this study, and it costs nothing.',
     `**Run statistical benchmarks and a linear model on the same features alongside any tree ensemble.** Here ${daftarN(mcs.filter(m => !L2.includes(m)).map(nmL))} remain in the set of methods that cannot be told apart from the best.`,
-    '**Re-fit daily.** It is cheap and it is the one pipeline choice with a clear, consistent effect.',
-    `**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast and needs no choice of weights${uvs.beda && uvs.delta > 0 ? ', while a median of the univariate methods alone was less accurate' : ''}.`,
+    '**Re-fit daily.** It is cheap and, besides the loss, the one pipeline choice with a clear, consistent effect.',
+    `**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast of the design as planned, statistically level with absolute-loss LightGBM, and needs no choice of weights${uvs.beda && uvs.delta > 0 ? ', while a median of the univariate methods alone was less accurate' : ''}.`,
     '**Enter market data as changes, not levels, or not at all.** Levels act as a proxy for time and do harm.',
     '**Evaluate over a long block.** A six-week evaluation of the same pipeline reached three conclusions that a year of data reversed.',
   ]));
   c.push(H1('6. Conclusion and Future Work'));
   c.push(P(`We forecast ${T2.n_leaf} disaggregated foreign-exchange flow series one business day ahead over a ` +
     `year of daily origins, with three tree ensembles and eleven comparison methods, and took the pipeline ` +
-    'apart one component at a time. The tree ensembles do not beat ridge regression on the same features, ' +
-    `nor ARIMA, ETS and Theta, and a 90 per cent model confidence set retains ${kata(mcs.length)} methods within ` +
-    `${n(rentangMcs(), 1)} per cent of one another. The median of all methods beats every single method. Daily ` +
-    're-fitting helps, while tuning, feature selection, the feature count and market data as changes are ' +
-    'equivalent to their alternatives, and market data as levels harm. For a central bank the practical ' +
-    'message is to keep a diverse set of well-maintained methods, re-fit them daily, combine them by the ' +
-    'median, and test each component of a pipeline by removal over a long evaluation before trusting it.'));
+    'apart one component at a time. Trained on squared error, the tree ensembles do not beat ridge regression ' +
+    `on the same features, nor ARIMA, ETS and Theta, and a 90 per cent model confidence set retains ` +
+    `${kata(mcs.length)} methods within ${n(rentangMcs(), 1)} per cent of one another, while the median of all ` +
+    'methods beats every one of them. Trained on absolute loss, the loss that matches the metric, LightGBM ' +
+    `becomes the most accurate method, ${n(-T2.l1.vs_ridge.delta, 1)} per cent ahead of ridge regression, ` +
+    'although its lead rests on a few series and was found after the main results. Daily re-fitting also ' +
+    'helps, while tuning, feature selection, the feature count and market data as changes are equivalent to ' +
+    'their alternatives, and market data as levels harm. Whether machine learning beats simple benchmarks ' +
+    'here depends less on the model than on training it for the metric. For a central bank the practical ' +
+    'message is to train learners on the loss they are judged by, keep a diverse set of well-maintained ' +
+    'methods, re-fit them daily, combine them by the median, and test each component of a pipeline by ' +
+    'removal over a long evaluation before trusting it.'));
   c.push(P('The first task for future work is to replicate the design on a second, non-overlapping year, ' +
     'for example August 2024 to August 2025 with its own validation block in front and the ridge guards fixed ' +
     'before the run, and to check whether the median, daily re-fitting and the equivalence of the components ' +
-    'survive. Beyond that, future work should train models across all fifteen series ' +
+    'survive, and whether absolute-loss training keeps its lead when it is chosen in advance and applied to ' +
+    'every learner and every arm. Beyond that, future work should train models across all fifteen series ' +
     'at once and reconcile them with the published total, model reclassified purposes jointly, and extend the ' +
     'evaluation to longer horizons, where market data and the feature count may matter more.'));
   return c;
@@ -1868,20 +1952,25 @@ function abstrakV2() {
       'business day ahead, using Indonesian supervisory data. Three tree ensembles with feature selection, ' +
       `tuning and daily re-fitting are compared with ten statistical benchmarks and a ridge regression on the ` +
       `same features over ${NR2()} rolling origins, about a year. Pipeline components are removed one at a time, ` +
+      'the learners are also re-trained on absolute loss, ' +
       'and differences are assessed with paired tests, block-bootstrap intervals, equivalence tests and a model ' +
       'confidence set.'),
     LEAD('Results',
-      'The tree ensembles do not beat ridge regression on the same features, nor ARIMA, ETS and Theta. A 90 per ' +
-      `cent model confidence set retains ${kata(mcs.length)} methods within ${n(rentangMcs(), 1)} per cent of the ` +
-      `best, and the median of all methods beats every single method by at least ${n(-med.delta, 1)} per cent. ` +
+      'Trained on squared error, the tree ensembles do not beat ridge regression on the same features, nor ' +
+      `ARIMA, ETS and Theta. A 90 per cent model confidence set retains ${kata(mcs.length)} methods within ` +
+      `${n(rentangMcs(), 1)} per cent of the best, and the median of all methods beats each of them by at least ` +
+      `${n(-med.delta, 1)} per cent. Re-trained on absolute loss, which matches the metric, LightGBM becomes the ` +
+      `most accurate method, ${n(-T2.l1.vs_ridge.delta, 1)} per cent ahead of ridge regression, with the lead ` +
+      'concentrated on a few series. ' +
       `Dropping daily re-fitting raises error by ${n(KP['Daily re-fitting'].delta, 1)} per cent. Tuning, feature ` +
       'selection, the number of features and market data as daily changes are each equivalent to their ' +
       `alternatives within ±2 per cent, while market data as levels raise error by ` +
       `${n(PS['Market data as levels'].delta, 1)} per cent.`),
     LEAD('Conclusions',
-      'One day ahead, the nonlinearity of tree ensembles adds nothing over a linear model or strong statistical ' +
-      'methods. A median combination, daily re-fitting and a long evaluation matter more than elaborate ' +
-      'pipeline components. The evidence covers one year, and replication on a second year is left for future work.'),
+      'One day ahead, tree ensembles beat a linear model and strong statistical methods only when they are ' +
+      'trained on the loss they are judged by. That choice, a median combination, daily re-fitting and a long ' +
+      'evaluation matter more than elaborate pipeline components. The loss variants were added after the main ' +
+      'results, and the evidence covers one year, so replication is left for future work.'),
   ];
 }
 

@@ -350,14 +350,15 @@ T['dm_pasar_ubah'] = _dmp
 T['hl_pasar_level'] = next(r for r in T['pasar'] if r['label'] == 'Market data as levels')['hl']
 
 # lengan tambahan (tambahan_v2.py, dihitung lokal)
-_tb = [p_ for p_ in [H + 'v2_tambahan.csv'] + sorted(__import__('glob').glob(H + 'v2_tambahan.shard-*.csv')) if os.path.exists(p_)]
+_tb = [p_ for p_ in [H + 'v2_tambahan.csv', H + 'v2_tambahan_l1.csv'] + sorted(__import__('glob').glob(H + 'v2_tambahan*.shard-*.csv'))
+       if os.path.exists(p_)]
 if _tb:
     TB = pd.concat([pd.read_csv(p_, float_precision='round_trip') for p_ in _tb]).drop_duplicates(['leaf', 'metode', 'lengan', 'origin'])
     TB['mase'] = (TB.actual - TB.pred).abs() / TB.leaf.map(sk['den'])
     tb = TB.set_index(['leaf', 'origin', 'metode', 'lengan']).mase
     lengkap = TB.groupby('lengan').leaf.nunique().to_dict()
     T['tambahan_lengkap'] = lengkap
-    if all(v == T['n_leaf'] for v in lengkap.values()):
+    if all(lengkap.get(k_) == T['n_leaf'] for k_ in ('ridge_lag', 'ridge_kal', 'ridge_semua', 'loss_l1', 'loss_huber')):
         rid = mase_u['Ridge']
         T['ridge_varian'] = INF.holm([
             dict(INF.banding(rid, tb.xs(('Ridge', k), level=['metode', 'lengan']), lab), mase=float(tb.xs(('Ridge', k), level=['metode', 'lengan']).mean()))
@@ -367,6 +368,47 @@ if _tb:
         T['loss_varian'] = INF.holm([
             dict(INF.banding(lg, tb.xs(('LightGBM', k), level=['metode', 'lengan']), lab), mase=float(tb.xs(('LightGBM', k), level=['metode', 'lengan']).mean()))
             for k, lab in (('loss_l1', 'LightGBM, absolute loss'), ('loss_huber', 'LightGBM, Huber loss'))])
+        # LightGBM dengan loss absolut di dalam perbandingan utama
+        l1 = tb.xs(('LightGBM', 'loss_l1'), level=['metode', 'lengan']).reindex(rid.index)
+        hb = tb.xs(('LightGBM', 'loss_huber'), level=['metode', 'lengan']).reindex(rid.index)
+        _P1 = P.copy()
+        _P1['LightGBM'] = TB[(TB.lengan == 'loss_l1')].set_index(['leaf', 'origin']).pred.reindex(_P1.index)
+        med14 = ms(P.median(1))
+        med_l1 = ms(_P1.median(1))
+        _h = harian.copy()
+        _h['LightGBM (absolute loss)'] = l1.groupby(level='origin').mean()
+        _h['LightGBM (Huber loss)'] = hb.groupby(level='origin').mean()
+        _t1, _p1 = INF.mcs(_h, alpha=0.10)
+        _dm = dict(l1_lebih_baik=0, ridge_lebih_baik=0)
+        for lf in plm.index:
+            s_, p_ = INF.dm_hln(rid.xs(lf, level='leaf').values, l1.xs(lf, level='leaf').values)
+            if p_ < 0.05:
+                _dm['l1_lebih_baik' if s_ > 0 else 'ridge_lebih_baik'] += 1
+        _kw = pd.PeriodIndex(pd.to_datetime(tgl), freq='Q').astype(str)
+        _q = dict(zip(tgl.index, _kw))
+        _qr = rid.groupby(rid.index.get_level_values('origin').map(_q)).mean()
+        _ql = l1.groupby(l1.index.get_level_values('origin').map(_q)).mean()
+        _ada = lambda m_, k_: len(TB[(TB.metode == m_) & (TB.lengan == k_)].leaf.unique()) == T['n_leaf']
+        if _ada('XGBoost', 'loss_l1') and _ada('Ridge', 'median_lin'):
+            xl1 = tb.xs(('XGBoost', 'loss_l1'), level=['metode', 'lengan']).reindex(rid.index)
+            mdl = tb.xs(('Ridge', 'median_lin'), level=['metode', 'lengan']).reindex(rid.index)
+            _h['XGBoost (absolute loss)'] = xl1.groupby(level='origin').mean()
+            _h['Linear median regression'] = mdl.groupby(level='origin').mean()
+            _t1, _p1 = INF.mcs(_h, alpha=0.10)
+            T['l1_lain'] = dict(
+                xgb=dict(INF.banding(mase_u['XGBoost'], xl1, 'XGBoost, absolute loss'), mase=float(xl1.mean())),
+                median_lin=dict(INF.banding(rid, mdl, 'Linear median regression vs ridge'), mase=float(mdl.mean())),
+                l1_vs_median_lin=INF.banding(mdl, l1, 'LightGBM, absolute loss vs linear median regression'),
+                xgb_vs_ridge=INF.banding(rid, xl1, 'XGBoost, absolute loss vs ridge'))
+        T['l1'] = dict(
+            mase=float(l1.mean()), mase_huber=float(hb.mean()),
+            vs_ridge=INF.banding(rid, l1, 'LightGBM, absolute loss vs ridge'),
+            vs_median=INF.banding(med14, l1, 'LightGBM, absolute loss vs median of all methods'),
+            median_dengan_l1=dict(INF.banding(med14, med_l1, 'median with absolute-loss LightGBM'), mase=float(med_l1.mean())),
+            seri_lebih_baik_dari_ridge=int((l1.groupby(level='leaf').mean() < rid.groupby(level='leaf').mean()).sum()),
+            per_seri={l: float(100 * (l1.xs(l, level='leaf').mean() / plm.loc[l, 'LightGBM'] - 1)) for l in plm.index},
+            dm_vs_ridge=_dm, mcs=dict(tersisa=_t1, p=_p1),
+            kuartal={q: dict(ridge=float(_qr[q]), l1=float(_ql[q])) for q in _qr.index})
 
 # versi pustaka: jalan v2 di VPS, dan lingkungan lokal tempat Ridge dan SHAP v2 dihitung ulang
 T['versi'] = json.load(open(H + 'versi.json')) if os.path.exists(H + 'versi.json') else {}
