@@ -364,15 +364,6 @@ function build() {
 
   /* ---------------------------------------------------------- 1. Intro */
   c.push(H1('1. Introduction'));
-  // Epigraf atas permintaan penulis: pertanyaan pembuka Turing (1950), versi pendek.
-  c.push(new Paragraph({
-    spacing: { after: 40 }, alignment: AlignmentType.RIGHT, indent: { left: 3600 },
-    children: [new TextRun({ text: '“Can machines think?”', italics: true, size: 20, color: MUTED })],
-  }));
-  c.push(new Paragraph({
-    spacing: { after: 220 }, alignment: AlignmentType.RIGHT,
-    children: [new TextRun({ text: 'Alan M. Turing (1950)', size: 18, color: MUTED })],
-  }));
   c.push(P('A central bank that watches the foreign-exchange market needs a forward view of supply and demand. ' +
     'The net total is useful but not enough. Two days can share the same net total and be nothing alike. On ' +
     'one, exporters sell and importers buy in equal measure. On the other, non-residents pull money out while ' +
@@ -2144,7 +2135,6 @@ function refs() {
     'Syntetos, A. A. and Boylan, J. E. (2005). The accuracy of intermittent demand estimates. *International Journal of Forecasting*, 21(2), 303–314.',
     'Tashman, L. J. (2000). Out-of-sample tests of forecasting accuracy: an analysis and review. *International Journal of Forecasting*, 16(4), 437–450.',
     'Taylor, S. J. and Letham, B. (2018). Forecasting at scale. *The American Statistician*, 72(1), 37–45.',
-    'Turing, A. M. (1950). Computing machinery and intelligence. *Mind*, 59(236), 433–460.',
     'Wickramasuriya, S. L., Athanasopoulos, G. and Hyndman, R. J. (2019). Optimal forecast reconciliation for hierarchical and grouped time series through trace minimization. *Journal of the American Statistical Association*, 114(526), 804–819.',
     'Wilcoxon, F. (1945). Individual comparisons by ranking methods. *Biometrics Bulletin*, 1(6), 80–83.',
 ];
