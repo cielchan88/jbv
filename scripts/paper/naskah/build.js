@@ -1332,45 +1332,47 @@ function lossTeks() {
   c.push(P('The learners above minimise squared error, which targets the conditional mean, while MASE scores ' +
     'absolute error, which the conditional median minimises. For flows that are skewed and punctuated by ' +
     'large settlements the two can differ a good deal. We therefore re-trained LightGBM on absolute loss and ' +
-    'on Huber loss, with the same features and configuration, and to see whether any gain belongs to the ' +
-    'trees or to the loss, also re-trained XGBoost on absolute loss and replaced ridge regression by its ' +
-    'absolute-loss counterpart, a linear median regression on the same 25 features with the same guards. ' +
-    'These variants were added after the main results had been seen, and Table 5c reports them against ' +
-    'ridge regression, the leader of Table 5.'));
+    'on Huber loss, and XGBoost on absolute loss, with the same features and configurations. To see whether ' +
+    'any gain belongs to the trees or to the loss, we also replaced ridge regression by its absolute-loss ' +
+    'counterpart, a linear median regression on the same 25 features with the same guards. These variants ' +
+    'were added after the main results had been seen. Table 5c reports them against ridge regression, the ' +
+    'leader of Table 5.'));
   const baris = [['Ridge regression (Table 5)', n(rid.mase, 3), 'reference', '—']];
   const tambah = (lab, r, m) => baris.push([lab, n(m, 3), ciTeks(r), pv(r.p)]);
+  if (LL) tambah('XGBoost, absolute loss', LL.xgb_vs_ridge, LL.xgb.mase);
   tambah('LightGBM, absolute loss', L.vs_ridge, L.mase);
-  if (LL) {
-    tambah('XGBoost, absolute loss', LL.xgb_vs_ridge, LL.xgb.mase);
-    tambah('Linear median regression', LL.median_lin, LL.median_lin.mase);
-  }
+  if (LL) tambah('Linear median regression', LL.median_lin, LL.median_lin.mase);
   c.push(TCAP('5c', 'Methods trained on absolute loss, against ridge regression. A negative change means the ' +
     'method is more accurate than ridge regression. The interval is a 95 per cent block-bootstrap interval and ' +
-    'p is the paired Wilcoxon p-value.'));
+    'p is the paired Wilcoxon p-value.' +
+    (LL ? ` The linear median regression needed a very small L1 penalty to converge at ${LL.n_cadangan} of the ${fmtN(T2.n_leaf * T2.nroll)} origins.` : '')));
   c.push(TBL([4200, 1300, 2300, 1560], ['Method', 'Mean MASE', 'Change [95% CI]', 'p'], baris, { rightFrom: 1, accRows: [0] }));
   const LV = T2.loss_varian;
-  c.push(P(`On absolute loss LightGBM improves on its squared-error version by ${ciTeks(LV[0])}, and on Huber ` +
-    `loss by ${ciTeks(LV[1])}. Its mean MASE of ${n(L.mase, 3)} is the lowest of any method in the study, ` +
-    `${n(-L.vs_ridge.delta, 1)} per cent below ridge regression (${ciTeks(L.vs_ridge)}) and ` +
-    `${n(-L.vs_median.delta, 1)} per cent below the median of all methods, although the interval against the ` +
-    `median, ${ciTeks(L.vs_median)}, includes zero. When the two LightGBM variants are added to the model ` +
-    `confidence set, it retains ${L.mcs.tersisa.length === 2 ? 'only these two' : daftarN(L.mcs.tersisa)} and ` +
-    `excludes all other methods with p-values of ${n(Math.max(...Object.entries(L.mcs.p).filter(([m]) => !L.mcs.tersisa.includes(m)).map(([, v]) => v)), 3)} or less. ` +
+  c.push(P('Every method improves when it is trained on absolute loss. Against its squared-error version, ' +
+    `LightGBM changes by ${ciTeks(LV[0])} on absolute loss and by ${ciTeks(LV[1])} on Huber loss` +
+    (LL ? `, XGBoost by ${ciTeks(LL.xgb)}, and the linear model by ${ciTeks(LL.median_lin)} against ridge regression. ` : '. ') +
     (LL
-      ? `XGBoost on absolute loss changes its error by ${ciTeks(LL.xgb)} against its squared-error version, ` +
-        `and the linear median regression changes error by ${ciTeks(LL.median_lin)} against ridge regression, ` +
-        'so ' + (LL.median_lin.beda && LL.median_lin.delta < 0
-          ? 'the loss helps the linear model too. '
-          : 'the loss alone does not make a linear model better. ') +
-        `Absolute-loss LightGBM against the linear median regression gives ${ciTeks(LL.l1_vs_median_lin)}. `
-      : '')));
-  c.push(P(`The advantage is broad over time but concentrated across series. Absolute-loss LightGBM is ahead of ` +
-    `ridge regression in ${kata(nKw)} of the ${kata(kw.length)} quarters and on ${L.seri_lebih_baik_dari_ridge} ` +
-    `of the ${T2.n_leaf} series, but against squared-error LightGBM its largest gains are on ${per[0][0]} ` +
+      ? `XGBoost on absolute loss has the lowest mean MASE in the study, ${n(LL.xgb.mase, 3)}, ` +
+        `${n(-LL.xgb_vs_ridge.delta, 1)} per cent below ridge regression and ${n(-LL.xgb_vs_median.delta, 1)} per ` +
+        `cent below the median of all methods (${ciTeks(LL.xgb_vs_median)}), and LightGBM on absolute loss follows ` +
+        `at ${n(L.mase, 3)}. When the four absolute-loss methods are added to the model confidence set, it ` +
+        `retains ${daftarN(LL.mcs.tersisa.map(m => m.replace(/ \((absolute|Huber) loss\)/, ' on $1 loss').replace('Linear median', 'the linear median')))} and ` +
+        `excludes every squared-error method with p-values of ${n(Math.max(...Object.entries(LL.mcs.p).filter(([m]) => !LL.mcs.tersisa.includes(m)).map(([, v]) => v)), 3)} or less. `
+      : `Its mean MASE of ${n(L.mase, 3)} is ${n(-L.vs_ridge.delta, 1)} per cent below ridge regression. `)));
+  if (LL) c.push(P('Most of the gain therefore comes from the loss rather than from the trees. Against the linear ' +
+    `median regression, XGBoost on absolute loss changes mean MASE by ${ciTeks(LL.xgb_vs_median_lin)} and LightGBM ` +
+    `on absolute loss by ${ciTeks(LL.l1_vs_median_lin)}, but the paired rank tests give p = ` +
+    `${n(LL.xgb_vs_median_lin.p, 2)} and ${n(LL.l1_vs_median_lin.p, 2)}, so the trees’ edge lies in the mean, ` +
+    'not on a typical day. Trained on the ' +
+    'right loss, the trees keep a small advantage over a linear model on the same features, about one to two ' +
+    'per cent, that they do not have under squared loss.'));
+  c.push(P(`Across series the gain is uneven. LightGBM on absolute loss is ahead of ridge regression in ` +
+    `${kata(nKw)} of the ${kata(kw.length)} quarters and on ${L.seri_lebih_baik_dari_ridge} of the ` +
+    `${T2.n_leaf} series, but against squared-error LightGBM its largest gains are on ${per[0][0]} ` +
     `(${pct(per[0][1], 0)}) and ${per[1][0]} (${pct(per[1][1], 0)}), and series-by-series Diebold-Mariano tests ` +
-    `find it better than ridge regression on ${L.dm_vs_ridge.l1_lebih_baik ? `${L.dm_vs_ridge.l1_lebih_baik} series` : 'no series'} and worse on ` +
-    `${L.dm_vs_ridge.ridge_lebih_baik}. The pooled lead is therefore real but rests on a few series where ` +
-    'squared loss is badly suited, and on most series the two methods cannot be told apart.'));
+    `find it better than ridge regression on ${L.dm_vs_ridge.l1_lebih_baik ? `${L.dm_vs_ridge.l1_lebih_baik} series` : 'no series'} ` +
+    `and worse on ${L.dm_vs_ridge.ridge_lebih_baik}. The pooled lead is real, but it rests on a few series where ` +
+    'squared loss is badly suited, and on most series the methods cannot be told apart.'));
   return c;
 }
 
@@ -1618,7 +1620,7 @@ function sisaV2(acuanK) {
       ['Best single method on validation, per series', n(ps.mase, 3), '—', ciTeks(ps.banding), '—', '—', putusan(ps.banding)]],
     { rightFrom: 1 }));
   const med = K2.find(e => e.label.startsWith('Median'));
-  c.push(P(`The median of all ${T2.n_metode} methods is the only forecast that beats the leader clearly, by ` +
+  c.push(P(`Among the forecasts of the design as planned, the median of all ${T2.n_metode} methods is the only one that beats the leader clearly, by ` +
     `${n(-med.delta, 1)} per cent (${ciTeks(med)}, Holm ${pv(med.p_holm)}), and it is better on ` +
     `${med.seri_lebih_baik} of the ${T2.n_leaf} series. The median ignores the weak methods without having to ` +
     'identify them, which the mean cannot do. The other combinations are equivalent to the leader or ' +
@@ -1664,7 +1666,9 @@ function sisaV2(acuanK) {
     const LV = T2.loss_varian;
     c.push(P('The training loss, tested in Section 4.1, is a component of a different order. Re-training ' +
       `LightGBM on absolute loss changes its error by ${ciTeks(LV[0])}, and on Huber loss by ${ciTeks(LV[1])} ` +
-      `(Holm ${daftarN(LV.map(r => pv(r.p_holm)))}), more than any other component in Table 7. All other ` +
+      `(Holm ${daftarN(LV.map(r => pv(r.p_holm)))})` +
+      (T2.l1_lain ? `, and XGBoost on absolute loss by ${ciTeks(T2.l1_lain.xgb)}` : '') +
+      ', more than any other component in Table 7. All other ' +
       'arms of this study use squared error, so their effects are measured for that loss.'));
   }
   c.push(IMG('fig_komponen_v2.png', 560, 204));
@@ -1845,10 +1849,12 @@ function diskusiV2() {
     `features, nor ARIMA, ETS or Theta, and the median of all methods beats them all. Over ${NR2()} days these ` +
     `methods lie within ${n(rentangMcs(), 1)} per cent of the best, and a model confidence set cannot separate ` +
     `${kata(mcs.length)} of them. ` +
-    (L1 ? `Trained on absolute loss, the loss that matches the metric, LightGBM becomes the most accurate method, ` +
-      `${n(-L1.vs_ridge.delta, 1)} per cent ahead of ridge regression and the only learner left in the model ` +
-      'confidence set together with its Huber-loss version. The answer to the question in the title therefore ' +
-      'depends less on the model class than on whether the learner is trained on the loss it is judged by. ' : '') +
+    (LL ? 'Trained on absolute loss, the loss that matches the metric, every method improves, the tree ' +
+      `ensembles become the most accurate methods, XGBoost ${n(-LL.xgb_vs_ridge.delta, 1)} per cent ahead of ridge ` +
+      'regression, and the model confidence set keeps only the absolute-loss methods. A linear median ' +
+      'regression gains too, and the trees lead it by one to two per cent in the mean but not on a typical ' +
+      'day. The answer to the question in the title therefore depends less on the model class than on whether ' +
+      'the model is trained on the loss it is judged by. ' : '') +
     (fiturMembantu
       ? `Under squared loss what the pipeline contributes is its engineered features, which are worth ${n(lag.delta, 1)} per cent ` +
         'to a linear model over its own lags alone, not the nonlinearity of its learners.'
@@ -1864,11 +1870,12 @@ function diskusiV2() {
     `is largest on ${Object.entries(L1.per_seri).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([l]) => `${l}, zero on ${n(T2.nol_uji[l], 0)} per cent of the test days`).join(', and ')}. ` +
     (LL
       ? (linL1
-        ? 'The linear median regression gains too, so part of the effect is the loss itself, but '
-        : 'The linear median regression does not gain, so ') +
-        'the combination of trees and absolute loss is what leads. A tree fitted to absolute error can return ' +
-        'the median of a leaf, which a linear model with one slope per feature cannot mimic when the median ' +
-        'jumps between zero and a typical settlement. '
+        ? 'Because the linear median regression gains as well, most of the effect is the loss itself. What the ' +
+          'trees add on top is small, plausibly because a tree fitted to absolute error returns the median of ' +
+          'each leaf, which can jump between zero and a typical settlement in a way that one slope per feature ' +
+          'cannot. '
+        : 'The linear median regression does not gain, so the combination of trees and absolute loss is what ' +
+          'leads. ')
       : '') +
     'The lesson echoes the M5 competition, where the leading LightGBM models were trained on a loss chosen ' +
     'for the shape of the data, the Tweedie loss for intermittent sales, rather than on squared error ' +
@@ -1909,7 +1916,7 @@ function diskusiV2() {
     '**Train on the loss the forecasts are judged by.** For skewed, often-zero flows scored by absolute error, absolute-loss training was the largest single improvement in this study, and it costs nothing.',
     `**Run statistical benchmarks and a linear model on the same features alongside any tree ensemble.** Here ${daftarN(mcs.filter(m => !L2.includes(m)).map(nmL))} remain in the set of methods that cannot be told apart from the best.`,
     '**Re-fit daily.** It is cheap and, besides the loss, the one pipeline choice with a clear, consistent effect.',
-    `**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast of the design as planned, statistically level with absolute-loss LightGBM, and needs no choice of weights${uvs.beda && uvs.delta > 0 ? ', while a median of the univariate methods alone was less accurate' : ''}.`,
+    `**Combine with a median, and include the feature-based models in it.** The median of all methods was the most accurate forecast of the design as planned and needs no choice of weights${uvs.beda && uvs.delta > 0 ? ', while a median of the univariate methods alone was less accurate' : ''}.`,
     '**Enter market data as changes, not levels, or not at all.** Levels act as a proxy for time and do harm.',
     '**Evaluate over a long block.** A six-week evaluation of the same pipeline reached three conclusions that a year of data reversed.',
   ]));
@@ -1919,9 +1926,10 @@ function diskusiV2() {
     'apart one component at a time. Trained on squared error, the tree ensembles do not beat ridge regression ' +
     `on the same features, nor ARIMA, ETS and Theta, and a 90 per cent model confidence set retains ` +
     `${kata(mcs.length)} methods within ${n(rentangMcs(), 1)} per cent of one another, while the median of all ` +
-    'methods beats every one of them. Trained on absolute loss, the loss that matches the metric, LightGBM ' +
-    `becomes the most accurate method, ${n(-T2.l1.vs_ridge.delta, 1)} per cent ahead of ridge regression, ` +
-    'although its lead rests on a few series and was found after the main results. Daily re-fitting also ' +
+    'methods beats every one of them. Trained on absolute loss, the loss that matches the metric, every ' +
+    `method improves, and XGBoost becomes the most accurate, ${n(-T2.l1_lain.xgb_vs_ridge.delta, 1)} per cent ahead ` +
+    'of ridge regression. A linear median regression gains almost as much, so most of the effect is the ' +
+    'loss, and the lead of the trees rests on a few series and was found after the main results. Daily re-fitting also ' +
     'helps, while tuning, feature selection, the feature count and market data as changes are equivalent to ' +
     'their alternatives, and market data as levels harm. Whether machine learning beats simple benchmarks ' +
     'here depends less on the model than on training it for the metric. For a central bank the practical ' +
@@ -1959,16 +1967,18 @@ function abstrakV2() {
       'Trained on squared error, the tree ensembles do not beat ridge regression on the same features, nor ' +
       `ARIMA, ETS and Theta. A 90 per cent model confidence set retains ${kata(mcs.length)} methods within ` +
       `${n(rentangMcs(), 1)} per cent of the best, and the median of all methods beats each of them by at least ` +
-      `${n(-med.delta, 1)} per cent. Re-trained on absolute loss, which matches the metric, LightGBM becomes the ` +
-      `most accurate method, ${n(-T2.l1.vs_ridge.delta, 1)} per cent ahead of ridge regression, with the lead ` +
-      'concentrated on a few series. ' +
+      `${n(-med.delta, 1)} per cent. Re-trained on absolute loss, which matches the metric, every method improves. ` +
+      `XGBoost becomes the most accurate method, ${n(-T2.l1_lain.xgb_vs_ridge.delta, 1)} per cent ahead of ridge ` +
+      'regression, but a linear median regression gains nearly as much, and the trees lead it in the mean ' +
+      'only. ' +
       `Dropping daily re-fitting raises error by ${n(KP['Daily re-fitting'].delta, 1)} per cent. Tuning, feature ` +
       'selection, the number of features and market data as daily changes are each equivalent to their ' +
       `alternatives within ±2 per cent, while market data as levels raise error by ` +
       `${n(PS['Market data as levels'].delta, 1)} per cent.`),
     LEAD('Conclusions',
-      'One day ahead, tree ensembles beat a linear model and strong statistical methods only when they are ' +
-      'trained on the loss they are judged by. That choice, a median combination, daily re-fitting and a long ' +
+      'One day ahead, the training loss matters more than the model class. Tree ensembles beat strong ' +
+      'statistical methods only when trained on the loss they are judged by, and then a linear model trained ' +
+      'on that loss comes close. The loss, a median combination, daily re-fitting and a long ' +
       'evaluation matter more than elaborate pipeline components. The loss variants were added after the main ' +
       'results, and the evidence covers one year, so replication is left for future work.'),
   ];

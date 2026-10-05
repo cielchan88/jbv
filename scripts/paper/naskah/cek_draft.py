@@ -80,8 +80,8 @@ if T2.get('topdown'):
 cek('v2 jumlah unit', f"{T2['n_leaf'] * T2['nroll']:,}")
 if T2.get('l1'):
     cek('v2 L1 MASE', f"{T2['l1']['mase']:.3f}")
-    cek('v2 L1 vs ridge', f"{-T2['l1']['vs_ridge']['delta']:.1f} per cent ahead of ridge")
-    cek('v2 L1 vs median', f"{-T2['l1']['vs_median']['delta']:.1f} per cent below the median")
+    cek('v2 XGB L1 MASE', f"{T2['l1_lain']['xgb']['mase']:.3f}")
+    cek('v2 XGB L1 vs ridge', f"{-T2['l1_lain']['xgb_vs_ridge']['delta']:.1f} per cent ahead of ridge")
     cek('v2 loss L1', f"{T2['loss_varian'][0]['delta']:.1f}%".replace('-', '-'))
 cek('kandidat internal', str(T['pool_internal']))
 cek('jumlah leaf', str(T['n_leaf']))

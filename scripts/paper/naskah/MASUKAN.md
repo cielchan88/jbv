@@ -350,3 +350,24 @@ dalam +-2%; pasar sebagai level +4,3%; latih sejak 2022 saja +3,2%; median
 semua metode -1,7% terhadap yang terbaik; pemilihan per seri di validasi tidak
 membantu. Tiga kesimpulan desain 30 origin berbalik (keunggulan LightGBM,
 refit setara, kombinasi tidak membantu).
+
+---
+
+## Review 7 ditindaklanjuti
+
+- Replikasi tahun kedua: tidak dijalankan (keputusan penulis), ditulis sebagai
+  keterbatasan dan agenda lanjutan. Opsi `vps.py --geser 250` tetap tersedia.
+- Lengan tambahan dihitung lokal (`tambahan_v2.py`, `tambahan_l1.py`):
+  varian Ridge (lag saja +1,6%, kalender dummy dan 116 fitur setara), loss
+  LightGBM (L1 -4,0%, Huber -3,5%), XGBoost L1 (-4,6%), regresi median linear
+  (-1,7% terhadap Ridge; penalti kecil di 49 dari 3.750 origin agar konvergen).
+- Temuan utama baru (keputusan penulis: jadikan temuan utama): dengan loss
+  absolut XGBoost memimpin (MASE 1,260; -3,4% terhadap Ridge), LightGBM 1,267.
+  MCS 90% hanya menyisakan metode loss absolut. Regresi median linear hampir
+  sama baiknya; pohon unggul 1-2% di rata-rata tetapi tidak di hari tipikal
+  (Wilcoxon p 0,28 dan 0,35). Pesan: loss lebih menentukan daripada kelas model.
+  Diungkap terbuka sebagai uji pasca-hasil; RF dan semua lengan ablasi masih L2.
+- SHAP lengan level, Tabel 2 dan Gambar 1 sejak laporan pertama, sitasi
+  (Politis & Romano 1992, Hyndman dkk.), Lampiran E/F/H, median metode berbeda,
+  B.2 per seri, jendela 2022 per seri.
+- Epigraf Turing dan kode "on request" dipertahankan (keputusan penulis).

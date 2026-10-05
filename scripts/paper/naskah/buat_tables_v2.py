@@ -372,7 +372,7 @@ if _tb:
         l1 = tb.xs(('LightGBM', 'loss_l1'), level=['metode', 'lengan']).reindex(rid.index)
         hb = tb.xs(('LightGBM', 'loss_huber'), level=['metode', 'lengan']).reindex(rid.index)
         _P1 = P.copy()
-        _P1['LightGBM'] = TB[(TB.lengan == 'loss_l1')].set_index(['leaf', 'origin']).pred.reindex(_P1.index)
+        _P1['LightGBM'] = TB[(TB.lengan == 'loss_l1') & (TB.metode == 'LightGBM')].set_index(['leaf', 'origin']).pred.reindex(_P1.index)
         med14 = ms(P.median(1))
         med_l1 = ms(_P1.median(1))
         _h = harian.copy()
@@ -399,7 +399,12 @@ if _tb:
                 xgb=dict(INF.banding(mase_u['XGBoost'], xl1, 'XGBoost, absolute loss'), mase=float(xl1.mean())),
                 median_lin=dict(INF.banding(rid, mdl, 'Linear median regression vs ridge'), mase=float(mdl.mean())),
                 l1_vs_median_lin=INF.banding(mdl, l1, 'LightGBM, absolute loss vs linear median regression'),
-                xgb_vs_ridge=INF.banding(rid, xl1, 'XGBoost, absolute loss vs ridge'))
+                xgb_vs_ridge=INF.banding(rid, xl1, 'XGBoost, absolute loss vs ridge'),
+                xgb_vs_median=INF.banding(med14, xl1, 'XGBoost, absolute loss vs median of all methods'),
+                xgb_vs_median_lin=INF.banding(mdl, xl1, 'XGBoost, absolute loss vs linear median regression'),
+                median_lin_vs_median=INF.banding(med14, mdl, 'linear median regression vs median of all methods'),
+                mcs=dict(tersisa=_t1, p=_p1),
+                n_cadangan=49)
         T['l1'] = dict(
             mase=float(l1.mean()), mase_huber=float(hb.mean()),
             vs_ridge=INF.banding(rid, l1, 'LightGBM, absolute loss vs ridge'),
