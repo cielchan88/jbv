@@ -432,7 +432,8 @@ def block_bootstrap(a, b, dates, B=2000, block=5, seed=0):
 def compare(a, b, dates, margin=2.0):
     delta, ci95, ci90 = block_bootstrap(a, b, dates)
     p = stats.wilcoxon(a, b).pvalue
-    verdict = 'equivalent' if -margin < ci90[0] and ci90[1] < margin else ('different' if p < 0.05 else 'inconclusive')
+    # Equivalent: the 90% interval lies within +-margin (TOST). Different: the 95% interval excludes zero.
+    verdict = 'equivalent' if -margin < ci90[0] and ci90[1] < margin else ('different' if ci95[0] > 0 or ci95[1] < 0 else 'inconclusive')
     return dict(delta=delta, lo95=ci95[0], hi95=ci95[1], p=p, verdict=verdict)
 
 
@@ -523,19 +524,23 @@ def main():
 
     # Units are series x date. Learner arms are pooled by averaging the three learners per unit.
     U = R.pivot_table(index=['series', 'date'], columns=['method', 'arm'], values='mase')
-    main = U.xs('main', level='arm', axis=1).dropna(axis=1)
+    # Table 5 ranks the single methods as designed; the median regression belongs to Table 5c.
+    main = U.xs('main', level='arm', axis=1).dropna(axis=1).drop(columns='MedianRegression')
     pred = R[R.arm == 'main'].pivot_table(index=['series', 'date'], columns='method', values='pred')[main.columns]
     act = R[R.arm == 'main'].groupby(['series', 'date']).actual.first()
     scale = pd.Series({c: Series(c, flows.date, flows[c].values, None, nroll, nval).scale for c in main.index.levels[0]})
-    main['Median of all methods'] = (pred.median(1) - act).abs() / scale.reindex(act.index.get_level_values(0)).values
+    med = (pred.median(1) - act).abs() / scale.reindex(act.index.get_level_values(0)).values
     rank = main.mean().sort_values(); lead = rank.index[0]; dts = main.index.get_level_values('date')
     print('\nMean MASE (Table 5):\n', rank.round(3).to_string())
     res = [dict(method=m, **compare(main[lead].values, main[m].values, dts)) for m in rank.index[1:]]
     for r, ph in zip(res, holm([r['p'] for r in res])):
         r['p_holm'] = ph
     print(f'\nAgainst the leader ({lead}):\n', pd.DataFrame(res).round(4).to_string(index=False))
-    kept, p = mcs(main.drop(columns='Median of all methods').groupby(level='date').mean())
+    kept, p = mcs(main.groupby(level='date').mean())
     print('\n90% model confidence set:', kept)
+    r = compare(main[lead].values, med.values, dts)
+    print(f"Median of all {main.shape[1]} methods vs {lead} (Table 6): MASE {med.mean():.3f}, {r['delta']:+.1f}% "
+          f"[{r['lo95']:.1f}, {r['hi95']:.1f}], {r['verdict']}")
     for m in [c for c in rank.index if c != lead][:3]:
         nsig = sum(dm_hln(main[lead].xs(s).values, main[m].xs(s).values)[1] < 0.05 for s in main.index.levels[0])
         print(f'DM-HLN {lead} vs {m}: significant on {nsig} series')
