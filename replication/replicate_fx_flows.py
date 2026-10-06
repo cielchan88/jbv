@@ -302,7 +302,99 @@ def forecast_series(S, quick=False, with_prophet=False):
     bench = ['Naive', 'NaiveDrift', 'NaiveMean', 'SeasonalNaive', 'Croston', 'ARIMA', 'ETS', 'Theta']
     for b in bench + (['Prophet'] if with_prophet else []):
         out[b, 'main'] = S.run_benchmark(b, test)
-    return out, S.y[test], S.d[test], S.scale
+    return out, S.y[test], S.d[test], S.scale, tuned
+
+
+# ----------------------------------------------------------------------------- SHAP (Section 4.6, Appendix B)
+FAMILIES = [('Market', lambda c: c.startswith('ext_')), ('Interaction', lambda c: '_x_' in c),
+            ('Lag', lambda c: c.startswith('lag_')), ('Rolling statistics', lambda c: c.startswith('rolling_')),
+            ('Exponentially weighted mean', lambda c: c.startswith('ewm_')),
+            ('Difference and percentage change', lambda c: c.startswith('value_')),
+            ('Volatility and range', lambda c: any(s in c for s in ('volatil', 'price_position', 'max_change', 'min_change', 'change_range'))),
+            ('Extreme value and jump', lambda c: any(s in c for s in ('z_score', 'is_extreme', 'jump'))),
+            ('Technical indicator', lambda c: c.startswith(('rsi', 'bb_', 'macd'))),
+            ('Calendar and Fourier', lambda c: True)]
+family = lambda c: next(n for n, f in FAMILIES if f(c))
+
+
+def label(c):
+    """Readable feature names for the beeswarm."""
+    if '_x_' in c:
+        a, b = c.split('_x_', 1); return f'{label(a)} x {b.replace("_", " ")}'
+    if c.startswith('ext_'):
+        v, _, L = c[4:].partition('_lag_')
+        if L:
+            return f'{v.replace("_", " ")}, lag {L}'
+        v, _, w = c[4:].rpartition('_rolling_mean_'); return f'{v.replace("_", " ")}, {w}d mean'
+    if c.startswith('lag_'):          return f'Own lag {c[4:]}'
+    if c.startswith('rolling_mean_'): return f'Own mean, {c.split("_")[-1]}d'
+    if c.startswith('ewm_'):          return f'Own EWM, span {c.split("_")[-1]}'
+    return c.replace('_', ' ')
+
+
+def beeswarm(cols, Xs, sv, title, path, n=14):
+    """One dot per training day and feature, placed by its SHAP value and coloured by the rank
+    of the feature value (blue low, red high). Market variables are labelled in orange."""
+    import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
+    order = np.argsort(-np.abs(sv).mean(0))[:n]
+    fig, ax = plt.subplots(figsize=(7.0, 3.8))
+    for row, i in enumerate(order):
+        xv = Xs.iloc[:, i].values.astype(float)
+        rank = np.argsort(np.argsort(xv)) / max(1, len(xv) - 1)
+        jitter = (np.random.RandomState(row).rand(len(xv)) - .5) * .34
+        ax.scatter(sv[:, i], len(order) - row + jitter, c=rank, cmap='coolwarm', s=5, alpha=.7, linewidths=0)
+    ax.set_yticks([len(order) - r for r in range(len(order))])
+    ax.set_yticklabels([label(cols[i]) for i in order], fontsize=7.4)
+    for r, i in enumerate(order):
+        if cols[i].startswith('ext_'):
+            ax.get_yticklabels()[r].set_color('#c4713d')
+    ax.axvline(0, color='#888', lw=.7); ax.grid(axis='x', color='#d8d8d8', lw=.6); ax.set_axisbelow(True)
+    ax.set_xlabel('SHAP value (effect on the forecast, millions of USD)'); ax.set_title(title, fontsize=9, loc='left')
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
+def shap_series(S, tuned, outdir='beeswarm'):
+    """SHAP on the final models: random forest (first seed) and LightGBM with their tuned
+    configurations, fitted on the whole sample from the first report with mRMR k = 25, and
+    explained on the last 300 training days. Done for each feature pool (no market data,
+    market data as changes, as levels). Returns {pool: {learner: {family: share in %}}}."""
+    import shap
+    res, N = {}, len(S.y)
+    for fk in S.F:
+        cols = S.select(fk, N, K)
+        X = S.F[fk][cols]; Xs = X.iloc[-300:]
+        res[fk] = {'n_market': int(sum(c.startswith('ext_') for c in cols))}
+        for name in ('RandomForest', 'LightGBM'):
+            m = learner(name, tuned[name], RF_SEEDS[0] if name == 'RandomForest' else 42).fit(X.values, S.y)
+            sv = np.asarray(shap.TreeExplainer(m).shap_values(Xs, check_additivity=False))
+            imp = np.abs(sv).mean(0); tot = imp.sum() + 1e-12; fam = {}
+            for i, c in enumerate(cols):
+                fam[family(c)] = fam.get(family(c), 0.0) + 100 * imp[i] / tot
+            res[fk][name] = fam
+            # Appendix B draws the random forest with market data as changes (or without market data).
+            if name == 'RandomForest' and fk == ('changes' if 'changes' in S.F else 'none'):
+                n_ext = res[fk]['n_market']
+                beeswarm(cols, Xs, sv, f'{S.name}: {n_ext} market features of {K}, '
+                         f'{fam.get("Market", 0):.1f}% of total |SHAP|', os.path.join(outdir, f'{S.name}.png'))
+    return res
+
+
+def shap_summary(SH, effect=None, group_of=lambda s: s[0]):
+    """Figure 9 and the RQ4 contrast: mean family shares, market share by counterparty group,
+    agreement of the two learners, and whether the market share predicts the market-data gain."""
+    for fk in next(iter(SH.values())):
+        print(f'\nSHAP family shares (%), pool "{fk}", mean over series:')
+        tab = {nm: pd.DataFrame({s: v[fk][nm] for s, v in SH.items()}).fillna(0).mean(1) for nm in ('RandomForest', 'LightGBM')}
+        print(pd.DataFrame(tab).sort_values('RandomForest', ascending=False).round(1).to_string())
+        mk = pd.DataFrame({s: {nm: v[fk][nm].get('Market', 0.0) for nm in ('RandomForest', 'LightGBM')} for s, v in SH.items()}).T
+        if mk.values.sum() > 0:
+            print('Market share by group (%):\n', mk.groupby(mk.index.map(group_of)).mean().round(1).to_string())
+            r, p = stats.spearmanr(mk.RandomForest, mk.LightGBM)
+            print(f'Rank correlation of market shares, random forest vs LightGBM: {r:.2f} (p = {p:.3f})')
+            if effect is not None and fk == 'changes':
+                r, p = stats.spearmanr(mk.RandomForest.reindex(effect.index), effect.values)
+                print(f'Market share vs gain from market data as changes: {r:.2f} (p = {p:.2f})')
 
 
 # ----------------------------------------------------------------------------- inference
@@ -373,20 +465,37 @@ def demo_data(n=1600, n_series=3, seed=0):
     return pd.DataFrame({'date': d, **cols})
 
 
+def demo_market(dates, seed=1):
+    """Synthetic market data in the layout of market.csv: random-walk prices and an equity flow."""
+    rng, n = np.random.default_rng(seed), len(dates)
+    walk = lambda s0, sd: s0 * np.exp(np.cumsum(rng.normal(0, sd, n)))
+    spot, ndf = walk(14000, .004), walk(14050, .005)
+    return pd.DataFrame({'date': pd.DatetimeIndex(dates), 'bid_usdidr': spot - 5, 'ask_usdidr': spot + 5,
+                         'bid_ndf1m': ndf - 8, 'ask_ndf1m': ndf + 8, 'yield_sbn_10year': 6.5 + np.cumsum(rng.normal(0, .02, n)),
+                         'dxy': walk(95, .003), 'jci_index': walk(6000, .008), 'flows_nr_eq': rng.normal(0, 50, n)})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--flows'); ap.add_argument('--market')
     ap.add_argument('--demo', action='store_true', help='synthetic data instead of --flows')
     ap.add_argument('--quick', action='store_true', help='30 test and 10 validation origins, main arms only')
     ap.add_argument('--prophet', action='store_true', help='include Prophet (slow)')
+    ap.add_argument('--no-shap', action='store_true', help='skip SHAP and the beeswarm plots')
+    ap.add_argument('--groups', default='', help='counterparty group per series prefix, e.g. "A=Corporate,B=Individual,C=Non-resident"')
     a = ap.parse_args()
     flows = demo_data() if a.demo else pd.read_csv(a.flows, parse_dates=['date'])
     nroll, nval = (30, 10) if a.quick else (NROLL, NVAL)
-    mk = market_frames(pd.read_csv(a.market, parse_dates=['date']), flows.date) if a.market else None
-    rows = []
+    if a.market:
+        mk = market_frames(pd.read_csv(a.market, parse_dates=['date']), flows.date)
+    else:
+        mk = market_frames(demo_market(flows.date), flows.date) if a.demo else None
+    rows, SH = [], {}
     for col in [c for c in flows.columns if c != 'date']:
         S = Series(col, flows.date, flows[col].values, mk, nroll, nval)
-        out, actual, dates, scale = forecast_series(S, a.quick, a.prophet)
+        out, actual, dates, scale, tuned = forecast_series(S, a.quick, a.prophet)
+        if not a.no_shap:
+            SH[col] = shap_series(S, tuned)
         for (m, arm), p in out.items():
             rows += [dict(series=col, date=dd, method=m, arm=arm, pred=pp, actual=aa, mase=abs(aa - pp) / scale)
                      for dd, pp, aa in zip(dates, p, actual)]
@@ -419,6 +528,13 @@ def main():
         for arm in ('k12', 'k40', 'kall', 'market_changes', 'market_levels', 'from_2022'):
             if (('LightGBM', arm) in U.columns):
                 r = compare(pool('k25').values, pool(arm).values, dts); print(f"  {arm:14s} vs k25 {r['delta']:+.1f}% {r['verdict']}")
+    if SH:
+        gmap = dict(g.split('=') for g in a.groups.split(',') if '=' in g)
+        effect = None
+        if ('LightGBM', 'market_changes') in U.columns:
+            effect = (pool('market_changes').groupby(level='series').mean() / pool('k25').groupby(level='series').mean() - 1) * 100
+        shap_summary(SH, effect, lambda s: gmap.get(s[0], s[0]))
+        print('Beeswarm plots written to ./beeswarm/')
     print('\nTraining loss (Section 4.1):')
     for m, arm, ref in (('LightGBM', 'loss_absolute', 'LightGBM'), ('LightGBM', 'loss_huber', 'LightGBM'),
                         ('XGBoost', 'loss_absolute', 'XGBoost'), ('MedianRegression', 'main', 'Ridge')):
