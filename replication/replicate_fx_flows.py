@@ -27,7 +27,8 @@ Design (Sections 3.1-3.5 of the paper)
     designed; absolute and Huber loss as the variants of Section 4.1.
   * Benchmarks: random walk, drift, 90-day mean, seasonal naive (5 days), Croston
     SBA, ARIMA, damped ETS, Theta, Prophet (if installed), ridge regression on the
-    same features with extrapolation guards, and a linear median regression.
+    same features with extrapolation guards, and a linear median regression. Table 5b
+    varies the ridge features: own lags only, calendar as dummies, all 116 candidates.
     The in-house seasonal-decomposition baseline of Table 4 is not included.
   * Ablations: no mRMR (beta = 0), production configuration instead of tuning,
     one fit per 30 origins, k in {12, 40, all}, market data as changes or levels,
@@ -254,10 +255,26 @@ class Series:
             out.append(float(m.predict(self.F[fk][cols].values[t:t + 1])[0]))
         return np.array(out)
 
-    def run_linear(self, origins, median=False):
-        res = []
+    def run_linear(self, origins, median=False, variant='selected'):
+        """Ridge on the 25 selected features (Table 5) or one of the Table 5b variants:
+        'lags'      the series' own 18 lags only, essentially a linear autoregression;
+        'dummies'   the same 25 selected features, with the integer-coded calendar features
+                    (day of week, month, week of year) and their interactions replaced by
+                    day-of-week and month dummies;
+        'all'       all 116 candidates, with the calendar treated as in 'dummies'."""
+        F, res = self.F['none'], []
+        cal = ('day_of_week', 'month', 'week_of_year')
+        no_int_cal = lambda cols: [c for c in cols if c not in cal and not c.endswith(tuple('_x_' + k for k in cal))]
+        D = pd.get_dummies(pd.DataFrame({'dow': self.d.dayofweek, 'mon': self.d.month}).astype(str), drop_first=True).values.astype(float)
         for t in origins:
-            X = self.F['none'][self.select('none', t, K)].values
+            if variant == 'lags':
+                X = F[[c for c in F.columns if c.startswith('lag_') and '_x_' not in c]].values
+            elif variant == 'all':
+                X = np.hstack([F[no_int_cal(F.columns)].values, D])
+            elif variant == 'dummies':
+                X = np.hstack([F[no_int_cal(self.select('none', t, K))].values, D])
+            else:
+                X = F[self.select('none', t, K)].values
             res.append(linear(X[:t], self.y[:t], X[t:t + 1], median))
         return np.array(res)
 
@@ -298,6 +315,8 @@ def forecast_series(S, quick=False, with_prophet=False):
     for name, loss in (('LightGBM', 'absolute'), ('LightGBM', 'huber'), ('XGBoost', 'absolute')):
         out[name, f'loss_{loss}'] = S.run_learner(name, tuned[name], test, loss=loss)
     out['Ridge', 'main'] = S.run_linear(test)
+    for v in ('lags', 'dummies', 'all'):
+        out['Ridge', f'variant_{v}'] = S.run_linear(test, variant=v)
     out['MedianRegression', 'main'] = S.run_linear(test, median=True)
     bench = ['Naive', 'NaiveDrift', 'NaiveMean', 'SeasonalNaive', 'Croston', 'ARIMA', 'ETS', 'Theta']
     for b in bench + (['Prophet'] if with_prophet else []):
@@ -535,6 +554,10 @@ def main():
             effect = (pool('market_changes').groupby(level='series').mean() / pool('k25').groupby(level='series').mean() - 1) * 100
         shap_summary(SH, effect, lambda s: gmap.get(s[0], s[0]))
         print('Beeswarm plots written to ./beeswarm/')
+    print('\nRidge regression with other feature sets (Table 5b), against ridge on the 25 selected features:')
+    vr = [(v, compare(U['Ridge', 'main'].values, U['Ridge', f'variant_{v}'].values, dts)) for v in ('lags', 'dummies', 'all')]
+    for (v, r), ph in zip(vr, holm([r['p'] for _, r in vr])):
+        print(f"  {v:8s} MASE {U['Ridge', f'variant_{v}'].mean():.3f}  {r['delta']:+.1f}% [{r['lo95']:.1f}, {r['hi95']:.1f}]  Holm p {ph:.4f}")
     print('\nTraining loss (Section 4.1):')
     for m, arm, ref in (('LightGBM', 'loss_absolute', 'LightGBM'), ('LightGBM', 'loss_huber', 'LightGBM'),
                         ('XGBoost', 'loss_absolute', 'XGBoost'), ('MedianRegression', 'main', 'Ridge')):
